@@ -1,0 +1,46 @@
+[project]
+name = "gtab"
+version = "0.1.0"
+description = "Band recording -> per-part guitar tabs + bass tab (personal use)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# Light runtime deps only: this package is also installed (editable) into the GPU worker env.
+dependencies = [
+    "numpy>=2.0",
+    "soundfile>=0.12",
+    "filelock>=3.13",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+# Orchestrator / CLI / analysis side (no torch here, ever).
+core = [
+    "scipy>=1.13",
+    "soxr>=0.5",
+    "pyloudnorm>=0.1.1",
+    "typer>=0.12",
+    "rich>=13.7",
+    "nvidia-ml-py>=12.560",
+    "tomli-w>=1.0",
+]
+
+[project.scripts]
+gtab = "gtab.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.2"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gtab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: needs the CUDA worker env and an NVIDIA GPU",
+    "slow: takes more than a few seconds",
+    "network: needs internet access",
+]

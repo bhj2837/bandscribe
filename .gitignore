@@ -1,0 +1,18 @@
+# environments
+.venv/
+envs/*/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# heavy local state (never commit: models have unclear licenses, jobs hold copyrighted audio)
+data/
+tools/python/
+tools/*.exe
+tools/yt-dlp*
+
+# web
+web/node_modules/
+web/dist/
+node/node_modules/
+!tools/yt-dlp.conf

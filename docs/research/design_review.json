@@ -1,0 +1,237 @@
+{
+ "designs": [
+  "gtab, maximum-quality design: one tab per guitar part plus a bass tab, from a YouTube link or a local audio file (local-first on RTX 2060 6 GB)",
+  "gtab: a local-first pipeline that turns a song (local file or YouTube link) into one tab per guitar part plus a bass tab on an RTX 2060 6 GB. Architect angle: local-first, robust, incremental.",
+  "gtab: an evaluation- and correction-driven pipeline that turns a song (local file or YouTube link) into one tab per guitar part plus a bass tab, on Windows 10 with an RTX 2060 6 GB"
+ ],
+ "scores": [
+  {
+   "design": "안1: gtab 최대 품질 설계 (local-first, RTX 2060)",
+   "scores": "탭 품질 9: 뷰 여러 개 × 전사기 투표, 음표별 스테레오 서명, L/R 음표 집합 연산, 정제 루프 등 증거가 가장 두텁다. / 실현성 6: 마일스톤 17개에 venv 5개, 백엔드도 많아 혼자 만들기에 무겁다. / 점진 전달 7: 첫 탭이 M5, 핵심 분리는 M9에야 나와 가치가 늦게 온다. / 정직성·위험 9: 추가 요소마다 비용·이득 장부가 있고, 시나리오별 기대치와 법·라이선스를 분명히 적었다. / 평가 엄밀성 9: 실험 E1–E22, 부트스트랩 CI, tick F1, 데이터 계층, 합성 리믹스까지 갖췄다.",
+   "verdict": "파이프라인 내부의 공급원이다(추가 요소 분류, S7 융합, L/R 연산, S10). 다만 골격과 일정으로 쓰기엔 너무 무겁다."
+  },
+  {
+   "design": "안2: gtab local-first·robust·incremental",
+   "scores": "탭 품질 7: 핵심 경로는 탄탄하지만 투표자가 적고, 판정을 학습하는 부분과 L/R 연산이 없다. / 실현성 9: 이 PC 실측(다른 앱이 VRAM 3.39 GB 점유, 휠·의존성 호환 확인)에 근거했고 설치 함정을 가장 잘 피한다. / 점진 전달 9: 매 마일스톤이 쓸 수 있는 산출물을 낸다(M2 반주, M3 첫 탭). / 정직성·위험 9: 로컬 측정 표기와 시나리오별 한계를 솔직하게 적었다. / 평가 엄밀성 7: 하네스가 M4로 늦다. 참 단독 트랙을 전사해 참조로 쓰는 아이디어는 좋지만 지표 폭은 좁다.",
+   "verdict": "실행 안정성의 공급원이다: VRAM 사전 점검·대기, 오디오를 메모리로 전달, MSST 벤더링, 3-트래커 옥타브 투표, R9 연주 가능성 상한, unison_policy, 반주 조기 제공."
+  },
+  {
+   "design": "안3: gtab 평가·수정 주도",
+   "scores": "탭 품질 8: 안1의 핵심을 대부분 담았고, 수정 로그로 배우는 부분이 실제 쓸 만한 정도를 끌어올린다. / 실현성 8: 마일스톤 13개이고, M8 이후는 게이트를 둔 선택 사항이다. / 점진 전달 8: 측정을 먼저 해서 첫 탭은 M3, UI는 M4다. / 정직성·위험 9: 사람 지표(칠 수 있을 때까지 걸린 편집 분)를 헤드라인으로 삼고, 편향된 정답의 위험을 인지했다. / 평가 엄밀성 10: M1에 하네스, tick F1, 편집 종류를 단계에 귀속, isotonic 보정, 싼 질문 먼저, Karaoke-Version 파트 정답.",
+   "verdict": "통합안의 뼈대다(M0–M12 구조, 결정 규칙, 수정 학습 루프). 파이프라인 내부는 안1로, 실행 안정성은 안2로 보강했다."
+  }
+ ],
+ "merge_decisions": [
+  "골격은 안3을 따른다. 측정을 먼저 하고(M1 하네스), M0–M12로 나누고, 수정 로그로 배운다(M10). 안2의 '매 마일스톤이 쓸 수 있는 산출물' 원칙을 더해 M2에 연습용 반주와 첫 MIDI를 넣었다.",
+  "파이프라인 내부는 안1을 따른다. 추가 요소 분류(기본/조건부/안 함), 뷰 × 전사기 ROVER 융합, 음표별 배음 빗 ILD·coherence 서명, 반복 합의, 안전망, S10 정제 루프(게이트 E18)를 가져왔다. L/R 음표 집합 연산은 새 실험 E22로 등록했다.",
+  "torch 버전 충돌을 정리했다. 안1·안3은 2.11+cu128, 안2는 2.8.0+cu128을 제안했다. 기본은 2.11.0+cu128로 한다. MuScriptor가 문서화한 백엔드이고, cp312 Windows 휠이 있음을 2026-09-25에 확인했다. beat-this나 MSST가 깨지면 2.8.0으로 내린다. 어느 쪽이든 오디오는 soundfile로 읽어 텐서로 넘긴다.",
+  "양자화 격자 충돌을 정리했다. 안2·안3은 박당 12 sub-beat, 안1은 48 tick이었다. 48 tick을 채택하고 E14로 검증한다. 12로는 정박 32분음표를 표현할 수 없기 때문이다.",
+  "베이스 옥타브 앵커는 안1·안3의 PESTO 단독 대신 안2의 3-트래커 투표(torchcrepe fmin 32 + pyin + PESTO)로 바꿨다. PESTO 공개 체크포인트는 노래로 학습했고, torchcrepe fmin=30은 유효 bin이 0개가 되기 때문이다(검증에서 반박된 사항).",
+  "출력 계약은 안1·안3의 R1–R8에 안2의 R9(연주 가능성 상한, 클래스가 다른 층은 병합 금지)와 unison_policy(duplicate/primary_only)를 더했다. 기본 내보내기는 Part 뷰로 하고, Role·Player 뷰와 idle_policy도 제공한다.",
+  "평가 하네스 시점 충돌을 정리했다. 안2는 M4, 안1·안3은 M1이었고, M1로 정했다. 안2의 요령(Tier B는 참 단독 기타 트랙에 같은 전사기를 돌린 결과를 참조로 둔다)과 안3의 Karaoke-Version 파트별 정답원을 더했다.",
+  "VRAM 경합 대응을 안2에서 가져왔다. 시작할 때 mem_get_info로 여유를 재고, 설정 사다리에서 들어가는 칸을 고르고, 안 되면 기다린다. 밤샘 큐와 doctor의 GPU 프로세스 표시도 넣었다. M2 완료 기준에 '평소 앱을 켠 상태'에서도 돌려 보는 시험을 넣었다.",
+  "Songsterr를 수정했다. 세 설계안 모두 검색 API 자동 조회를 제안했지만, robots.txt가 /api/를 막고 있음을 2026-09-25에 직접 확인했다. 자동 조회를 빼고, 검색 페이지 링크와 수동 입력으로 바꿨다.",
+  "MuScriptor 입력을 수정했다. 파일 로더가 .wav를 표준 wave 모듈로 읽는데, 이 모듈은 float32 WAV를 못 읽는다(이 PC에서 'unknown format: 3' 확인). 그래서 경로 대신 (tensor, sr)로 넘긴다. velocity 출력이 없다는 점과, transcribe_and_postprocess가 상수 템포 격자를 쓴다는 점도 코드에서 확인해 반영했다.",
+  "검증에서 틀린 것으로 나온 인용을 고쳤다. CLAP은 LAION이 아니라 Microsoft CLAP(msclap, 단독 음에서만 검증)이다. MUSTER 12→68은 같은 시스템의 비교가 아니라 별개 시스템의 수치다. FCPE를 안 쓰는 이유는 범위가 아니라 보컬 학습이다. thumb/pop 혼동률은 18–39 %다. ytmusicapi counterpart는 문서화된 방향이 노래→영상뿐이라 search(filter='songs')를 1순위로 올렸다. 저작권법 제104조의2 주장은 미검증·법률 자문 아님으로 완화했다.",
+  "yt-dlp는 안2·안3처럼 nightly 채널 exe와 --js-runtimes node로 한다. bgutil 플러그인은 exe용 yt-dlp-plugins 폴더에 넣는다. SponsorBlock은 videoID로 거른다. 쿠키와 PO 토큰은 기본으로 끈다.",
+  "클라우드(MVSEP 101, Music.AI)와 커뮤니티 lead/rhythm 체크포인트는 세 설계안 모두 옵트인 투표자로 두었고, 이를 유지했다(M8, E11/E17). 모노 다운믹스 진단으로 가중을 조정하고, 시나리오별로 CI가 0을 넘을 때만 채택한다.",
+  "분량 문제가 있었다. 이전 실행에서 이어받은 초안(None_design.md, 약 120 KB)을 검증·수정해 final_design.md(약 140 KB)를 만들었다. 이를 구조화 출력에 담기 위해 필수 12개 장, 수치, 근거, 미검증 표시를 모두 유지한 채 final_compact.md(약 91 KB)로 압축했다. 두 파일은 scratchpad에 있다."
+ ],
+ "critique": {
+  "overall": "설계는 사전 조사를 대체로 충실히 반영했다. 다음은 모두 사전 조사와 일치한다.\n- 팬 인덱스가 아니라 coherence로 라우팅한다.\n- S=(L−R)/2를 리드 없는 리듬 기준으로 쓰고, 트윈 리드 창에서는 이 규칙을 끈다.\n- 뷰마다 모노 파일을 따로 만든다.\n- MVSEP 101은 선택 사항이다.\n- MuScriptor 사실관계(하드 마스크, 같은 클래스 병합, large 로더 약 11 GB), torchcrepe fmin≥31.7, cu128이 2.11에서 끝난다는 점.\n\nM0를 막는 기술 결함은 찾지 못했다. torch 2.11.0+cu128과 torchaudio 2.11.0+cu128의 cp312 win_amd64 휠이 download.pytorch.org에 실제로 있다. muscriptor 0.3.0은 numpy>=1.24, torch>=2.0만 요구하고, beat-this는 torchaudio를 선언한다. 이는 PyPI에서 확인했다.\n\n진짜 문제는 네 가지다.\n1. **측정 체계.** 정답을 정렬할 때 평가 대상인 Beat This!를 그대로 쓴다. 곡 수가 작아서 통계력이 없다. 다수 클래스에 지배되는 할당 정확도와 Unassigned를 빼는 방식은 조작이 가능하다. GuitarSet은 Basic Pitch 분할을 재현할 수 없다.\n2. **M1 정답 준비 비용.** 곡당 30분은 비현실적이다. PDF 탭을 다시 입력하면 곡당 몇 시간이 든다. 이 문제가 M1과 그 뒤 전체를 막는다.\n3. **다중 기타 규칙의 오보정.** R1 더블 병합의 F1≥0.8 조건은 전사기 자체 정확도(약 0.71)보다 높아 거의 발동하지 않는다. 유니즌을 \"문제없다\"고 했지만 경로 A의 집합 차 규칙과 모순된다. MuScriptor instruments 편성을 추정하는 단계가 빠져 있다.\n4. **구현 함정.**\n   - Basic Pitch의 기본 최소 음 길이가 127.7 ms라서 빠른 음을 버린다.\n   - VRAM을 max_memory_allocated와 \"OOM 없음\"으로 판정하는데, Sysmem Fallback이 켜져 있으면 이 판정은 무의미하다.\n   - 솔로 게이트 체크포인트는 라이선스 표기가 없다. 백본 MERT는 CC-BY-NC이고, 코드는 Python 3.7/lightning 1.9.5 환경이라 바로 끼워 넣을 수 없다.\n   - MSST '최소 의존성' 목록에 matplotlib 등이 빠졌다.\n   - 단계 사이에 순환 의존이 있다(S2→S3, S4↔S5/S6, S7↔S11).\n   - YouTube 법적 논리가 모순이다. 기본 경로의 JS 챌린지 해결 자체가 독일 판례에서 TPM 우회로 판단됐다.\n\n마일스톤 M7과 M4는 너무 커서 쪼개야 한다.",
+  "issues": [
+   {
+    "severity": "blocker",
+    "passage": "Tier A 내 커버곡 | ... M1에 5곡(A·P·B/F 각 1곡 이상) → M6 전 10곡 ... / ### 8.3 정답 준비 (곡당 30분 이내 목표)",
+    "problem": "M1 완료 조건을 채우려면 A, P, B/F 시나리오마다 기계가 읽을 수 있는 신뢰 탭이 있는 곡이 필요하다. 한국 밴드 커버곡은 공식 GP가 드물다. 악보바다는 PDF로 판다.\n\nPDF에서 기타 2대와 베이스를 TuxGuitar로 옮겨 치면 4분 곡에 음이 수백에서 수천 개다. 여기에 gt.yaml의 Line 지도, 구간 역할, 정렬 승인까지 더하면 곡당 수 시간이 든다. 30분이 아니다.\n\nM2의 E1–E3와 이후 모든 게이트가 Tier A 5곡에 걸려 있다. 그래서 정답을 못 구하면 M1이 끝나지 않고, 프로젝트 전체가 멈춘다.",
+    "fix": "M1을 둘로 나눈다.\n- **M1a:** 하네스, 지표 단위 테스트, 합성 리믹스, Tier B/C만으로 완료할 수 있게 한다.\n- **M1b:** Tier A를 곡 단위로 점진적으로 늘린다.\n\nM2의 E1–E3는 Tier B/C와 GP가 있는 2–3곡으로 결정한다.\n\n정답 비용을 줄인다.\n- 곡 전체가 아니라 구간 2–3개(예: 벌스+코러스+솔로 32마디)만 정답으로 만든다.\n- GP가 이미 있는 곡을 우선한다(공식 GP, Songsterr Plus 수동 다운로드는 약관 범위 안에서).\n- PDF를 다시 입력하는 경우는 곡당 3–8시간으로 예산을 명시한다.\n\n12장 4번 문구를 이 비용에 맞게 고친다."
+   },
+   {
+    "severity": "major",
+    "passage": "3. **정렬:** 1. Beat This! 다운비트를 구한다. 2. 참조 마디 열과 DP로 맞춘다 ... / (M1) 참조 다운비트의 95 % 이상이 ±70 ms 안에 들고 / (M3) downbeat F1(70 ms) 중앙값 0.85 이상 / tick F1: 같은 음높이, 같은 (마디, tick ±1 @48)이면 일치",
+    "problem": "정답의 마디 시각을 평가 대상 컴포넌트인 Beat This!로 만든다. 그래서 M3의 beat/downbeat 지표가 자기 자신과 비교되어 부풀려진다.\n\nM1의 '95 %가 ±70 ms 안'은 무엇과 비교하는지 정의되지 않았다. 독립된 기준이 없으므로 측정할 수 없다.\n\ntick F1은 시스템과 정답이 각자의 마디/tick 좌표에서 비교된다. 격자 오류가 상쇄되거나(같은 Beat This를 쓰는 경우), 반 박 위상 오류 하나로 구간 전체가 0점이 된다. 음표 품질과 격자 품질이 섞이는 셈이다.\n\n±1 tick @48은 120 BPM에서 약 10 ms다. 사실상 양자화 결과가 정확히 같아야 한다는 요구다.",
+    "fix": "정답은 독립적으로 정렬한다.\n1. 참조 GP를 오디오로 렌더한다(alphaTab Audio Export 또는 FluidSynth).\n2. 믹스와 onset 강화 chroma DTW로 맞춘다(synctoolbox, MIT).\n3. UI에서 다운비트를 탭해 사람이 보정한다.\n\nM1 기준은 수동으로 탭한 다운비트와 비교하도록 바꾼다(2곡).\n\n음표 지표는 예측 onset(초)을 **정답의 템포맵**으로 옮겨 정답 격자 위에서 계산한다. 격자와 양자화 오류(다운비트 F1, 마디 수, MUSTER식 onset 오류)는 따로 보고한다."
+   },
+   {
+    "severity": "major",
+    "passage": "Basic Pitch 0.4.0(bp310, ONNX). Python `note_events`를 읽는다. / 게이트: 디스토션 부분집합에서 MuScriptor가 Basic Pitch보다 onset F1이 5점 이상 높지 않으면 주 전사기 선택을 다시 검토한다.",
+    "problem": "basic_pitch/inference.py에 `DEFAULT_MINIMUM_NOTE_LENGTH_MS = 127.7`이 있다. note_creation은 11프레임(86 fps) 이하 음을 버린다. 그러면 117 BPM 이상의 16분음표, 빠른 리드 런, 고스트 노트, 짧은 뮤트 음이 사라진다.\n\n결과는 둘이다.\n- 리드를 판별하고 벤딩을 잴 보조 투표자가 체계적으로 리드 음을 잃는다.\n- M2의 MuScriptor vs Basic Pitch 게이트가 Basic Pitch에 불리하게 편향된다.\n\n논문도 onset 임계값을 검증 세트로 튜닝했다. 기본값은 튜닝값이 아니다.",
+    "fix": "minimum_note_length를 약 30–58 ms로 낮춘다. onset_threshold와 frame_threshold는 dev 세트(Tier C 비학습 세트)에서 튜닝한다. 파라미터는 manifest에 기록한다.\n\nM2 비교는 두 전사기 모두 튜닝한 설정에서 한다.\n\n9.7 테스트에 'Basic Pitch 최소 음 길이가 기본값이 아님'을 고정한다."
+   },
+   {
+    "severity": "major",
+    "passage": "기타 뷰: 기타 3클래스 + 곡에 있는 건반·신스 클래스. 블리드가 기타로 강제되지 않게 하기 위해서다. / 전체 믹스와 nonvox: 전체 편성. / piano/other가 같은 시간·음높이에서 더 강한 음.",
+    "problem": "'곡에 있는' 편성을 정하는 단계가 파이프라인 어디에도 없다. S0–S16에도, 9.5 GPU 순서에도 없다.\n\n`instruments`는 조건화와 동시에 하드 마스크다. 편성을 빠뜨리면 건반이나 신스 음이 기타 클래스로 강제된다. 거꾸로 클린 기타를 빼면 그 기타가 사라진다.\n\nS7의 블리드 감점은 piano/other 스템의 음표가 필요하다. 그런데 S6과 9.5의 GPU 순서에는 이 스템들의 전사가 없다.",
+    "fix": "S3 뒤에 'S3.5 편성 추정'을 넣는다.\n- 입력: 전체 믹스를 조건 없이 돌린 MuScriptor 1패스(클래스별 활성도), SW의 piano/other 스템 에너지, (선택) Mega-53 단일 스템 검출.\n- 출력: 클래스별 존재 확률.\n\n사용자 힌트와 합치고 UI에서 고칠 수 있게 한다. 확률이 높은 클래스만 마스크 목록에 넣는다(E3 기본값).\n\nS6과 GPU 순서에 piano/other 스템 전사를 추가하고, 실행 시간 추정에 약 2패스를 더한다."
+   },
+   {
+    "severity": "major",
+    "passage": "**R1: 더블·쿼드 테이크는 Line 하나다.** ... L측·R측 층이 둘 다 활성인 창의 90 % 이상에서 음표 F1 ≥ 0.8(±50 ms)이고 coherence가 낮으면 병합한다. / 변주 규칙: 마디 음표 F1 < 0.5: 별도 Line. 0.5–0.8: 'variant'.",
+    "problem": "전사기 정확도 자체가 단독 디스토션 기타에서 0.71이다(GOAT). 분리된 스템의 L/R 채널 뷰는 이보다 더 거칠다. 오류가 있는 독립 전사 두 개가 서로 맞는 정도는 0.8보다 훨씬 낮을 가능성이 크다. 실제 더블 테이크는 고스트 노트와 스트럼 세부도 다르다.\n\n그런데 조건이 '창의 90 % 이상'이다. 그래서 가장 흔한 시나리오 A에서 리듬 더블이 Line 2개로 쪼개지고 K가 과대 추정된다. M6의 'A 곡 90 %에서 더블이 Line 하나' 기준과 정면으로 충돌한다.\n\n변주 규칙도 같은 문제다. 전사 잡음만으로 대부분의 마디가 'variant'가 된다.",
+    "fix": "임계값을 절댓값이 아니라 측정된 자기 일치도 기준으로 정한다. 합성 더블을 SW+MuScriptor에 통과시켜, 같은 파트 두 테이크의 L/R 전사 F1 분포를 잰다.\n\n'같은 파트'의 1차 증거는 라우터 R2다(낮은 coherence, 낮은 hard 비율, 낮은 지연 상관). 음표 일치는 거부권으로만 쓴다(예: 구간 chroma-onset F1 < 0.4면 더블이 아님).\n\n판정은 곡 전체 90 %가 아니라 구간 단위로 한다. 변주 임계값도 같은 보정에서 유도한다. 이 보정을 E6/E22에 넣는다."
+   },
+   {
+    "severity": "major",
+    "passage": "| 유니즌·옥타브 리프 | | 분리하지 않고 규칙으로 처리하므로 문제없다 | / A: 리드 = centre 음 중 S에 없는 것(±1반음, ±50 ms) / R3: 유니즌 음은 **두 Line 모두에** 쓰고 `shared`로 표시한다.",
+    "problem": "경로 A에서는 리드가 리듬과 유니즌으로 친 음이 S에 있다. 그래서 집합 차 규칙이 이 음을 리드에서 지운다. R3는 두 Line에 복제하라고 하는데, 리드 Line에는 오히려 쉼표가 생긴다.\n\nB/F(센터·모노)에서는 'Gtr2가 쉼'과 'Gtr2가 유니즌'을 가를 증거가 없다. MuScriptor도 같은 음높이·같은 클래스의 동시 음을 하나로 합친다.\n\n따라서 '문제없다'는 근거 없는 약속이다. 사전 조사의 CRITIC는 '하나의 리듬 탭'을 권했다. R3의 복제 정책과는 다른 선택이다.",
+    "fix": "명시적인 유니즌 판정을 추가한다. S에도 있는 음 중 centre 에너지가 단일 테이크 모델의 예측을 넘으면 shared로 둔다. 기준은 centre/S salience 초과량이다.\n\nB/F에서는 '유니즌 또는 쉼, 판정 불가'를 저신뢰로 표시하고 UI 토글을 준다.\n\n1.3 표는 'A·P 경로에서만 판정 가능, B/F는 사용자 확인'으로 낮춘다.\n\n4.11 평가에 유니즌 구간의 shared 재현율과 정밀도를 따로 둔다."
+   },
+   {
+    "severity": "major",
+    "passage": "SW가 4분 곡을 OOM 없이 처리한다(피크 5.5 GB 이하, 기록). / 결과와 `result.json`(버전, 시간, `torch.cuda.max_memory_allocated`, 경고) / large는 패치 후 피크 5.8 GB 미만.",
+    "problem": "`max_memory_allocated`에 빠지는 것이 셋이다: 캐싱 할당자의 reserved 여분, WDDM의 CUDA 컨텍스트(수백 MB), cuDNN/cuBLAS 워크스페이스. 전체 6.14 GB 카드에서 할당 5.5–5.8 GB는 데스크톱과 다른 앱 점유를 생각하면 실제로 들어가지 않는다.\n\n더 큰 문제는 기본 드라이버 정책(Prefer Sysmem Fallback)이다. 이 정책에서는 할당이 OOM을 내지 않고 시스템 RAM으로 넘친다. 그래서 'OOM 없이'는 항상 참이 된다. 약 10배 느려진 채로 기준을 통과할 수 있다. OOM 예외에 기대는 사다리도 발동하지 않는다.",
+    "fix": "측정값을 바꾼다.\n- `max_memory_reserved`\n- NVML 프로세스별 사용량\n- Windows 성능 카운터 'GPU Adapter Memory\\Shared Usage'. 워커 실행 중 증가하면 실패로 본다.\n\n예산은 '전체 − 다른 프로세스 − 약 0.7 GB 여유'로 잡는다. 목표 피크는 reserved 기준 4.5 GB 이하로 둔다.\n\nM2 사다리 테스트는 Sysmem Fallback을 끈 상태와 켠 상태 둘 다에서 한다. 켠 상태에서는 처리량 기준으로 판정한다.\n\n청크 사다리는 hop 512의 배수로 둔다(예: 352,256, 262,144)."
+   },
+   {
+    "severity": "major",
+    "passage": "할당 정확도: A 85 % 이상, P·D·트윈 75 % 이상, B/F 60 % 이상. ... Unassigned 15 % 이하.",
+    "problem": "음표 가중 정확도는 코드로 음표가 많은 리듬 Line에 지배된다. 전부를 리듬에 넣기만 해도 약 70–85 %가 나올 수 있다. B/F의 60 %는 다수 클래스 기준선보다 낮을 수 있다.\n\nUnassigned를 분모에서 빼는지도 정의되지 않았다. 빼면 어려운 음을 Unassigned로 버리는 것만으로 정확도가 오른다. 조작이 가능한 지표다.",
+    "fix": "주 지표를 Line별 F1과 macro(균형) 정확도로 바꾼다. 양방향 leakage도 함께 본다.\n\nUnassigned는 오류로 세거나, coverage–accuracy 곡선으로 보고한다.\n\n모든 문턱은 '다수 클래스 기준선과 기호 분할 기준선 대비 +X'로 정의한다. 이 두 기준선을 8.5 기본 리포트에 넣는다."
+   },
+   {
+    "severity": "major",
+    "passage": "**기본값 채택 조건 (둘 다):** 1. Tier A dev에서 곡별 짝지은 부트스트랩 95 % CI(10k 재표집)가 0을 제외한다. 2. 어떤 시나리오도 2점 넘게 퇴행하지 않는다.",
+    "problem": "test로 1/3을 떼면 dev는 7–10곡이고, 시나리오당 1–3곡이다. 곡 단위 CI는 현실적인 효과 크기에서 거의 0을 제외하지 못한다. 시나리오별 '2점 퇴행' 판정은 잡음이다.\n\nM6/M7의 수치 문턱은 사실상 1–3곡이 결정한다. 예: 'A 곡의 90 % 이상', 'A·P·D 파트 수 90 %'. 설계가 3점 미만은 보류한다고 인정했지만, 마일스톤 문턱들이 이 한계를 무시한다.",
+    "fix": "컴포넌트 게이트는 수백 창 규모의 합성·Tier B 리믹스 세트에서 한다. 곡 블록 부트스트랩으로 마디 단위 추정을 쓴다.\n\nTier A는 end-to-end 점검과 편집 시간 측정에 쓴다.\n\n최소 검출 효과를 미리 등록한다. 시나리오별 수치는 서술 통계로만 보고한다."
+   },
+   {
+    "severity": "major",
+    "passage": "Tier C 컴포넌트 | GuitarSet(Basic Pitch **테스트 분할만**; ...) / Basic Pitch를 GuitarSet 테스트 분할에 돌리면 onset-only F1이 약 0.79±0.05다.",
+    "problem": "Basic Pitch의 GuitarSet 분할은 무작위다. basic_pitch/data/datasets/guitarset.py가 `random.shuffle`에 선택적 seed를 쓴다. 논문의 72개 테스트 ID는 공개되지 않았다.\n\n그래서 '테스트 분할만'을 고를 수 없고, 어느 트랙이든 학습 데이터였을 수 있다. M1 기준 0.79±0.05는 재현 조건이 정의되지 않았다(mic/mix 오디오 종류, τn 튜닝).",
+    "fix": "0.79 기준은 스모크 테스트로 낮춘다(임의 20트랙에서 0.6 초과).\n\n컴포넌트 판정은 학습에 쓰이지 않았다고 확인된 세트로 한다: EGDB, IDMT-SMT-Guitar, GOAT(요청).\n\nGuitarSet은 comp/solo 쌍의 구조만 합성 리믹스에 쓴다."
+   },
+   {
+    "severity": "major",
+    "passage": "MERT 솔로 분류기(HF `LongshenOu/guitar-solo-segment-cls-mjn`, MIT) / (M7 설치) LongshenOu/guitar-solo-segment-cls-mjn + MERT-v1-95M(약 0.4 GB, 미검증, 라이선스 카드 확인) / gpu venv ... transformers(MERT)",
+    "problem": "HF API로 확인한 내용이다.\n- 이 리포에는 라이선스 태그가 없다. 파일은 `segment_guitar_cls_mjn.ckpt` 하나(1.13 GB)뿐이다. 옵티마이저 상태가 포함된 Lightning 체크포인트로 보인다.\n- 백본 MERT-v1-95M은 **CC-BY-NC-4.0**이다.\n\n코드 리포(Sonata165/LeadInstrumentDetection)는 MIT다. 그런데 README가 'being updated' 상태다. Python 3.7, torch 1.12, lightning 1.9.5, numpy 1.21.6, transformers 4.30.2, tensorflow 2.11을 고정한다. 추론 스크립트도 테스트 세트 평가용이고 경로가 하드코딩돼 있다.\n\ntorch 2.6 이상에서는 `weights_only` 기본값 때문에 피클된 hparams 로드가 실패할 수 있다.\n\n결론적으로 Python 3.12/numpy 2 gpu venv에 그대로 넣을 수 없다. '기본 포함'으로 둘 부품이 아니다.",
+    "fix": "라이선스를 'MIT 코드 + NC 가중치(무표기 체크포인트)'로 고친다.\n\n이식 작업을 예산에 넣는다.\n1. 격리된 일회성 환경에서 `weights_only=False`로 state_dict를 추출한다.\n2. safetensors로 다시 저장한다.\n3. 분류 헤드를 다시 구현한다.\n4. MERT modeling 코드를 벤더링한다.\n\n입력 길이와 샘플레이트(MERT 24 kHz)도 확인한다.\n\n솔로 게이트는 E9 게이트 뒤로 옮긴다. 폴백은 보컬 비활동 + 경로별 리드 에너지 + 반복 잔차다."
+   },
+   {
+    "severity": "major",
+    "passage": "S2 전역 분석(전체 믹스): ... 보컬 활동 곡선 / (max) 드럼+베이스로 2번째 가설을 만든다. / S4 입력: ... 클래스 토큰 ... N: 반복 잔차 에너지 / E2 미만이면서 같은 pitch class의 베이스 음과 겹치는 음 / (S11) 블리드를 서로 빼기 위해 기타 음표를 함께 받는다.",
+    "problem": "다이어그램 순서에 순환과 역순 의존이 있다.\n- S2가 S3 출력(보컬, 드럼, 베이스 스템)을 쓴다.\n- S4 라우터가 S6의 클래스 토큰과 S5의 반복 잔차를 입력으로 받는다. 그런데 S5와 S6는 S4의 경로 판정에 의존한다.\n- S7은 베이스 음을 요구하고, S11은 기타 음을 요구한다.\n\n9.3의 DAG 실행기는 비순환 명세가 필요하다. 지금 문서로는 구현자가 순서를 정할 수 없다.",
+    "fix": "2패스로 명시한다.\n- **패스 1:** S3 → 기타 스템 모노와 베이스 스템을 MuScriptor로 원시 전사(클래스 토큰, 원시 베이스 음) → 보컬 활동, 드럼 기반 비트 가설을 S3.5로 이동 → S4 → S5.\n- **패스 2:** S6(뷰) → S7(원시 베이스 음으로 감점) → S11(S7 기타 음으로 블리드 제거) → S8.\n\n9.5의 GPU 순서도 이에 맞춘다."
+   },
+   {
+    "severity": "major",
+    "passage": "(M3) 트랙은 `Guitar (all parts)`와 `Bass (raw)`. ... 줄/프렛 일치가 75 % 이상이고 tuttut 이상이다. 연주 가능성 100 %(프렛 0–24, 스팬 5 이하). / `All guitars (reference)`: 채택된 모든 기타 음의 합집합. 항상 내보내고",
+    "problem": "기타 2–3 파트의 합집합은 한 사람이 칠 수 없다. 동시에 6음을 넘고, 같은 줄이 충돌하고, 튜닝과 카포가 다를 수 있다. 그래서 운지 DP는 음을 버리거나 불변식을 어겨야 한다.\n\n줄/프렛 일치를 어느 참조 트랙과 비교할지 정의되지 않았다. 합친 음으로 튜닝을 탐색하면 서로 다른 튜닝의 Line이 섞인다. M3의 운지·튜닝 기준은 구조적으로 측정할 수 없다.",
+    "fix": "M3의 운지 평가는 둘 중 하나로 한다.\n- 오라클 Line 분할: 예측 음을 가장 가까운 참조 트랙에 배정한 뒤 트랙별로 운지와 튜닝을 평가한다.\n- 기타 1대 곡과 Tier C로만 평가한다.\n\n합친 트랙과 reference 트랙은 오선보나 MIDI 전용으로 내보내고, 연주 가능성 불변식에서 뺀다."
+   },
+   {
+    "severity": "major",
+    "passage": "PO 토큰과 쿠키는 기술적 보호조치 우회(제104조의2)로 해석될 여지가 있어 기본으로 끈다. / `--js-runtimes node`를 쓴다. Node v24.10이 최소 요구(22)를 넘는다.",
+    "problem": "기본 경로는 이미 EJS와 Node로 YouTube의 JS 챌린지를 푼다(signature와 n 파라미터 'rolling cipher').\n\n독일 법원은 rolling cipher 자체를 유효한 기술적 보호조치로 봤다: LG Hamburg 310 O 316/21(2023-03-31), OLG Hamburg 5 U 54/23(2024-11-21), §95a UrhG. 따라서 TPM 위험은 PO 토큰이나 쿠키에서 시작하지 않는다. 기본 경로에서 이미 시작한다.\n\n지금 문구는 12장 2번 사용자 결정을 오도한다. 한국법 적용 여부는 미검증이다.",
+    "fix": "문구를 고친다: 'YouTube 경로 전체(JS 챌린지 해결 포함)가 해외 판례상 TPM 우회로 판단된 바 있다. 한국법 적용은 미검증이다.'\n\nYouTube는 기본으로 끈다. 켤 때는 명시적으로 동의를 받는다. PO 토큰과 쿠키는 '추가 위험'으로만 분리해 적는다."
+   },
+   {
+    "severity": "major",
+    "passage": "### M7 파트 다이어라이저와 세 가지 뷰 (핵심) — 산출물: S8 전체: 층, 트랙렛, 재식별, K 상위 2, R1–R9, 트윈·유니즌, HMM, 반복 헝가리안, 음표 판정, Unassigned. 솔로 게이트 ... S9 Part/Role/Player 뷰 ... UI / ### M4 ... CQT 피아노롤, A/B(오프라인 신스 렌더 + WebAudio), 루프·감속, 키보드 편집, 검토 큐 ...",
+    "problem": "**M7:** 새 알고리즘 10여 개, 이식이 필요한 솔로 게이트, 뷰 3종, UI를 한 마일스톤에 묶었다. 전부 동작하기 전에는 쓸모가 없고, 실패 원인도 가를 수 없다.\n\n**M4:** 피치 보존 다중 스템 샘플 동기 감속, 트랙별 오프라인 신스 렌더, 앵커 재매칭 같은 무거운 UI를 다중 기타 가치가 나오기 전에 요구한다.\n\n'상위 단계 재실행 후 앵커 편집 90 %'는 M4 시점에 상위 단계가 거의 바뀌지 않으므로 의미 있게 잴 수 없다.\n\n**M1:** 사용자 가치가 없는데도 이후 전체를 막는다.",
+    "fix": "M7을 셋으로 나눈다.\n- **M7a:** 라우터 K + 기호 분할 + Unassigned만으로 Part 뷰 v0.\n- **M7b:** 트랙렛, HMM, 재식별, 반복 헝가리안.\n- **M7c:** Role/Player 뷰.\n\nM4도 둘로 나눈다.\n- **M4a:** 뷰어, sync, 기본 편집, edits.jsonl.\n- **M4b:** A/B 믹서, CQT 롤, 검토 큐, 감속.\n\n앵커 재적용 기준은 M5 이후로 옮긴다."
+   },
+   {
+    "severity": "minor",
+    "passage": "MSST `requirements.txt`는 설치하지 않는다. 모델·추론 코드와 최소 의존성(einops, rotary-embedding-torch, beartype, omegaconf, ml_collections)만 가져온다",
+    "problem": "GitHub에서 확인한 내용이다.\n- `utils/audio_utils.py`가 모듈 최상단에서 `import matplotlib.pyplot as plt`를 한다.\n- `inference.py`는 librosa, soundfile, tqdm을 import한다.\n- `utils/settings.py`는 yaml(PyYAML)을 쓴다.\n- `models/bs_roformer/attend.py`는 packaging을 쓴다.\n- `mel_band_roformer.py`는 `from librosa import filters`를 쓴다.\n\n목록대로만 설치하면 M2 첫 실행에서 ImportError가 난다.",
+    "fix": "의존성 목록에 matplotlib, librosa, soundfile, tqdm, pyyaml, packaging을 추가한다.\n\n더 좋은 방법도 있다. models/bs_roformer와 demix 함수만 벤더링하고, 약 100줄짜리 자체 추론 루프를 쓴다. 그러면 audio_utils와 settings를 피할 수 있다."
+   },
+   {
+    "severity": "minor",
+    "passage": "스템 + leftover로 믹스를 SNR 60 dB 이상으로 재구성한다.",
+    "problem": "leftover를 mix − Σ stems로 정의했다. 그래서 이 조건은 부동소수 산술만 확인하는 동어반복이다. 분리 품질이나 저장 오류에 대해 아무것도 알려 주지 않는다.\n\n바로 뒤의 'L/R 상관 < 0.999'도 스테레오 보존을 검증하기에 약하다.",
+    "fix": "다른 점검으로 바꾼다.\n- leftover RMS가 믹스 대비 −20 dB 미만\n- FLAC 보관 후 복원 오차\n- 합성 A 믹스를 SW에 통과시킨 뒤, bin별 coherence와 ILD 보존 편차(M6 go/no-go의 조기 버전)"
+   },
+   {
+    "severity": "minor",
+    "passage": "GPU 단계는 모두 자식 프로세스로 돈다: `<gpu venv>\\Scripts\\python.exe -m gtab.workers.<name> request.json`. / 이 python.exe에 대해 'CUDA - Sysmem Fallback Policy'를 'Prefer No Sysmem Fallback'으로 바꿀지 / `data\\gpu.lock`(filelock)으로 GPU에 모델 하나만 올린다.",
+    "problem": "uv venv의 Scripts\\python.exe는 트램펄린이다. 실제로 CUDA를 쓰는 프로세스는 자식으로 뜨는 기본 CPython이다(uv 관리 경로).\n\n그래서 NVIDIA 프로그램별 프로필을 venv 경로에 걸면 적용되지 않는다.\n\n취소나 타임아웃 때 부모만 죽이면 자식이 VRAM을 쥔 채 남을 수 있다. 그런데 락은 이미 풀린다. 그러면 '모델 하나' 보장이 깨지고 다음 워커가 Sysmem Fallback에 빠진다.",
+    "fix": "프로필은 `sys._base_executable` 경로에 건다.\n\n워커는 Windows Job Object(kill-on-close)로 띄운다. 락은 자식 PID가 끝날 때까지 쥔다.\n\ndoctor는 NVML로 실제 자식 PID와 점유량을 보여 준다."
+   },
+   {
+    "severity": "minor",
+    "passage": "같은 입력으로 다시 돌리면 byte 단위로 같은 결과가 나와야 한다.",
+    "problem": "GPU 단계는 비트 단위로 결정적이지 않다. fp16 autocast, cuBLAS, 자기회귀 디코딩 때문이다. 그리디 디코딩에서 토큰 하나가 뒤집히면 음표가 바뀐다. 캐시를 지운 재실행에서 이 요구는 거짓이 된다.",
+    "fix": "결정성은 'GPU 산출물이 캐시된 상태에서 CPU 단계가 byte 단위로 같다'로 정의한다.\n\nGPU 단계는 deterministic 플래그(`CUBLAS_WORKSPACE_CONFIG`, `use_deterministic_algorithms`)를 시도한다. 결과는 반올림한 음표 목록의 허용 오차로 비교한다."
+   },
+   {
+    "severity": "minor",
+    "passage": "**워커 안 규칙:** CPU에서 로드하고, 가능하면 fp16으로 바꾼 뒤 CUDA로 옮긴다.",
+    "problem": "업스트림 기본값과 충돌한다.\n- SW와 MSST는 fp32 가중치 + AMP를 쓴다.\n- MuScriptor는 fp32 가중치 + fp16 autocast를 쓰고, 조건화기는 fp32로 유지해야 한다.\n\nRoFormer를 순수 fp16 가중치로 돌리는 것은 검증되지 않았다. 정규화나 어텐션에서 오버플로가 날 수 있다. 평가한 설정과 실제 실행 설정이 달라진다.",
+    "fix": "백엔드별 dtype 정책은 업스트림 기본값으로 둔다. fp16 캐스팅은 E 실험에서 품질 저하가 없음을 확인한 백엔드에만 쓴다(large 로더 패치 같은 경우)."
+   },
+   {
+    "severity": "minor",
+    "passage": "배음 빗(8–10배음, ±30 cents)에서 잰 ILD, coherence, centre/S 비 / 뷰 여러 개 전사 + 음표별 스테레오 서명. A·P·트윈 리드에서 유일한 실제 단서다 [실험:router_exp.py].",
+    "problem": "STFT n_fft 4096의 bin 간격은 10.8 Hz다. E2(82 Hz)에서 ±30 cents는 약 ±1.4 Hz이고, 인접 반음은 4.9 Hz 차이다. 낮은 배음은 분해되지 않고 코드와 베이스 블리드와 겹친다.\n\ncoherence는 약 150 ms 평균이 필요하다. 그래서 짧은 음에서는 신뢰할 수 없다.\n\n인용한 router_exp는 창 단위 특징만 쟀다. 음표별 서명의 근거가 아니다.",
+    "fix": "저음은 3배음 이상만 쓴다. CQT나 8192 FFT를 쓰고, bin마다 해당 음의 지배도로 가중한다.\n\n150 ms 미만 음은 창 단위 팬으로 대체한다.\n\n'음표별 서명'은 E22에서 검증할 가설로 표기한다."
+   },
+   {
+    "severity": "minor",
+    "passage": "**하한을 정한다.** 모든 창에서, 음이 8개 이상이면서 서로 일치하지 않는 동시 스트림 수의 최댓값이다.",
+    "problem": "같은 스템에서 나온 뷰들(centre, S, L, R)은 분리 인공음 때문에 기타가 1대여도 서로 어긋난다. 전곡 최댓값을 쓰면 나쁜 창 하나가 곡 전체 K의 하한을 올린다.",
+    "fix": "강건한 기준을 쓴다. 해당 수가 3개 이상의 창과 2개 이상의 구간에서 유지될 때만 하한으로 인정한다. 불일치는 전사기의 자기 불일치 기준선(R1 보정과 같은 데이터)과 비교한다."
+   },
+   {
+    "severity": "minor",
+    "passage": "**(c) (선택) YourMT3+.** / quality 프로필에서는 **3개 중 2개가 일치**할 때 채택한다",
+    "problem": "세 번째 투표자가 선택 사항이다. YourMT3+가 없으면 2-of-3이 두 소스의 AND가 되어 재현율이 떨어진다. 이때의 동작이 정의되지 않았다.",
+    "fix": "투표자 2개일 때의 정책을 명시한다. 예: MuScriptor를 주 소스로 두고, F0 경로는 옥타브·피치 교정과 저신뢰 빈틈 채우기에만 쓴다. E13에서 비교한다."
+   },
+   {
+    "severity": "minor",
+    "passage": "박자표 = 구간별 마디당 비트 수의 최빈값 / **격자:** 박당 **48 tick** ... GP로 내보낼 때는 4분음표당 960 tick으로 바꾼다.",
+    "problem": "Beat This!의 비트 단위는 6/8이나 12/8에서 점4분음표일 수도, 8분음표일 수도 있다. 지금 규칙으로는 12/8과 '4/4 + 셋잇단(또는 셋잇단 느낌)'을 구별하지 못한다.\n\n4분음표당 960 tick 변환은 비트 단위를 안다는 전제에 선다.",
+    "fix": "복합 박자 판정을 추가한다. 마디 전반에서 3분할이 우세한지로 6/8·12/8 가설을 세운다. 비트 단위를 명시적으로 기록하고, 변환은 비트 단위 기준으로 한다. UI에 토글을 둔다."
+   },
+   {
+    "severity": "minor",
+    "passage": "Karaoke-Version Custom Backing Tracks($2.99/곡, 재녹음이지만 Lead/Rhythm 기타를 따로 받을 수 있어 파트별 오디오 정답이 됨",
+    "problem": "재녹음 MP3이므로 원곡 녹음의 정답이 아니다. 그 스템으로 직접 만든 믹스에 대해서만 정답이다.",
+    "fix": "'KV 스템으로 만든 리믹스용 Tier B식 정답'으로 분류를 바꾼다. 원곡 평가에는 쓰지 않는다."
+   },
+   {
+    "severity": "minor",
+    "passage": "**기타 가설:** 음정 프로필 {6현 std, 6현 drop, 7현 std, 7현 drop} × 다운튠 {0…−5} × 카포 {0…7}",
+    "problem": "오픈 튜닝(Open G, Open D, DADGAD)이 가설 집합에 없다. 이런 곡은 std나 drop으로 강제되어 프렛이 틀린다. Klangio 리뷰에서도 실패한 영역이다.",
+    "fix": "작은 오픈 튜닝군을 가설에 추가한다. 최선 가설의 DP 비용이 높으면 '튜닝 불명'으로 사용자에게 묻는다."
+   },
+   {
+    "severity": "minor",
+    "passage": "**사람 지표 (가장 중요):** 파트별로 \"칠 수 있음\"까지 걸린 편집 시간(분) / **사람 기준선:** 2곡을 \"칠 수 있음\"까지 고친 편집 시간",
+    "problem": "핵심 가치인 '채보 시간 단축'을 도구 버전끼리만 비교한다. 도구 없이 처음부터 채보할 때나 Songsterr AI·Klangio 초안에서 시작할 때와는 비교하지 않는다.",
+    "fix": "M4에서 2곡에 대해 세 조건을 잰다: 처음부터 채보, 외부 초안에서 수정, gtab 초안에서 수정. 이것을 헤드라인 기준선으로 쓴다."
+   }
+  ]
+ },
+ "revision_changes": [
+  "[blocker] M1을 M1a(Tier A 없이 완료: 하네스·지표·합성·Tier B/C)와 M1b(Tier A 점진 구축, 게이트 아님)로 분리. E1–E3은 Tier B/C + GP 있는 2–3곡으로 결정. Tier A는 구간 2–3개 정답, GP 있는 곡 우선, PDF 재입력 곡당 3–8시간(리뷰 추정) 예산 명시. 8.2·8.3·12장 5번 수정. Songsterr Plus 다운로드는 미검증이라 쓰지 않음",
+  "정답 정렬을 Beat This!에서 분리: 참조 GP 렌더 + synctoolbox DTW(PyPI로 MIT·Python 범위 재확인) + 수동 다운비트 탭. tick F1을 정답 템포맵 기준(±50 ms 해당 범위)으로 재정의하고 기보 일치·격자 지표를 따로 보고",
+  "Basic Pitch 최소 음 길이 기본값 127.7 ms(원문 재확인)를 30–58 ms 시작값으로 낮추고 문턱을 dev 튜닝(E23 신설), 두 전사기 튜닝 후 M2 게이트 비교, 9.7 테스트 추가",
+  "S3.5 스템 1차 분석 단계 신설: 편성 추정(믹스 전체 편성 전사 = B0 + 스템 에너지 + 힌트), 원시 전사(기타 스템 모노·베이스·piano+other), 보컬 활동, 반복 잔차 1차. 기타 클래스는 낮은 문턱. GPU 순서·시간 추정 반영",
+  "R1 더블 병합: 라우터 R2를 1차 증거로, 음표 일치는 거부권(시작 0.4, 잠정)으로, 합성 더블 자기 일치 분포에서 문턱 도출(E6/E22), 구간 단위 판정. 변주 경계도 같은 분포에서",
+  "유니즌: 경로 A에서 centre/S 초과량으로 shared 판정 추가, B/F는 '유니즌 또는 쉼, 판정 불가' 표시·토글, 1.3 표 하향, shared 정밀도·재현율 지표 추가. CRITIC 권고를 wf2_summary.txt에서 원문 확인해 기록",
+  "VRAM: max_memory_reserved·NVML·Windows 카운터(GPU Process Memory Shared Usage, 이 PC에서 이름 재확인)로 측정, Shared Usage 증가 = 실패, 동적 예산(전체−타 프로세스−약 0.7 GB 추정), 목표 reserved 4.5 GB(잠정), M2에서 Sysmem Fallback 켬/끔 둘 다 시험, 청크 사다리 hop 배수(필요성 미검증)",
+  "할당 지표: 주 지표를 Line별 F1과 macro 정확도로, Unassigned=오류 + coverage–accuracy 곡선, 모든 문턱을 다수 클래스·기호 분할 기준선 대비로. 다수 클래스 기준선을 8.5에 추가",
+  "통계: 컴포넌트 게이트를 합성·Tier B 창 단위 세트 + 곡 블록 부트스트랩 + MDE 사전 등록으로. Tier A는 end-to-end·편집 시간·서술 통계. 마일스톤 기준에 [판정]/[서술] 표기",
+  "GuitarSet: Basic Pitch 분할이 random.shuffle+선택 seed임을 원문 재확인. M1 기준을 스모크(임의 20트랙 > 0.6)로 낮추고, contamination.md 신설. 리뷰가 제안한 '학습 밖 세트'는 MuScriptor에 대해 의심스러워 미검증 표기",
+  "MERT 솔로 분류기: HF API로 체크포인트 무표기·1.13 GB·MERT cc-by-nc-4.0, 코드 MIT·README 'being updated'·Python 3.7/torch 1.12.1 재확인. 라이선스 정정, 이식 절차를 M7b에 편성, 기본은 규칙판 솔로 게이트, MERT는 E9 뒤",
+  "순환 의존 해소: 2패스 구조와 단계 의존 규칙 명시, S7은 S3.5 원시 베이스·S11은 S7 기타 음, 베이스 교차 확인은 S14·공동 다운튠은 S13, DAG 순환 검사 테스트, 9.5 GPU 순서 재작성",
+  "합친 기타 트랙: All guitars·Unassigned는 MIDI·오선보 전용(GP5·연주 가능성 불변식 제외). M3 운지는 오라클 Line 분할과 Tier C로 평가, M3 튜닝은 단일 튜닝 가정",
+  "YouTube: 기본 경로의 JS 챌린지 해결도 TPM 위험임을 명시(독일 판결 방향은 heise·TorrentFreak 보도로 재확인, 리뷰 사건번호는 미검증), YouTube 경로 기본 꺼짐 + 명시적 동의, PO 토큰·쿠키는 추가 위험으로 분리",
+  "마일스톤 분할: M7a(K+기호 분할+Unassigned)/M7b(추적·MERT)/M7c(Role/Player·UI), M4a(뷰어·sync·기본 편집)/M4b(A/B·CQT·검토 큐·감속, M7a 뒤). 앵커 재적용 기준을 M4b로 이동. 실행 순서 명시",
+  "MSST: 모델 코드와 demix만 벤더링 + 자체 추론 루프를 기본으로(audio_utils.py 최상단 matplotlib import 재확인), 폴백 의존성 목록 추가",
+  "M2의 동어반복 SNR 기준을 leftover RMS·FLAC 복원 오차·합성 A coherence/ILD 보존 편차로 교체",
+  "워커: venv python.exe가 기본 인터프리터를 자식으로 띄움을 이 PC CPython venv에서 확인(uv는 미검증). Job Object, 자식 종료까지 락 유지, NVIDIA 프로필은 sys._base_executable 경로에",
+  "결정성을 'GPU 산출물 캐시 시 CPU 단계 byte 동일'로 재정의, GPU 단계는 허용 오차 비교",
+  "dtype: 백엔드별 업스트림 기본값을 따르고 fp16 캐스팅은 E24(신설)·E4 통과 시에만",
+  "음표별 스테레오 서명: 저음 3배음 이상·CQT/8192 FFT·지배도 가중, 150 ms 미만은 창 단위 팬, E22 가설로 표기하고 router_exp 근거 문구 정정",
+  "K 하한을 3창·2구간 유지 조건과 자기 불일치 기준선으로 강건화, M7a에 기타 1대 픽스처 추가",
+  "베이스 투표자 2개 정책 명시(MuScriptor 주, F0는 교정·빈틈 채우기), E13·테스트 추가",
+  "복합 박자(6/8·12/8) 판정, grid.json 비트 단위 기록, 비트 단위 기준 GP tick 변환, UI 토글, E14 확장",
+  "Karaoke-Version 스템을 Tier B'(자체 리믹스 전용)로 재분류, 원곡 평가 금지",
+  "튜닝 가설에 오픈 튜닝군(Open G·Open D·DADGAD) 추가, 운지 비용이 높으면 '튜닝 불명' 질문",
+  "사람 기준선을 세 조건(처음부터 채보 / 외부 AI 초안 / gtab 초안)으로 M4a에서 측정, 구간별 조건 교대",
+  "근거 표기에 [리뷰]·잠정 추가, 12장 결정 항목 재번호(Tier B 데이터·MERT·사람 기준선 항목 신설), MuScore 오타 수정, 11장 위험표 갱신, 끝에 '리뷰 반영 내역' 27항목 표 추가"
+ ]
+}

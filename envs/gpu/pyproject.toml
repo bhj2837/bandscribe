@@ -1,0 +1,26 @@
+# GPU worker environment. Workers run as child processes: <this venv>\Scripts\python.exe -m gtab.workers.<name>
+# torch 2.11 is the last line built for cu128, which MuScriptor documents for Windows (docs/DESIGN.md 9.2).
+[project]
+name = "gtab-gpu-env"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "gtab",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    # gtab.sysmon reads NVML from inside workers (device used-memory peak), M0_SPEC §0/§11.
+    "nvidia-ml-py>=12.560",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+gtab = { path = "../..", editable = true }
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

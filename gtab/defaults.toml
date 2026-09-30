@@ -1,0 +1,41 @@
+# gtab package defaults (lowest layer).
+# Layers, later wins: this file -> data/config.toml (user) -> job hints.toml -> --set key=value.
+# gtab/config.py mirrors these values in its pydantic models; tests/test_config.py keeps them in sync.
+
+[youtube]
+# User request 2026-09-30: YouTube link input is ON by default. The risk notice (YouTube ToS forbids
+# downloading; solving the JS challenge may count as circumventing a technical protection measure,
+# per foreign case law, Korean law unverified) was acknowledged; see [consent] in data/config.toml.
+enabled = true
+# Best audio, never the DRC stream, Opus preferred. The original container is kept, never re-encoded.
+format = "ba[format_id!*=drc][acodec=opus]/ba[format_id!*=drc]/ba"
+# Cookies and PO tokens are extra risk (account suspension, further circumvention). Kept off separately,
+# even with YouTube on; turning either on also needs an explicit [consent] entry.
+cookies = false
+po_token = false
+timeout_s = 600
+
+[ingest]
+# Fixed at 44100 (other values are rejected): the mix is mix_44k_f32.wav and the f-<PCM sha256> job key
+# is defined on a 44.1 kHz decode, so the same audio always lands in the same job.
+sample_rate = 44100
+# Float gain so the true peak ends at or below this ceiling (loud masters decode above 0 dBFS).
+true_peak_ceiling_dbfs = -1.0
+# 10*log10(E_side / E_mid) below this => quasi-mono (routes to the R0 path).
+quasi_mono_side_mid_db = -30.0
+# Spectral cutoff near this frequency => double lossy compression suspected.
+lowpass_detect_hz = 16000
+
+[gpu]
+lock_timeout_s = 7200
+worker_timeout_s = 7200
+# Headroom kept free for the desktop and the CUDA context (estimate, re-measured in M2).
+vram_margin_gb = 0.7
+# Target peak reserved VRAM per worker with other apps closed (provisional).
+target_reserved_gb = 4.5
+# What to do when the VRAM budget does not fit: wait (back off) | error | cpu (small models only).
+insufficient_vram_policy = "wait"
+
+[doctor]
+min_free_disk_gb = 60
+min_node_major = 22
