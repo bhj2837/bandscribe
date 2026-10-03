@@ -265,3 +265,102 @@ def test_dump_effective_omits_empty_sections() -> None:
     parsed = tomllib.loads(config.dump_effective(Config()))
     assert "consent" not in parsed  # all-None section
     assert parsed["youtube"]["enabled"] is True
+
+
+# ------------------------------------------------------------------------------- M1a/M2 sections
+
+
+def test_m2_defaults_match_spec(no_user: Path) -> None:
+    """M1_M2_SPEC 1.3 values (the stage keys of M2 depend on them)."""
+    cfg = load_config(user_config=no_user)
+    assert cfg.run.profile == "quality"
+    assert (cfg.hints.instruments, cfg.hints.parts) == ("auto", "auto")
+    s = cfg.sep
+    assert (s.backend, s.model_dir, s.ckpt, s.config) == (
+        "sw_msst", "data/models/bs_roformer_sw", "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.yaml")
+    assert s.ckpt_sha256 == "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
+    assert s.msst_commit == "84b1eac0887756b4f1a9d7a1ff49105939749ed2"
+    assert s.chunk_ladder == [588800, 352256, 262144]
+    assert (s.num_overlap, s.batch_size, s.dtype, s.input_lufs, s.leftover_warn_db) == (2, 1, "upstream", "off", -20.0)
+    a = cfg.amt
+    assert (a.muscriptor_model, a.muscriptor_fallback, a.muscriptor_loader, a.dtype) == (
+        "medium", ["small"], "lean", "upstream")  # lean: AMT parity gate passed (integration request)
+    assert a.muscriptor_revision == "f32236969308476e01fd3aae67357de5feb05a2d"
+    assert (a.prelude_forcing, a.beam_size, a.cfg_coef, a.batch_size, a.latency_s) == (True, 1, 1.0, 1, -0.003)  # latency exp
+    assert (a.piano_other_instruments, a.guitar_view, a.guitar_mask) == ("keys+guitar", "guitar_mono", "guitar+present")
+    assert (a.bp_onset_threshold, a.bp_frame_threshold, a.bp_min_note_frames) == (0.6, 0.4, 7)  # E23
+    assert (a.bp_min_freq_hz, a.bp_max_freq_hz, a.bp_melodia_trick, a.bp_threads) == (0.0, 0.0, True, 4)
+    i = cfg.instr
+    assert (i.threshold, i.guitar_threshold, i.guitar_stem_active_ratio, i.active_rel_db, i.mix_class_min_notes) == (
+        0.5, 0.15, 0.05, -40.0, 8)
+    g = cfg.grid
+    assert (g.checkpoint, g.dbn, g.refine_window_ms, g.half_double_check) == ("final0", False, 35.0, True)
+    assert (g.compound_triple_ratio, g.compound_margin, g.downbeat_snap_ms, g.meter_smooth_bars) == (0.6, 0.1, 70.0, 8)
+    sc = cfg.sections
+    assert (sc.min_section_bars, sc.max_sections, sc.repeat_min_score, sc.align_max_offset_ms) == (4, 16, 0.6, 50.0)
+    assert (cfg.s35.vocal_active_rel_db, cfg.s35.resid_min_occurrences) == (-30.0, 3)
+    e = cfg.eval
+    assert (e.tpb, e.onset_tol_s, e.bootstrap_iterations, e.seed, e.mde_points) == (48, 0.05, 10000, 20260930, 1.0)
+    assert cfg.datasets.root == "data/datasets"
+    gp = cfg.gpu
+    assert (gp.wait_poll_s, gp.wait_max_s, gp.max_worker_retries, gp.worker_headroom_mb) == (30, 3600, 3, 256)
+    assert (gp.ctx_mb_default, gp.shared_growth_fail_mb, gp.rtf_fail_ratio) == (150, 64, 0.5)
+    assert gp.cpu_backends == ["beats_beatthis"]
+    assert cfg.get("sep.chunk_ladder") == [588800, 352256, 262144]  # owners read through Config.get too
+
+
+def test_grid_dbn_true_is_rejected(no_user: Path) -> None:
+    with pytest.raises(ConfigError, match="grid.dbn=true 는 madmom 이 필요해 지원하지 않습니다"):
+        load_config(overrides=["grid.dbn=true"], user_config=no_user)
+
+
+@pytest.mark.parametrize("key", ["sep.dtype", "amt.dtype"])
+def test_dtype_accepts_only_upstream_or_fp16(no_user: Path, key: str) -> None:
+    assert load_config(overrides=[f"{key}=fp16"], user_config=no_user).get(key) == "fp16"
+    for bad in ("bf16", "bfloat16", "fp32"):
+        with pytest.raises(ConfigError, match=key):
+            load_config(overrides=[f"{key}={bad}"], user_config=no_user)
+
+
+def test_sep_input_lufs(no_user: Path) -> None:
+    assert load_config(overrides=["sep.input_lufs=-14"], user_config=no_user).sep.input_lufs == -14.0
+    assert load_config(overrides=["sep.input_lufs=-16.0"], user_config=no_user).sep.input_lufs == -16.0
+    assert load_config(overrides=['sep.input_lufs="off"'], user_config=no_user).sep.input_lufs == "off"
+    for bad in ("-40", "-5", "loud", "true"):
+        with pytest.raises(ConfigError, match="sep.input_lufs"):
+            load_config(overrides=[f"sep.input_lufs={bad}"], user_config=no_user)
+
+
+def test_bp_min_note_frames(no_user: Path) -> None:
+    assert load_config(overrides=["amt.bp_min_note_frames=5"], user_config=no_user).amt.bp_min_note_frames == 5
+    for bad in ("0", "31", "4.5", "true"):
+        with pytest.raises(ConfigError, match="amt.bp_min_note_frames"):
+            load_config(overrides=[f"amt.bp_min_note_frames={bad}"], user_config=no_user)
+    with pytest.raises(ConfigError, match="127.7 ms"):  # = upstream default, refused (DESIGN S6)
+        load_config(overrides=["amt.bp_min_note_frames=12"], user_config=no_user)
+
+
+def test_chunk_ladder_validation(no_user: Path) -> None:
+    assert load_config(overrides=["sep.chunk_ladder=[352256]"], user_config=no_user).sep.chunk_ladder == [352256]
+    for bad, match in (("[]", "비어"), ("[588801]", "512"), ("[262144, 588800]", "감소")):
+        with pytest.raises(ConfigError, match=match):
+            load_config(overrides=[f"sep.chunk_ladder={bad}"], user_config=no_user)
+
+
+def test_m2_literals_and_unknown_keys(no_user: Path) -> None:
+    for item in ("run.profile=max", "amt.guitar_view=bass_mono", "amt.guitar_mask=none",
+                 "amt.piano_other_instruments=guitar", "gpu.cpu_backends=[\"amt_basicpitch\"]",
+                 "sep.allow_cpu=true", "amt.muscriptor_model=huge"):
+        with pytest.raises(ConfigError):
+            load_config(overrides=[item], user_config=no_user)
+    cfg = load_config(overrides=["run.profile=fast", "hints.instruments=guitar,keys", "amt.guitar_view=mix_mono"],
+                      user_config=no_user)
+    assert (cfg.run.profile, cfg.hints.instruments, cfg.amt.guitar_view) == ("fast", "guitar,keys", "mix_mono")
+
+
+def test_m2_sections_are_settable_and_listed(no_user: Path) -> None:
+    for sec in ("run", "hints", "sep", "amt", "instr", "grid", "sections", "s35", "eval", "datasets"):
+        assert sec in config.KNOWN_SECTIONS
+    # known now, so a typo inside them fails loudly instead of landing in Config.extra
+    with pytest.raises(ConfigError, match="알 수 없는 키"):
+        load_config(overrides=["eval.sede=1"], user_config=no_user)

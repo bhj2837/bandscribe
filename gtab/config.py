@@ -9,6 +9,10 @@ on the command line (``--set``) an unknown section is rejected, because there it
 ``defaults.toml`` is the source of truth for values. The model defaults below mirror it so that a bare
 ``Config()`` also works (handy in tests); ``tests/test_config.py`` fails if the two drift apart.
 
+M1a/M2 sections (M1_M2_SPEC 1.3): ``run``, ``hints``, ``sep``, ``amt``, ``instr``, ``grid``, ``sections``, ``s35``,
+``eval``, ``datasets`` and the new ``[gpu]`` VRAM keys. Stages read only their params (cache keys, DESIGN 9.3);
+``[gpu]`` keys are non-semantic and never enter a stage key.
+
 Core env only (the GPU worker env has no tomli_w; workers receive plain dicts, not Config).
 """
 
@@ -20,7 +24,7 @@ import logging
 import tomllib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -77,12 +81,185 @@ class IngestCfg(_Section):
         return v
 
 
+GPU_BACKENDS: tuple[str, ...] = ("sep_msst", "amt_muscriptor", "beats_beatthis")
+
+
 class GpuCfg(_Section):
     lock_timeout_s: int = Field(7200, gt=0)
     worker_timeout_s: int = Field(7200, gt=0)
+    # Headroom for other apps' fluctuation and fragmentation only; the CUDA context is counted separately
+    # (ctx_mb_default / the bench's measured ctx_mb, M1_M2_SPEC 8.1).
     vram_margin_gb: float = Field(0.7, ge=0.0)
     target_reserved_gb: float = Field(4.5, gt=0.0)
     insufficient_vram_policy: Literal["wait", "error", "cpu"] = "wait"
+    # M2 (M1_M2_SPEC 1.3, 8): wait policy, worker-side check, Sysmem Fallback detection.
+    wait_poll_s: float = Field(30.0, gt=0.0)
+    wait_max_s: float = Field(3600.0, ge=0.0)
+    max_worker_retries: int = Field(3, ge=0)
+    worker_headroom_mb: float = Field(256.0, ge=0.0)
+    # CUDA context estimate until the bench measures it; workers measured 79-91 MB on this PC (2026-10-03).
+    ctx_mb_default: float = Field(150.0, ge=0.0)
+    shared_growth_fail_mb: float = Field(64.0, gt=0.0)  # calibrated from fallback-off bench runs
+    rtf_fail_ratio: float = Field(0.5, gt=0.0, le=1.0)
+    # Backends that may use a CPU rung, and only under policy "cpu" (DESIGN 12: only small models on CPU).
+    cpu_backends: list[Literal["sep_msst", "amt_muscriptor", "beats_beatthis"]] = Field(
+        default_factory=lambda: ["beats_beatthis"]
+    )
+
+
+# ------------------------------------------------------------------------------------- M1a/M2 sections
+
+Prob = Annotated[float, Field(ge=0.0, le=1.0)]
+STFT_HOP = 512  # BS-RoFormer SW stft_hop_length: chunk sizes must be multiples of it (DESIGN S3)
+_LUFS_MSG = '"off" 이거나 -30 ~ -6 사이의 LUFS 숫자여야 합니다'
+
+
+class RunCfg(_Section):
+    profile: Literal["fast", "quality"] = "quality"  # max = later milestones
+
+
+class HintsCfg(_Section):
+    """User hints; CLI flags write these through --set (--instruments -> hints.instruments)."""
+
+    # "auto" or a comma list of families (guitar,keys,synth,bass,strings,brass,winds,vocals); parsed by AMT
+    # (gtab.amt.instruments), which also rejects unknown family names.
+    instruments: str = "auto"
+    parts: str = "auto"  # used from M6 on; stored now
+
+
+class SepCfg(_Section):
+    backend: Literal["sw_msst"] = "sw_msst"
+    model_dir: str = "data/models/bs_roformer_sw"  # relative to GTAB_ROOT
+    ckpt: str = "BS-Rofo-SW-Fixed.ckpt"
+    config: str = "BS-Rofo-SW-Fixed.yaml"
+    ckpt_sha256: str = Field(
+        "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e", pattern=r"^[0-9a-f]{64}$"
+    )
+    msst_commit: str = Field("84b1eac0887756b4f1a9d7a1ff49105939749ed2", pattern=r"^[0-9a-f]{40}$")
+    chunk_ladder: list[int] = Field(default_factory=lambda: [588800, 352256, 262144])
+    num_overlap: int = Field(2, ge=1)
+    batch_size: int = Field(1, ge=1)
+    dtype: Literal["upstream", "fp16"] = "upstream"  # upstream = fp32 weights + AMP; fp16 = E24-sep only
+    # E1: "off", or a target LUFS in [-30, -6] (gain before SW, inverse gain after).
+    input_lufs: Literal["off"] | float = "off"
+    leftover_warn_db: float = -20.0  # used by the `stems` stage only
+
+    @field_validator("chunk_ladder")
+    @classmethod
+    def _ladder(cls, v: list[int]) -> list[int]:
+        # The worker tries the rungs in list order and steps down: largest first, whole STFT hops each.
+        if not v:
+            raise ValueError("비어 있으면 안 됩니다 (예: [588800, 352256, 262144])")
+        for c in v:
+            if c <= 0 or c % STFT_HOP:
+                raise ValueError(f"{c}: {STFT_HOP} 의 양의 배수여야 합니다 (SW 의 stft_hop_length)")
+        if any(a <= b for a, b in zip(v, v[1:])):
+            raise ValueError("큰 칸부터 작은 칸 순서(엄격히 감소)로 적어야 합니다")
+        return v
+
+    @field_validator("input_lufs", mode="before")
+    @classmethod
+    def _input_lufs(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            if v.strip().lower() == "off":
+                return "off"
+            raise ValueError(_LUFS_MSG)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(_LUFS_MSG)
+        if not -30.0 <= float(v) <= -6.0:
+            raise ValueError(f"{v}: {_LUFS_MSG}")
+        return float(v)
+
+
+class AmtCfg(_Section):
+    muscriptor_model: Literal["small", "medium", "large"] = "medium"
+    muscriptor_revision: str = Field("f32236969308476e01fd3aae67357de5feb05a2d", pattern=r"^[0-9a-f]{40}$")
+    # Used only if that size's model.safetensors is already in the HF cache (never downloaded).
+    muscriptor_fallback: list[Literal["small", "medium", "large"]] = Field(default_factory=lambda: ["small"])
+    # lean = build on CUDA + load weights on the CPU (no second GPU copy): ~0.67 GB less reserved, identical notes
+    # (AMT test_lean_loader_parity on a synthetic clip and a real 60 s excerpt, 2026-10-03).
+    muscriptor_loader: Literal["upstream", "lean"] = "lean"
+    # upstream = fp32 weights + MuScriptor's built-in fp16 autocast; fp16 = E24-amt only. Never bf16 (sm_75).
+    dtype: Literal["upstream", "fp16"] = "upstream"
+    prelude_forcing: bool = True
+    beam_size: int = Field(1, ge=1)
+    cfg_coef: float = 1.0
+    batch_size: int = Field(1, ge=1)
+    latency_s: float = Field(-0.003, ge=-1.0, le=1.0)  # latency experiment 2026-10-03; subtracted from MuScriptor times
+    piano_other_instruments: Literal["keys", "keys+guitar"] = "keys+guitar"  # M1_M2_SPEC A5
+    guitar_view: Literal["guitar_mono", "mix_mono", "nonvox_mono", "guitar_other_mono"] = "guitar_mono"  # E2
+    guitar_mask: Literal["guitar_only", "guitar+present", "all"] = "guitar+present"  # E3
+    bp_onset_threshold: float = Field(0.6, gt=0.0, lt=1.0)  # E23 (2026-10-03) tuned these three
+    bp_frame_threshold: float = Field(0.4, gt=0.0, lt=1.0)
+    # Shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms); the worker passes frames - 1 to Basic
+    # Pitch, which drops notes of length <= its threshold (M1_M2_SPEC A11).
+    bp_min_note_frames: int = Field(7, ge=1, le=30)
+    bp_min_freq_hz: float = Field(0.0, ge=0.0)  # 0 = backend default
+    bp_max_freq_hz: float = Field(0.0, ge=0.0)
+    bp_melodia_trick: bool = True
+    bp_threads: int = Field(4, ge=1, le=64)  # onnxruntime intra-op threads, pinned (stable NoteSets)
+
+    @field_validator("bp_min_note_frames", mode="before")
+    @classmethod
+    def _bp_min_note_frames(cls, v: Any) -> Any:
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError("1 ~ 30 사이의 정수(프레임 수)여야 합니다")
+        if v == 12:
+            # 12 frames = upstream's 127.7 ms default, which deletes fast picking (DESIGN S6, M1_M2_SPEC A11).
+            raise ValueError(
+                "12 프레임은 Basic Pitch 기본값(127.7 ms)이라 빠른 음을 지웁니다(DESIGN S6). 다른 값을 쓰세요"
+            )
+        return v
+
+
+class InstrCfg(_Section):
+    threshold: Prob = 0.5  # E3
+    guitar_threshold: Prob = 0.15  # low: omitting a guitar class deletes its notes
+    guitar_stem_active_ratio: Prob = 0.05  # guitar stem active in >= 5 % of bars -> all 3 guitar classes
+    active_rel_db: float = Field(-40.0, le=0.0)  # a stem/bar is "active" above this RMS relative to the mix
+    mix_class_min_notes: int = Field(8, ge=0)
+
+
+class GridCfg(_Section):
+    checkpoint: str = Field("final0", pattern=r"^[A-Za-z0-9_.-]+$")  # model "beat_this.<checkpoint>"
+    dbn: bool = False  # true is rejected (needs madmom, not installed)
+    refine_window_ms: float = Field(35.0, ge=0.0)  # Beat This! times are quantised to 20 ms
+    half_double_check: bool = True
+    compound_triple_ratio: Prob = 0.6  # E14
+    compound_margin: Prob = 0.1
+    downbeat_snap_ms: float = Field(70.0, ge=0.0)
+    meter_smooth_bars: int = Field(8, ge=1)
+
+    @field_validator("dbn")
+    @classmethod
+    def _no_dbn(cls, v: bool) -> bool:
+        if v:
+            raise ValueError("grid.dbn=true 는 madmom 이 필요해 지원하지 않습니다")
+        return v
+
+
+class SectionsCfg(_Section):
+    min_section_bars: int = Field(4, ge=1)
+    max_sections: int = Field(16, ge=2)
+    repeat_min_score: Prob = 0.6
+    align_max_offset_ms: float = Field(50.0, ge=0.0)
+
+
+class S35Cfg(_Section):
+    vocal_active_rel_db: float = -30.0
+    resid_min_occurrences: int = Field(3, ge=2)
+
+
+class EvalCfg(_Section):
+    tpb: int = Field(48, ge=1)
+    onset_tol_s: float = Field(0.05, gt=0.0)
+    bootstrap_iterations: int = Field(10000, ge=1)
+    seed: int = 20260930
+    mde_points: float = Field(1.0, gt=0.0)  # default MDE (F1 points); costly elements use 1.5 (DESIGN 8.1)
+
+
+class DatasetsCfg(_Section):
+    root: str = "data/datasets"  # relative to GTAB_ROOT
 
 
 class DoctorCfg(_Section):
@@ -106,6 +283,17 @@ class Config(BaseModel):
     gpu: GpuCfg = Field(default_factory=GpuCfg)
     doctor: DoctorCfg = Field(default_factory=DoctorCfg)
     consent: ConsentCfg = Field(default_factory=ConsentCfg)
+    # M1a/M2 (M1_M2_SPEC 1.3)
+    run: RunCfg = Field(default_factory=RunCfg)
+    hints: HintsCfg = Field(default_factory=HintsCfg)
+    sep: SepCfg = Field(default_factory=SepCfg)
+    amt: AmtCfg = Field(default_factory=AmtCfg)
+    instr: InstrCfg = Field(default_factory=InstrCfg)
+    grid: GridCfg = Field(default_factory=GridCfg)
+    sections: SectionsCfg = Field(default_factory=SectionsCfg)
+    s35: S35Cfg = Field(default_factory=S35Cfg)
+    eval: EvalCfg = Field(default_factory=EvalCfg)
+    datasets: DatasetsCfg = Field(default_factory=DatasetsCfg)
     # Unknown top-level sections, kept verbatim (see module docstring).
     extra: dict[str, Any] = Field(default_factory=dict)
 
@@ -138,7 +326,7 @@ class Config(BaseModel):
         return self
 
     def get(self, dotted: str, default: Any = _MISSING) -> Any:
-        """``cfg.get("youtube.enabled")``; also reaches into unknown sections (``cfg.get("sep.model")``).
+        """``cfg.get("youtube.enabled")``; also reaches into unknown sections (``cfg.get("web.port")``).
 
         Raises KeyError when the key is missing and no default is given.
         """

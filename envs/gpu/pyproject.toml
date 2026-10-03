@@ -10,10 +10,29 @@ dependencies = [
     "torchaudio==2.11.0",
     # gtab.sysmon reads NVML from inside workers (device used-memory peak), M0_SPEC §0/§11.
     "nvidia-ml-py>=12.560",
+    # --- M1a/M2 (docs/M1_M2_SPEC.md §1.1) ---
+    # AMT: MuScriptor 0.3.0 (brings fastapi/uvicorn/typer/httpx - unused by gtab, harmless).
+    "muscriptor==0.3.0",
+    "safetensors",
+    "huggingface-hub",
+    # GRID: Beat This! (the worker gets a local checkpoint path; soundfile is not declared by beat-this).
+    "beat-this==1.1.0",
+    "soxr",
+    "soundfile>=0.14",
+    # SEP: vendored MSST bs_roformer model code. rotary-embedding-torch is pinned because the SW checkpoint
+    # stores `rotary_embed.freqs` and is loaded strictly. No omegaconf/ml_collections: we parse the yaml ourselves.
+    "einops",
+    "rotary-embedding-torch==0.9.1",
+    "beartype",
+    "packaging",
+    "pyyaml",
+    "filelock",
 ]
 
 [tool.uv]
 package = false
+# Windows-only env: resolving for macOS fails (muscriptor pins numpy<2 on x86_64 darwin, gtab needs numpy>=2).
+environments = ["sys_platform == 'win32'"]
 
 [tool.uv.sources]
 gtab = { path = "../..", editable = true }

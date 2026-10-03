@@ -1,0 +1,12 @@
+{
+  "name": "gtab-node",
+  "private": true,
+  "version": "0.1.0",
+  "description": "gtab helper scripts: Guitar Pro import / audio render via alphaTab (MPL-2.0). Local use only.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@coderline/alphatab": "1.8.4"
+  }
+}

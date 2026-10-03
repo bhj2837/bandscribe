@@ -977,9 +977,98 @@ def _check_global_python(cfg: Any) -> list[Check]:
 
 
 # ---------------------------------------------------------------------------------------------
+# 9. M2 state (SEP, M1_M2_SPEC 9.1 item 11): VRAM table and recorded models. Never required.
+
+VRAM_TABLE_STALE_DAYS = 90
+BEAT_THIS_MODEL = "beat_this.final0"
+
+
+def _check_models(cfg: Any) -> list[Check]:
+    def vram_table_check() -> Check:
+        p = Path(paths.VRAM_TABLE)  # read at call time (tests repoint it)
+        if not p.is_file():
+            return Check("gpu.vram_table", True, "VRAM 측정표가 아직 없습니다: 기본 필요량으로 사전 점검합니다 "
+                         "(`gtab bench gpu --backend all` 로 이 PC 값을 재면 정확해집니다).", False, {"present": False})
+        try:
+            doc = atomic.read_json(p)
+        except (OSError, ValueError) as e:
+            return Check("gpu.vram_table", False, f"VRAM 측정표를 읽지 못했습니다: {p} ({e}) — 기본값을 씁니다.", False,
+                         {"present": True, "readable": False})
+        entries = doc.get("entries") if isinstance(doc, dict) else None
+        if not isinstance(entries, dict) or doc.get("format") != "gtab.vram_table/1":
+            return Check("gpu.vram_table", False, f"VRAM 측정표 형식이 올바르지 않습니다: {p} — 기본값을 씁니다.", False,
+                         {"present": True, "readable": False})
+        stamps = [str(e.get("measured_utc", "")) for rungs in entries.values() if isinstance(rungs, dict)
+                  for e in rungs.values() if isinstance(e, dict)]
+        n = len(stamps)
+        newest = max((t for t in stamps if t), default="")
+        age_days = None
+        if newest:
+            try:
+                age_days = (_today() - datetime.fromisoformat(newest).date()).days
+            except ValueError:
+                age_days = None
+        summary = ", ".join(f"{b} {len(r)}칸" for b, r in sorted(entries.items()) if isinstance(r, dict)) or "항목 없음"
+        cal = doc.get("calibration") or {}
+        detail = f"VRAM 측정표 {n}칸 ({summary})"
+        if age_days is not None:
+            detail += f", 최근 측정 {age_days}일 전"
+        if cal.get("shared_growth_noise_mb") is not None:
+            detail += f", 공유 메모리 잡음 {cal['shared_growth_noise_mb']} MB"
+        stale = age_days is not None and age_days > VRAM_TABLE_STALE_DAYS
+        if stale:
+            detail += f" — {VRAM_TABLE_STALE_DAYS}일이 지났습니다. 드라이버·앱 구성이 바뀌었으면 `gtab bench gpu` 로 다시 재세요."
+        if n == 0:
+            detail += " — 비어 있어 기본 필요량을 씁니다."
+        return Check("gpu.vram_table", not stale and n > 0, detail, False,
+                     {"present": True, "entries": n, "age_days": age_days, "calibration": cal})
+
+    def models_check() -> Check:
+        from gtab import models as model_registry  # stdlib + filelock only
+
+        p = model_registry.lock_path()
+        if not p.is_file():
+            return Check("models.present", False, f"모델 기록 파일이 없습니다: {p} — 모델 파일 위치·SHA256 을 확인할 수 "
+                         f"없습니다. Beat This! 는 `gtab models fetch {BEAT_THIS_MODEL}` 로 받습니다.", False,
+                         {"present": False})
+        try:
+            models = model_registry.entries()
+        except model_registry.ModelRegistryError as e:  # Korean: unreadable or wrong format (never overwritten)
+            return Check("models.present", False, str(e), False)
+        missing = [name for name, entry in sorted(models.items())
+                   if not entry.path or not model_registry.resolve(entry).is_file()]
+        problems = []
+        if missing:
+            problems.append(f"기록은 있는데 파일이 없음: {_names_summary(missing)}")
+        beat_missing = BEAT_THIS_MODEL not in models or BEAT_THIS_MODEL in missing
+        if beat_missing:
+            problems.append(f"Beat This! 체크포인트 없음 → `gtab models fetch {BEAT_THIS_MODEL}` "
+                            "(없으면 `gtab run` 이 시작 전에 멈춥니다)")
+        ok = not problems
+        detail = f"기록된 모델 {len(models)}개" + (", 모두 있음" if ok else " — " + "; ".join(problems))
+        return Check("models.present", ok, detail, False,
+                     {"recorded": sorted(models), "missing": missing, "beat_this_missing": beat_missing})
+
+    def alphatab_check() -> Check:
+        # Needed for .gp/.gpx ground-truth import (`gtab gt import`, Tier A) and `gt render --engine alphatab`.
+        from gtab.eval import node as gnode  # stdlib + gtab.winjob only
+
+        ok = gnode.alphatab_available()
+        if ok:
+            return Check("node.alphatab", True, f"alphaTab {gnode.ALPHATAB_VERSION} · {gnode.alphatab_dir()}", False,
+                         {"version": gnode.ALPHATAB_VERSION})
+        return Check("node.alphatab", False, f"alphaTab {gnode.ALPHATAB_VERSION} 이 없습니다({gnode.alphatab_dir()}) "
+                     "— .gp/.gpx 참조 탭을 가져올 수 없습니다. node 폴더에서 npm ci 를 실행하세요"
+                     "(gtab.eval.node.npm_ci()).", False, {"version": None})
+
+    return [_one("gpu.vram_table", False, vram_table_check), _one("models.present", False, models_check),
+            _one("node.alphatab", False, alphatab_check)]
+
+
+# ---------------------------------------------------------------------------------------------
 # Orchestration
 
-GROUPS: tuple[str, ...] = ("gpu", "ffmpeg", "node", "disk", "sysmon", "ytdlp", "global_python")
+GROUPS: tuple[str, ...] = ("gpu", "ffmpeg", "node", "disk", "sysmon", "ytdlp", "global_python", "models")
 
 _GROUP_FUNCS: dict[str, Callable[[Any], list[Check]]] = {
     "gpu": _check_gpu,
@@ -989,6 +1078,7 @@ _GROUP_FUNCS: dict[str, Callable[[Any], list[Check]]] = {
     "sysmon": _check_sysmon,
     "ytdlp": _check_ytdlp,
     "global_python": _check_global_python,
+    "models": _check_models,
 }
 
 
@@ -1029,6 +1119,7 @@ def run_doctor(cfg: Any = None, *, skip: Iterable[str] = ()) -> DoctorReport:
     required_of = {g: True for g in GROUPS}
     required_of["ytdlp"] = bool(_cfg_value(cfg, "youtube.enabled"))
     required_of["global_python"] = False
+    required_of["models"] = False
 
     results: dict[str, list[Check]] = {}
     # NVML/PDH first so the process list and VRAM budget do not include our own selftest worker.

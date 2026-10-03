@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import subprocess
 import sys
 import tomllib
 import types
@@ -18,7 +19,8 @@ from typer.testing import CliRunner
 
 from gtab import atomic, cli, config, log, paths
 
-MANAGED_ENV = ("GTAB_ROOT", "HF_HOME", "TORCH_HOME", "UV_CACHE_DIR", "PYTHONUTF8", "PYTHONIOENCODING", "PYTHONNOUSERSITE")
+MANAGED_ENV = ("GTAB_ROOT", "HF_HOME", "TORCH_HOME", "UV_CACHE_DIR", "PYTHONUTF8", "PYTHONIOENCODING", "PYTHONNOUSERSITE",
+               "MPLBACKEND")
 
 META = {
     "gtab_version": "0.1.0",
@@ -432,6 +434,9 @@ def test_main_bootstraps_everything(root: Path, capsys: pytest.CaptureFixture[st
     assert config.YOUTUBE_CONSENT_TEXT in out  # the effective config now includes the consent
     assert os.environ["HF_HOME"] == str(data / "hf")
     assert os.environ["PYTHONUTF8"] == "1"
+    assert os.environ["MPLBACKEND"] == "Agg"  # synctoolbox/matplotlib never look for a GUI backend
+    for sub in ("eval", "runs", "datasets", "bench", "npm-cache"):  # M1a/M2 layout (M1_M2_SPEC 1.2)
+        assert (data / sub).is_dir(), sub
     assert log.get_logfile() == data / "logs" / "gtab.log"
     assert "argv=['config', 'show']" in (data / "logs" / "gtab.log").read_text(encoding="utf-8")
 
@@ -451,3 +456,118 @@ def test_utf8_stdio_reconfigures_in_place_once(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp949"))
     cli._utf8_stdio()  # already done for this process: no-op
     assert sys.stdout.encoding == "cp949"
+
+
+# ------------------------------------------------------------------------------- M1a/M2 commands
+
+
+def test_help_lists_m2_commands(root: Path, runner: CliRunner) -> None:
+    result = runner.invoke(cli.app, ["--help"])
+    assert result.exit_code == 0, result.output
+    for name in cli.OPTIONAL_COMMANDS:
+        assert name in result.output
+    assert "(불러오지 못함)" not in result.output  # every owner module registered for real
+
+
+def test_managed_env_matches_paths(root: Path) -> None:
+    assert set(paths._managed_env()) == set(MANAGED_ENV)
+    assert paths.child_env()["MPLBACKEND"] == "Agg"
+
+
+def test_m2_paths_layout(root: Path) -> None:
+    data = root / "data"
+    assert paths.EVAL == data / "eval" and paths.RUNS == data / "runs" and paths.DATASETS == data / "datasets"
+    assert paths.BENCH == data / "bench" and paths.NPM_CACHE == data / "npm-cache"
+    assert paths.MODELS_LOCK == data / "models" / "models.lock.json"
+    assert paths.VRAM_TABLE == data / "bench" / "vram_table.json"
+    assert paths.NODE_DIR == root / "node"
+    assert paths.BP310_PYTHON == root / "envs" / "bp310" / ".venv" / "Scripts" / "python.exe"
+
+
+def test_broken_command_module_becomes_a_placeholder(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    app = typer.Typer()
+
+    @app.command()
+    def hello() -> None:
+        """기존 명령"""
+
+    install(monkeypatch, "gtab.commands.fakebroken")  # no register() -> AttributeError
+    assert cli._register_optional(app, "gtab.commands.fakebroken") is False
+    assert cli._register_optional(app, "gtab.commands.does_not_exist_xyz") is False
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0 and "hello" in result.output and "fakebroken" in result.output
+    for args in (["fakebroken"], ["fakebroken", "run", "--suite", "quick"], ["fakebroken", "--help"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 1, (args, result.output)
+        assert "fakebroken 명령을 불러오지 못했습니다: AttributeError" in result.stderr
+    result = runner.invoke(app, ["does_not_exist_xyz"])
+    assert result.exit_code == 1 and "ModuleNotFoundError" in result.stderr
+    assert runner.invoke(app, ["hello"]).exit_code == 0  # the rest of the CLI still works
+
+
+def test_half_registered_module_is_rolled_back(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    def register(app: typer.Typer) -> None:
+        sub = typer.Typer()
+
+        @sub.command("x")
+        def _x() -> None:
+            pass
+
+        app.add_typer(sub, name="halfway")
+        raise RuntimeError("register 도중 실패")
+
+    install(monkeypatch, "gtab.commands.halfway", register=register)
+    app = typer.Typer()
+
+    @app.command()
+    def hello() -> None:
+        pass
+
+    assert cli._register_optional(app, "gtab.commands.halfway") is False
+    assert len(app.registered_groups) == 0 and [c.name for c in app.registered_commands] == [None, "halfway"]
+    result = runner.invoke(app, ["halfway", "x"])
+    assert result.exit_code == 1 and "register 도중 실패" in result.stderr
+
+
+def test_working_module_is_registered(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    import typer
+
+    def register(app: typer.Typer) -> None:
+        @app.command("ok-cmd")
+        def _ok() -> None:
+            print("실행됨")
+
+    install(monkeypatch, "gtab.commands.okmod", register=register)
+    app = typer.Typer()
+
+    @app.command()
+    def hello() -> None:
+        pass
+
+    assert cli._register_optional(app, "gtab.commands.okmod") is True
+    result = runner.invoke(app, ["ok-cmd"])
+    assert result.exit_code == 0 and "실행됨" in result.output
+
+
+def test_optional_commands_load_lazily(root: Path) -> None:
+    """`gtab ingest` / `status` must not pay for the M2 command modules (cache hit < 1 s, DESIGN 10)."""
+    code = "import sys, gtab.cli; print(sorted(m for m in sys.modules if m.startswith('gtab.commands.')))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
+                         errors="replace", check=True)
+    assert out.stdout.strip() == "[]", out.stdout
+
+
+def test_broken_owner_module_does_not_break_the_cli(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    install(monkeypatch, "gtab.commands.eval")  # imports fine but has no register()
+    result = runner.invoke(cli.app, ["--help"])
+    assert result.exit_code == 0 and "(불러오지 못함)" in result.output and "doctor" in result.output
+    result = runner.invoke(cli.app, ["eval", "run", "--suite", "quick"])
+    assert result.exit_code == 1
+    assert "eval 명령을 불러오지 못했습니다: AttributeError" in result.stderr
+    assert runner.invoke(cli.app, ["config", "show"]).exit_code == 0  # the rest still works
+    result = runner.invoke(cli.app, ["models", "--help"])  # other owner modules are unaffected
+    assert result.exit_code == 0 and "verify" in result.output

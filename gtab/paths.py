@@ -26,6 +26,19 @@ UV_CACHE: Path = DATA / "uv-cache"
 
 CORE_PYTHON: Path = GTAB_ROOT / ".venv" / "Scripts" / "python.exe"
 GPU_PYTHON: Path = GTAB_ROOT / "envs" / "gpu" / ".venv" / "Scripts" / "python.exe"
+# Basic Pitch env (Python 3.10, onnxruntime). gtab is not installed there; workers import it via PYTHONPATH.
+BP310_PYTHON: Path = GTAB_ROOT / "envs" / "bp310" / ".venv" / "Scripts" / "python.exe"
+NODE_DIR: Path = GTAB_ROOT / "node"  # package.json + node_modules (alphaTab) for GT import / render
+
+# M1a/M2 data layout (M1_M2_SPEC 1.2).
+EVAL: Path = DATA / "eval"  # tierA/, tierB/, external/, reftx_cache/
+RUNS: Path = DATA / "runs"  # evaluation run directories
+DATASETS: Path = DATA / "datasets"  # <name>/raw|extracted|local + datasets.lock.json
+BENCH: Path = DATA / "bench"  # gtab bench gpu output + vram_table.json
+MODELS_LOCK: Path = MODELS / "models.lock.json"
+VRAM_TABLE: Path = BENCH / "vram_table.json"
+# npm's default cache is under %LOCALAPPDATA%, which the app sandbox redirects -> keep it under DATA.
+NPM_CACHE: Path = DATA / "npm-cache"
 
 YTDLP_EXE: Path = TOOLS / "yt-dlp.exe"
 YTDLP_CONF: Path = TOOLS / "yt-dlp.conf"
@@ -33,7 +46,7 @@ YTDLP_CONF: Path = TOOLS / "yt-dlp.conf"
 GPU_LOCK: Path = DATA / "gpu.lock"
 USER_CONFIG: Path = DATA / "config.toml"
 
-_DIRS = (DATA, MODELS, JOBS, DOWNLOADS, LOGS, HF_HOME, TORCH_HOME, UV_CACHE)
+_DIRS = (DATA, MODELS, JOBS, DOWNLOADS, LOGS, HF_HOME, TORCH_HOME, UV_CACHE, EVAL, RUNS, DATASETS, BENCH, NPM_CACHE)
 
 
 def _managed_env() -> dict[str, str]:
@@ -45,6 +58,9 @@ def _managed_env() -> dict[str, str]:
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
         "PYTHONNOUSERSITE": "1",
+        # synctoolbox imports matplotlib.pyplot at import time and reports plot with matplotlib: never let
+        # either look for a GUI backend (workers, node children and, via apply_process_env, the CLI itself).
+        "MPLBACKEND": "Agg",
     }
 
 

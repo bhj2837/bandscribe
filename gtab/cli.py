@@ -2,7 +2,12 @@
 
 Backends (gtab.doctor, gtab.ingest, gtab.jobs.store) are imported inside the commands, so ``--help``,
 ``config show`` and ``status`` keep working even when one of them is broken or missing a dependency.
-User-facing text is Korean; this is the only module that prints.
+User-facing text is Korean; this module and ``gtab/commands/*`` are the only ones that print.
+
+The M1a/M2 commands (``run``, ``bench``, ``eval``, ``gt``, ``data``, ``models``) live in ``gtab/commands/<name>.py``
+(``register(app)``, M1_M2_SPEC 1.7) and are loaded lazily by the root group: always listed, imported only when
+that command runs or a help screen lists them. Building them eagerly costs ~50 ms per start (typer converts every
+command signature), which ``gtab ingest``'s cache hit cannot afford (< 1 s with CLI start-up, DESIGN 10).
 """
 
 from __future__ import annotations
@@ -21,10 +26,29 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
+from typer.core import TyperGroup
 
 from gtab import __version__, atomic, config, log, paths
 
 logger = logging.getLogger(__name__)
+
+# Command modules owned by the M1a/M2 work packages (M1_M2_SPEC 1.7), loaded lazily by _RootGroup.
+OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "bench", "eval", "gt", "data", "models")
+
+
+class _RootGroup(TyperGroup):
+    """Root command group that adds ``gtab.commands.<name>`` on first use (see module docstring)."""
+
+    def list_commands(self, ctx: Any) -> list[str]:
+        names = list(super().list_commands(ctx))
+        return names + [n for n in OPTIONAL_COMMANDS if n not in self.commands]
+
+    def get_command(self, ctx: Any, cmd_name: str) -> Any:
+        if cmd_name not in self.commands and cmd_name in OPTIONAL_COMMANDS:
+            for name, cmd in _load_optional(cmd_name).items():
+                self.commands.setdefault(name, cmd)
+        return super().get_command(ctx, cmd_name)
+
 
 app = typer.Typer(
     name="gtab",
@@ -32,6 +56,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_show_locals=False,  # locals can hold tokens or huge arrays
+    cls=_RootGroup,
 )
 config_app = typer.Typer(help="설정 보기.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
@@ -449,6 +474,54 @@ def gc() -> None:
     store = _call("작업 저장소 열기", store_cls, paths.JOBS)
     removed = _call("임시 폴더 정리", store.gc_temp)
     _out().print(f"임시 폴더 {removed}개를 지웠습니다." if removed else "지울 임시 폴더가 없습니다.")
+
+
+# --------------------------------------------------------------------------------- M1a/M2 commands
+# Each module in gtab/commands exports register(app) and imports only typer/rich/stdlib at module level
+# (M1_M2_SPEC 0, 1.7). They are owned by other work packages, so one broken module must never break `gtab`:
+# a failed import or register() leaves a placeholder that explains the problem when used.
+
+
+def _register_optional(target: typer.Typer, module: str) -> bool:
+    """``module.register(target)``; on any failure register a placeholder named after the module instead.
+
+    Returns True when the real commands were registered.
+    """
+    name = module.rsplit(".", 1)[-1]
+    n_cmds, n_groups = len(target.registered_commands), len(target.registered_groups)
+    try:
+        importlib.import_module(module).register(target)
+        return True
+    except Exception as e:  # import error, missing register(), a bug inside register()
+        logger.debug("cannot register %s", module, exc_info=True)
+        # Drop anything a half-finished register() added, so the placeholder is the only entry of that name.
+        del target.registered_commands[n_cmds:]
+        del target.registered_groups[n_groups:]
+        error = f"{type(e).__name__}: {e}"
+
+    def _placeholder(ctx: typer.Context) -> None:
+        _fail(f"{name} 명령을 불러오지 못했습니다: {error}", show_log=True)
+
+    target.command(
+        name,
+        help=f"(불러오지 못함) {error}",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+        add_help_option=False,
+    )(_placeholder)
+    return False
+
+
+def _load_optional(name: str) -> dict[str, Any]:
+    """Click commands that ``gtab.commands.<name>`` registers (or its placeholder), by command name."""
+    sub = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
+
+    @sub.callback()
+    def _group() -> None:
+        # A callback forces typer's group mode, so a module that registers one command keeps its name.
+        pass
+
+    _register_optional(sub, f"gtab.commands.{name}")
+    return dict(typer.main.get_command(sub).commands)
 
 
 # -------------------------------------------------------------------------------------------- main

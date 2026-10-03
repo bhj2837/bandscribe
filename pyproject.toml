@@ -22,6 +22,20 @@ core = [
     "rich>=13.7",
     "nvidia-ml-py>=12.560",
     "tomli-w>=1.0",
+    # M1a/M2 (M1_M2_SPEC §1.1). Heavy ones are imported lazily inside functions (§0, test_import_weight).
+    "librosa==0.11.*",
+    "mir_eval>=0.8,<0.9",
+    "synctoolbox==1.4.2",
+    "pyguitarpro==0.11",
+    "pretty_midi>=0.2.10",
+    "mido>=1.3",
+    "music21>=9.9,<10",
+    "jinja2>=3.1",
+    "matplotlib>=3.10",
+    "pyyaml>=6",
+    "scikit-learn>=1.5",  # synctoolbox imports sklearn without declaring it
+    "threadpoolctl>=3",
+    "pandas>=2.3,<3",
 ]
 
 [project.scripts]
@@ -41,6 +55,11 @@ packages = ["gtab"]
 testpaths = ["tests"]
 markers = [
     "gpu: needs the CUDA worker env and an NVIDIA GPU",
+    "gpuenv: needs the gpu venv (CPU torch is enough)",
+    "bp310: needs the Basic Pitch venv (envs/bp310, Python 3.10)",
+    "node: needs node and node/node_modules/@coderline/alphatab",
+    "data(name): needs dataset <name> recorded in data/datasets/datasets.lock.json",
+    "model(name): needs model <name> recorded in data/models/models.lock.json and present",
     "slow: takes more than a few seconds",
     "network: needs internet access",
 ]

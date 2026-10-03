@@ -150,12 +150,26 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     conf = tools / "yt-dlp.conf"
     conf.write_text("# gtab\n--js-runtimes node\n", encoding="utf-8")
     monkeypatch.setattr(paths, "DATA", data)
+    # M2 "models" group (SEP): a healthy machine has its models recorded and present (absolute paths
+    # override GTAB_ROOT below). No vram_table.json yet is fine (defaults are used, reported as ok).
+    monkeypatch.setattr(paths, "MODELS", data / "models")
+    monkeypatch.setattr(paths, "MODELS_LOCK", data / "models" / "models.lock.json")
+    monkeypatch.setattr(paths, "VRAM_TABLE", data / "bench" / "vram_table.json")
+    ckpt = tmp_path / "final0.ckpt"
+    ckpt.write_bytes(b"x")
+    (data / "models").mkdir(parents=True)
+    (data / "models" / "models.lock.json").write_text(json.dumps(
+        {"format": "gtab.models/1", "models": {"beat_this.final0": {"path": str(ckpt)}}}), encoding="utf-8")
     monkeypatch.setattr(paths, "GPU_PYTHON", gpu_py)
     monkeypatch.setattr(paths, "YTDLP_EXE", exe)
     monkeypatch.setattr(paths, "YTDLP_CONF", conf)
     monkeypatch.setattr(paths, "GTAB_ROOT", Path(r"D:\gtab"))
     monkeypatch.setattr(paths, "child_env", lambda extra=None: {
         "HF_HOME": r"D:\gtab\data\hf", "TORCH_HOME": r"D:\gtab\data\torch", "UV_CACHE_DIR": r"D:\gtab\data\uv-cache"})
+
+    from gtab.eval import node as gnode
+
+    monkeypatch.setattr(gnode, "alphatab_available", lambda: True)  # node.alphatab check (non-required)
 
     gpu, sysmon, runner = FakeGpu(), FakeSysmon(), FakeRunner()
     modules: dict[str, Any] = {"gtab.gpu": gpu, "gtab.sysmon": sysmon}
@@ -285,11 +299,12 @@ def test_all_ok(env: SimpleNamespace) -> None:
     st = _statuses(report)
     assert report.ok, [c.to_dict() for c in report.checks if not c.ok]
     assert all(s == "ok" for s in st.values()), st
-    # Spec order: gpu, ffmpeg, node, disk, nvml/pdh, yt-dlp, global python.
+    # Spec order: gpu, ffmpeg, node, disk, nvml/pdh, yt-dlp, global python, then the M2 models group (SEP).
     names = [c.name for c in report.checks]
     assert names == ["gpu.venv", "gpu.cuda", "gpu.capability", "gpu.fp16_matmul", "gpu.autocast_conv", "gpu.launcher",
                      "ffmpeg", "ffmpeg.features", "node", "disk.free", "disk.cache_paths",
-                     "nvml", "gpu.budget", "pdh", "youtube", "ytdlp", "ytdlp.freshness", "ytdlp.conf", "global_python"]
+                     "nvml", "gpu.budget", "pdh", "youtube", "ytdlp", "ytdlp.freshness", "ytdlp.conf", "global_python",
+                     "gpu.vram_table", "models.present", "node.alphatab"]
     json.dumps(report.to_dict(), ensure_ascii=False)  # --json must be serialisable
 
     (name, request, work_dir, kw) = env.gpu.calls[0]

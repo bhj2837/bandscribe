@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gtab 실험 {{ summary.experiment }}</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --muted:#6b6b70; --line:#e3e3e6; --accent:#2563eb; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141416; --fg:#ececf0; --muted:#9a9aa3; --line:#2c2c31; --accent:#60a5fa; } }
+body { background:var(--bg); color:var(--fg); font:14px/1.5 "Malgun Gothic", system-ui, sans-serif; margin:0 auto; max-width:1100px; padding:16px; }
+h1 { font-size:20px; } h2 { font-size:16px; margin-top:24px; border-bottom:1px solid var(--line); }
+table { border-collapse:collapse; font-variant-numeric:tabular-nums; } th, td { border-bottom:1px solid var(--line); padding:3px 8px; text-align:right; }
+th:first-child, td:first-child { text-align:left; } pre { white-space:pre-wrap; font-size:12px; color:var(--muted); }
+.decision { font-size:18px; font-weight:700; color:var(--accent); }
+</style>
+</head>
+<body>
+<h1>실험 {{ summary.experiment }}</h1>
+<p class="decision">계산된 판정: {{ summary.decision_ko }}</p>
+<p>규칙 {{ summary.rule }} · 주 지표 {{ summary.metric }} · 선택지 {{ summary.arms|join(", ") }}</p>
+{% for w in summary.warnings %}<p>⚠ {{ w }}</p>{% endfor %}
+{% if summary.comparisons %}
+<h2>후보 − 기준 ({{ summary.baseline }})</h2>
+<table><tr><th>후보</th><th>Δ(점)</th><th>CI</th><th>기준 값</th><th>후보 값</th><th>항목</th><th>판정</th></tr>
+{% for c, v in summary.comparisons.items() %}
+<tr><td>{{ c }}</td><td>{{ fmt(v.delta) }}</td><td>{{ fmt(v.ci[0]) }} – {{ fmt(v.ci[1]) }}</td><td>{{ fmt(v.baseline.point) }}</td><td>{{ fmt(v.candidate.point) }}</td><td>{{ v.n_items }}</td><td>{{ summary.per_candidate.get(c, "") }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+<h2>집계 행</h2>
+<table><tr><th>system</th><th>metric</th><th>line</th><th>section</th><th>rung</th><th>값</th><th>CI</th><th>n</th></tr>
+{% for r in agg_rows %}<tr><td>{{ r.system }}</td><td>{{ r.metric }}</td><td>{{ r.line }}</td><td>{{ r.section }}</td><td>{{ r.rung }}</td><td>{{ fmt(r.value) }}</td><td>{{ fmt(r.ci_low) }} – {{ fmt(r.ci_high) }}</td><td>{{ r.n }}</td></tr>{% endfor %}
+</table>
+<h2>요약 JSON</h2>
+<pre>{{ summary_json }}</pre>
+</body>
+</html>
