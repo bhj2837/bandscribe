@@ -3,6 +3,13 @@
 - Upstream: https://github.com/ZFTurbo/Music-Source-Separation-Training
 - Commit: `84b1eac0887756b4f1a9d7a1ff49105939749ed2` (2026-09-26)
 - License: MIT (`LICENSE`, copied verbatim)
+- Model code origin: MSST's `models/bs_roformer/bs_roformer.py` and `attend.py` come from
+  [lucidrains/BS-RoFormer](https://github.com/lucidrains/BS-RoFormer) (MIT, Copyright (c) 2023 Phil Wang). MSST's
+  README credits it, but MSST's `LICENSE` carries only ZFTurbo's notice, so Phil Wang's notice is kept here as
+  `LICENSE.BS-RoFormer` (verbatim from that repo at `84f2b25297424e93f721d5fb9d42291c6d934284`, 2026-06-14;
+  sha256 `242a377761ef3853c662f6977e7617e3eaa347242f544968a796512135cc83e5`). Measured 2026-10-04 against that
+  commit: 343 of its 584 lines of `bs_roformer.py` and 116 of its 120 lines of `attend.py` appear unchanged, in
+  order, in the vendored files. See also `THIRD_PARTY_NOTICES.md` at the repository root.
 - Why vendored (DESIGN S3 [안2], M1_M2_SPEC 9.1): only the BS-RoFormer model code is needed. MSST's
   `inference.py` / `utils` pull librosa, matplotlib (module level), tqdm, omegaconf and ml_collections, none
   of which belong in the gpu env. The inference loop is our own port (`demix.py`), the config loader too
@@ -59,4 +66,5 @@ does not use PoPE).
 
 Fetch the three files at the new commit, re-apply the patches above, update the table (sha256 of both columns)
 and `MSST_COMMIT` in `__init__.py`, and bump `sep.msst_commit` in `bandscribe/defaults.toml` (integrator) so every
-`sep` stage key changes.
+`sep` stage key changes. Keep `LICENSE` and `LICENSE.BS-RoFormer` (both notices must stay with the code), and
+update `THIRD_PARTY_NOTICES.md` if the upstream licence or the pinned commit changes.
