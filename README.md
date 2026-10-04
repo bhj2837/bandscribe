@@ -275,6 +275,9 @@ E# 실험은 각각 [`docs/decisions.md`](docs/decisions.md)에 등록 문구와
 - ffmpeg(libsoxr, chromaprint, ebur128 포함 빌드)와 Node.js 22 이상이 PATH에 있어야 한다.
 - [uv](https://docs.astral.sh/uv/) 실행 파일을 `tools\uv.exe`에 둔다. `tools\uvw.cmd`가 Python 설치와 캐시를 저장소 폴더
   안에 둔다(`%APPDATA%`를 쓰지 않는다).
+- YouTube 입력(기본으로 켜져 있음)을 쓰려면 [yt-dlp](https://github.com/yt-dlp/yt-dlp) nightly 실행 파일을
+  `tools\yt-dlp.exe`에 둔다. 켜져 있는데 이 파일이 없으면 `doctor`가 실패한다. 쓰지 않으려면
+  [법적 고지와 개인 사용](#법적-고지와-개인-사용)에 적은 대로 끈다.
 - 디스크 여유 60 GB 이상(doctor 기준). 저장소 경로는 ASCII로 둔다.
 
 **설치**
@@ -292,7 +295,8 @@ cd envs\bp310 && ..\..\tools\uvw.cmd sync --locked && cd ..\..
 cd node && npm ci && cd ..
 ```
 
-**모델은 직접 받는다.** 이 저장소는 모델 가중치를 포함하지도, 대신 받지도 않는다. 라이선스는
+**모델은 직접 받는다.** 이 저장소에는 모델 가중치가 없다. bandscribe가 받아 주는 것은 Beat This! 체크포인트
+하나뿐이고(아래 2번, 받기 전에 묻는다), 나머지는 사용자가 직접 받는다. 라이선스는
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)를 본다.
 
 1. **MuScriptor medium** (전사, CC BY-NC 4.0, Hugging Face 게이트): 본인 계정으로 모델 페이지의 사용 조건을 직접 수락한다.

@@ -368,8 +368,9 @@ link, bundle or modify them; it starts them as separate programs, which leaves o
 
 ## 7. Repository scan before publishing (2026-10-04)
 
-- **Files:** all 255 tracked files are text. There is no audio, model, archive, image or other binary file; the
-  largest is `docs/DESIGN.md` (179 KB).
+- **Files:** all 258 tracked files (the 255 tracked before this notice, plus this file, `LICENSE` and
+  `LICENSE.BS-RoFormer`) are text. There is no audio, model, archive, image or other binary file; the largest is
+  `docs/DESIGN.md` (179 KB).
 - **History:** every commit up to this one (7 before it, on `main` and `wip/m1a-m2`) contains only these files and
   their earlier `gtab/...` names. No binary blob was ever committed; the largest blob is 179 KB.
 - **Secrets:** no Hugging Face or GitHub token and no private key in the tree or the history.
