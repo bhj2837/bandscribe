@@ -15,7 +15,7 @@ Last updated: 2026-10-04 (renamed gtab → bandscribe and moved the folder `D:\g
 | Experiments | 🟡 mostly done (see table below) |
 | Review → Fix → Acceptance | ⬜ not started |
 
-All M1a/M2 work is in the WIP commit on branch **`wip/m1a-m2`**. `main` still points at M0. Merge into `main` after acceptance.
+All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented but its review and acceptance are still pending; tag it `m2` once accepted.
 
 ### Experiments (`docs/decisions.md`)
 
@@ -124,11 +124,11 @@ mask the backing used:
 
 ## Next steps (in order)
 
-1. `git checkout wip/m1a-m2`. Quick check from the project folder: `bandscribe.cmd doctor` and
+1. Quick check from the project folder: `bandscribe.cmd doctor` and
    `.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
 2. ~~Speed work~~ done 2026-10-04 (profiles + presence windows, reviewed and fixed, above). Optional: time `--profile fast` on SC.mp3.
 3. Review (correctness + GPU/Windows), fix, then check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on the user.
-4. Merge `wip/m1a-m2` into `main` and commit the milestone.
+4. Commit the milestone on `main` and tag it (`m2`).
 5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export).
 
 ## Facts worth keeping
