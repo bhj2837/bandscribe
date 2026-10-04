@@ -1141,6 +1141,7 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 | E22 | L/R 음표 집합 연산 vs centre−S, 음표별 스테레오 서명 가설(창 단위 팬 대비), 유니즌 판정 문턱 | M6 |
 | E23 | Basic Pitch 최소 음 길이(남기는 프레임 {3,4,5,6,7,12}; 12 = 업스트림 127.7 ms)·onset/frame threshold 튜닝 | M2 |
 | E24 | 백엔드별 dtype: 업스트림 기본 vs fp16 캐스팅 | M2/M10 |
+| distractors | 방해 소리(신스·건반·현악·효과음)별 기타 FP·FN 증가와 원인, 분리 누출 (서술, 8.8) | M2 |
 
 ### 8.7 리포트
 
@@ -1152,6 +1153,60 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 **결정성:**
 - **GPU 산출물이 캐시된 상태에서 CPU 단계는 byte 단위로 같은 결과를 내야 한다.**
 - GPU 단계는 비트 단위로 결정적이지 않다. fp16 autocast, cuBLAS, 자기회귀 디코딩 때문이고, 그리디 디코딩에서 토큰 하나가 뒤집히면 음표가 바뀐다. 그래서 GPU 단계는 결정성 플래그(`CUBLAS_WORKSPACE_CONFIG`, `torch.use_deterministic_algorithms`)를 시도하되, 캐시를 지운 재실행은 **반올림한 음표 목록을 허용 오차로** 비교한다(예: onset 10 ms, 음표 수 차이 0.5 % 이내, 잠정).
+
+
+### 8.8 방해 소리 측정: 무엇이 기타 오검출·누락을 만드는가 (2026-10-04)
+
+J-pop·J-rock 밴드 녹음에는 기타 위에 신스 패드·리드, 건반, 현악, 효과음(라이저·스윕), 샘플이 겹친다. "원곡 기타 음 중 반주에서도
+나오는 음의 비율" 하나로는 **어떤 소리가** 오검출(FP)을 만들고 진짜 음을 가리는지(FN) 알 수 없다. 2026-10-04 에는 악기 마스크를
+바꾸면 블리드가 줄기보다 MuScriptor 출력이 뒤섞인다는 것도 확인했다. 그래서 마스크·S7 블리드 감점 같은 이후 결정은 이 측정으로
+한다. 실행: `bandscribe eval run --suite distractors` (사전 등록 `distractors`, docs/decisions.md). 코드:
+[`eval/distractors.py`](../bandscribe/eval/distractors.py), [`eval/attribution.py`](../bandscribe/eval/attribution.py),
+[`eval/stem_taxonomy.py`](../bandscribe/eval/stem_taxonomy.py), 리포트 [`eval/distractor_report.py`](../bandscribe/eval/distractor_report.py).
+
+1. **데이터:** Cambridge-MT 멀티트랙(Tier B). 기존 6곡에 방해 소리가 있는 록·팝 7곡을 더했다(신스 패드·리드·FX, 로즈,
+   현악·서브드롭, 스트링 패드·오르간·피아노; `registry.toml` 의 `required = false` 부분, 2.48 GB).
+2. **스템 분류:** 파일 이름 규칙으로 15 범주(`guitar_electric`, `guitar_acoustic`, `bass`, `drums`, `vocals`, `keys_piano`,
+   `keys_epiano`, `organ`, `synth_pad`, `synth_lead`, `synth_other`, `strings`, `brass_winds`, `sfx`, `other`). 규칙에 없는
+   이름은 `other` 로 두고 리포트에 나열한다. `lines.yaml` 에서 기타 Line 에 속한 파트는 이름과 상관없이 기타다.
+3. **구간:** 곡마다 75 s 창 최대 2개(5 s 간격 후보). 기타가 창의 50 % 이상에서 활성(스템 합 대비 ‑20 dB)이고, 방해 범주가 10 %
+   이상 활성(‑30 dB, ‑60 dBFS 이상)이어야 한다. 첫 창은 활성 범주가 가장 많은 창, 두 번째 창은 겹치지 않고 새 범주를 더하는 창.
+4. **조건:** `base`(기타·드럼·베이스·보컬), `+<범주>`(base + 범주 하나), `full`(모든 스템). 스템은 멀티트랙 그대로 단위 게인으로
+   더하고(Tier B 리믹스와 같은 밸런스), **모든 조건에 `full` 의 마스터링 게인 곡선**(‑8 LUFS, ‑1 dBTP 리미터, `remix.master_gain`)을
+   똑같이 곱한다. 그래서 기타 신호는 조건마다 샘플 단위로 같고, 다른 소리의 유무만 바뀐다.
+5. **참조:** 참 기타 스템 합(같은 게인)의 MuScriptor 전사(기타만 마스크). 믹스와 분리가 더한 오류를 재고, 전사기 자체의 오류는
+   빼고 본다. 참조가 MuScriptor 파생이라 절대 성능은 주장하지 않는다.
+6. **평가 대상:** 제품 경로. SW 분리 → `stems` 단계와 같은 에너지·`guitar_mono`·`piano_other_mono` → 표본 존재 패스와
+   `instrumentation.estimate`(설정의 프로필과 `amt.guitar_mask`, 2 s 의사 마디, 구간 정보 없음: E3b 와 같은 실험 규약) →
+   그 마스크로 `guitar_mono` 를 MuScriptor → 기타 클래스만, 지연 보정. 진단 arm `guitar_only` 는 같은 뷰를 기타만 마스크로 전사해
+   소리 효과와 마스크 효과를 가른다(제품 마스크가 기타만이면 캐시 적중). 모든 GPU 작업은 워커·GPU 락·내용 주소 캐시를 거친다.
+   분리는 조건들을 1 청크 이상의 무음으로 띄우고 청크 스텝에 맞춰 한 워커에 넣는다(각 조건이 혼자 분리될 때와 같은 청크 격자;
+   확인: 안쪽 51.5 dB, 가장자리 7 s 26.4 dB SNR, 가장자리 차이는 reflect 대 0 패딩).
+7. **지표와 원인:** mir_eval onset 50 ms / pitch 50 cents 로 조건마다 정밀도·재현율·F1, FP/분, FN/분. 범주마다 `+범주` − `base`
+   의 차이를 곡 블록 부트스트랩(10,000회)으로 CI 를 낸다. 띄엄띄엄 나오는 소리가 묽어지지 않게 "그 소리가 활성인 1분당" 차이도
+   낸다. 음마다 원인(첫 규칙 우선):
+   - FP: 같은 음높이 참조 음이 겹치거나 200 ms 안 → `guitar_timing`; 그 음의 대역(f0 ±50 cents, MIDI 52 미만은 2배음 대역도) 에너지
+     1위가 비기타 참 스템 → 그 범주; ±12/19/24 반음 참조 음이 겹침 → `guitar_octave`; ±1/2 반음 → `guitar_near`; 기타가 1위 →
+     `guitar_unref`(참조에 없는 기타 소리); 바닥 아래 → `unknown`. 비기타 1위를 배음 규칙보다 먼저 보는 이유: 건반·패드는 기타와
+     같은 화성을 쳐서 옥타브·5도 관계가 흔하다(시험 실행에서 오르간이 만든 FP 70/104개가 `guitar_octave` 로 찍혔다).
+   - FN: 추정 음과의 같은 관계(`est_timing`, `est_octave`, `est_near`) → 가장 센 비기타 범주가 기타 에너지 ‑6 dB 이상이면 그 범주
+     (가림) → 아니면 `guitar_clear`.
+   - 분리 누출: 한 범주가 참 에너지의 80 % 이상을 차지하는 시간-주파수 칸에서 SW 기타 스템 에너지 / 참 에너지(dB), 그리고 기타 스템
+     에너지 중 그 범주 칸의 몫.
+   - 잡음 기준(`base_null`, 첫 결과를 본 뒤 더한 진단): 기본 조건의 기타 뷰에 ‑90 dBFS RMS 백색 잡음(시드 고정)만 더해 같은 마스크로
+     다시 전사한다. 들리지 않는 변화로 생기는 차이라서 범주 효과를 해석하는 잣대가 된다(MuScriptor 만의 민감도).
+8. **리포트:** `metrics.csv`, `summary.json`, `report.md`·`report.html`(한국어): "먼저 고칠 것" 순위, 범주별 표, 조건별 전체 값, FP 원인
+   혼동표(조건 × 원인, 원인 × 대역 1위 소리), FN 원인표, 곡별 표, 분리 누출 표.
+9. **보조 세트 `backing`:** 상용곡의 원곡과 기타를 지운 반주(사용자 파일, 읽기만)를 둘 다 돌린 뒤, 원곡 기타 음 중 반주에서도
+   나오는 음의 비율을 낸다(`data/eval/backing_pairs.toml`, 결과는 `data/runs` 에만). 원인이 아니라 증상이라 보조 지표다.
+
+**첫 결과(2026-10-04, PROGRESS.md "Distractor measurement"):** 신스 패드는 재현율 −3.7점으로 일관되게 해롭고, 현악의 손해는
+소리가 아니라 편성 마스크 탓이었다(기타만 마스크로는 차이 없음). 가장 큰 오류는 방해 소리가 없어도 있는 음 분할·타이밍·옥타브
+차이이고, MuScriptor 디코딩은 일부 구간에서 들리지 않는 잡음에도 크게 흔들렸다.
+
+**한계:** 75 s 구간을 따로 분리하므로 곡 전체를 분리하는 제품 실행과 가장자리 문맥이 다르다. 편성 추정은 구간 하나에서 표본 창
+1개(10 s)로 하므로 곡 전체의 존재 패스와 다를 수 있다. 참조는 MuScriptor 출력이라 참조 자체의 누락은 `guitar_unref` 로 보인다.
+`synth_other` 처럼 이름이 말해 주지 않는 신스는 패드·리드로 가르지 않았다.
 
 ---
 

@@ -1,7 +1,8 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-04 (renamed gtab → bandscribe and moved the folder `D:\gtab` → `D:\bandscribe`, see
-`docs/RENAME.md`; speed fix + review fixes measured, see "Speed and presence fix" below).
+Last updated: 2026-10-04 evening (distractor measurement: which kinds of sound cause guitar FP/FN, see
+"Distractor measurement" below; earlier the same day: rename gtab → bandscribe, folder `D:\bandscribe`,
+speed fix + review fixes).
 
 ## Where things stand
 
@@ -28,9 +29,69 @@ All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented 
 | E23 Basic Pitch params | **Adopted** onset 0.6, frame 0.4, min_note_frames 7. Test Δ +6.6 [+3.8, +9.9]. |
 | Latency | **Adopted** `amt.latency_s = -0.003` (descriptive; held-out 10.9 ms). |
 | Gate-m2 (MuScriptor vs Basic Pitch, distorted) | Undecided. Δ +8.1 [+2.1, +13.5], but contamination is unknown, so not counted as a pass. |
+| distractors (which sounds cause guitar FP/FN; descriptive) | **Run** 2026-10-04 (`20261004-192625_e3f8e5f_distractors`), status 실행 중 until a person records it. Results below. |
 | E24-sep, E24-amt (fp16 cast) | Pre-registered only, not run. Optional; skip unless cheap. |
 | stereo-preservation (last entry in decisions.md) | Pre-registered only, not run. |
 | Tier A descriptive pass on the 5 songs | Started (`data/scratch/exp/tiera_desc.py`), killed at the pause. Partial output is in `data/scratch/exp/tierA/`. |
+
+## Distractor measurement (2026-10-04)
+
+`bandscribe eval run --suite distractors` (DESIGN §8.8, pre-registered as `distractors` in decisions.md). Code:
+`bandscribe/eval/{distractors,attribution,stem_taxonomy,distractor_report,backing}.py`. Evidence (local only):
+`data/runs/20261004-192625_e3f8e5f_distractors/` (report.md / report.html / summary.json / metrics.csv), caches in
+`data/eval/distractors/` and the MuScriptor eval cache, logs in `data/scratch/distr/`.
+
+- **Data:** 7 Cambridge-MT songs added (optional `required = false` parts of `cambridge_mt`, 2.48 GB, sha256 in
+  datasets.lock.json): JamesElder (synth pad/lead/fuzz/FX), Jokers (synth pad/lead), Zeno (synth pad, piano),
+  RememberDecember (strings, sub drop), SigneJakobsen (string pad, organ, piano), Mu (Rhodes, synths, Rhodes FX),
+  Moosmusic (Rhodes). With the old JetB (piano, SFX), Mistrusted (stylophone), Secretariat (Hammond): 10 songs x one
+  75 s window (no song met the second-window rule; ButterflyEffect's SFX never overlaps the guitar enough).
+  Stem taxonomy: 293 file names on disk, 0 unknown.
+- **Method:** conditions base (guitars+drums+bass+vocals) / +one category / full, same mastering gain curve for all;
+  reference = MuScriptor on the true summed guitars; system = production guitar path (SW -> presence pass +
+  instrumentation mask -> MuScriptor), plus the guitar-only-mask arm and a decoder null (base view + -90 dBFS noise).
+- **Results** (production arm, delta vs base, song-block 95 % CI; the reference is MuScriptor-derived, so no
+  absolute claims):
+
+  | Added sound (songs) | dFP/min | dFN/min | d recall (pts) | dF1 (pts) | dF1, guitar-only mask | leak into SW guitar | top FP cause |
+  |---|---|---|---|---|---|---|---|
+  | synth pad (3) | +18.7 [+12.0, +24.0] | +24.8 [+13.6, +44.0] | −3.7 [−6.1, −2.2] | −3.1 [−4.9, −1.9] | −2.4 [−4.9, +0.1] | −12.5 dB | guitar's own timing/splits +18.4/min (pad-dominated only +1.9) |
+  | strings (2) | +55.6 [+50.4, +60.8] | +50.0 [+8.8, +91.2] | −5.5 [−10.8, −0.9] | −5.9 [−9.9, −2.7] | **+0.5 [0.0, +0.9]** | −11.5 dB | the mask (synth_strings / organ added), not the sound |
+  | piano (3) | +21.9 [+4.0, +40.0] | −0.8 [−8.0, +4.8] | +0.1 [−0.7, +2.0] | −1.4 [−2.8, +0.7] | −1.5 [−2.8, −0.7] | −12.9 dB | guitar timing +16, octave +8 |
+  | organ (2) | +17.6 [0.0, +35.2] | +4.0 [0.0, +8.0] | −0.6 [−1.5, 0.0] | −1.5 [−3.8, 0.0] | −1.5 [−3.8, 0.0] | −14.4 dB | organ-dominated +14.0/min |
+  | FX / risers (3) | +9.1 [−4.8, +27.2] | 0.0 [−16.0, +10.4] | 0.0 [−1.9, +4.3] | −0.6 [−1.3, +0.6] | same | −19.0 dB | vocals +5.9, octave +4.8, FX +4.3 |
+  | synth lead (3) | −82.4 [−247, +0.8] | +2.1 [−0.8, +6.4] | −0.3 [−1.2, +0.1] | +4.6 [−0.1, +12.7] | same | −16.3 dB | (FP went **down**: see the null) |
+  | synth, unnamed (2) | −81.6 [−92.8, −70.4] | +16.4 [+3.2, +29.6] | −3.6 [−8.0, −0.6] | +2.7 [+2.1, +3.0] | same | −16.4 dB | synth-dominated +30.4, drums +21.6 |
+  | electric piano (2) | −48.4 [−102, +5.6] | +1.6 [−19.2, +22.4] | −0.3 [−3.7, +5.2] | +3.4 [−2.5, +11.1] | +0.2 [−2.5, +2.9] | −23.6 dB | (FP went down: Mu, see the null) |
+  | full mix (10) | +0.5 [−67.8, +53.2] | +36.0 [+10.6, +68.8] | −5.6 [−10.1, −1.7] | −3.3 [−8.0, +1.7] | −0.7 [−4.0, +3.1] | – | octave +3.0, organ +2.8 |
+  | decoder null (10) | −13.0 [−44.0, +5.6] | +8.1 [+0.4, +20.1] | −1.3 [−3.0, −0.1] | +0.1 [−1.7, +2.3] | same | – | median abs. change 0.4 FP / 0.8 FN per min, but Mu −145.6 FP/min and Signe +56 FN/min |
+
+  - base itself (drums+bass+vocals only): F1 82.9, FP 130/min, FN 95/min vs the clean-guitar reference. Biggest
+    causes in the full mix: the guitar's own timing/splitting (FP 67.7/min, FN 70.6/min: same pitch, 50–200 ms off)
+    and octave (FP 27.7, FN 40.9/min). All FPs whose loudest true sound is a distractor add up to ~7/min.
+  - **Mask:** in the 13 conditions where the production mask added keys/synth classes, MuScriptor labelled **0**
+    notes non-guitar; pooled F1 85.3 (guitar-only mask) -> 82.3 (production), mean −2.1 points, 9 of 13 worse.
+  - SW guitar stem: guitar retention −0.5 dB; 81–85 % of its energy lies in guitar-dominated bins, each distractor
+    category ≤ 1.1 %.
+- **Surprises:** (1) adding a synth lead / unnamed synth / Rhodes made FPs go *down* by 50–80/min; (2) an inaudible
+  −90 dBFS change moved FP by −146/min on Mu and FN by +56/min on Signe: MuScriptor's greedy decoding is unstable on
+  some excerpts, so 2–3-song category deltas can sit inside decoder noise; (3) the strings "damage" is entirely the
+  mask; (4) pads hurt through the guitar's own segmentation (timing FPs/FNs), not by pad-pitched notes.
+- **What to fix first** (report ranking): guitar timing/segmentation (FN 70.6 + FP 67.7 /min) -> octave (FN 40.9 +
+  FP 27.7) -> decoder instability (an inaudible change moves 25.4 errors/min on average) -> strings (mask-driven,
+  21.1 weighted) -> synth pad (13.0) -> piano (6.3).
+- **Limitations:** one 75 s window per song (2–3 songs per category, CIs from very few blocks); excerpts are separated
+  alone (edge context differs from a whole-song run: 26 dB SNR in the 7 s edges, 51 dB inside); instrumentation from
+  one 10 s presence window per excerpt; the reference is MuScriptor (its misses show up as `guitar_unref`); synths
+  whose file names say nothing stay `synth_other`; the null covers MuScriptor only, not SW.
+- **GPU time:** first full pass 51.6 min (SW 16.3 in 6 batch workers, MuScriptor 27.4 + 7.9), null 6.5 min, one-song
+  smoke test 3.4 min, batching check 0.7 min: about 62 min. Reruns with the caches: 0 GPU, ~5 min CPU, and
+  metrics.csv is byte-identical.
+- **Tests:** new `tests/test_eval_{stem_taxonomy,attribution,distractors,backing}.py`; full default suite 1276 passed,
+  1 skipped (8 min 12 s).
+- **Auxiliary `backing` suite** (`bandscribe eval run --suite backing`, pairs in `data/eval/backing_pairs.toml`): KH
+  10.3 % of guitar notes also on the current backing (11.9 % against every backing result), aotonat 5.4 % (17.7 %),
+  SC 0 %; AIZO/AZ have no `notes` stage yet. The "every result" numbers reproduce the scratch-script values below.
 
 ## Speed and presence fix (2026-10-04, reviewed and fixed, committed as `2857d6d`)
 
@@ -115,7 +176,15 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **Decide keys in the guitar mask with evidence:** run E3b (ask before GPU > 30 min) or get a GP file for KH/aotonat. Until then the default stays `guitar+present` (keys/synth, as E3 left it). See the KH trade-off above.
+- **Guitar mask:** the distractor run found 0 notes relabelled non-guitar and −2.1 F1 points on average when the
+  production mask added keys/synth classes (13 conditions). Pre-register a new E# (or run E3b with the 13 Tier B songs,
+  after noting that in its registration) to switch the default to `guitar_only`; until decided the default stays
+  `guitar+present`.
+- **Decoder stability:** an inaudible change moved up to 146 FP/min on one excerpt. Before trusting small deltas,
+  measure overlapping-window re-decoding / voting or beam search (E21), or repeat the null on more excerpts.
+- **S7 note clean-up** is the largest lever by error count (timing/splitting and octave), present even with no
+  distractor at all.
+- Earlier item: decide keys in the guitar mask with evidence (E3b, ask before GPU > 30 min) or get a GP file for KH/aotonat. See the KH trade-off above.
 - Remaining speed options (not done): `amt_gtr` (141–197 s) is now the largest stage; run the CPU Basic Pitch pass in parallel with GPU stages; upstream loader (1.46× vs 1.28× realtime) when VRAM allows; the bass pass is still full length (49–94 s).
 - **Process:** M1a+M2 took ~2 days, mostly the serial GPU experiment queue (~7 h of GPU time). Next time:
   - keep experiments small (cap tracks, stop at the first clear answer);
