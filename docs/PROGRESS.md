@@ -7,7 +7,7 @@ Last updated: 2026-10-04 (renamed gtab → bandscribe and moved the folder `D:\g
 
 | Milestone / phase | State |
 |---|---|
-| M0 foundation | ✅ done, on `main` as `1e422dc` |
+| M0 foundation | ✅ done, on `main` as `287aead` |
 | M1a+M2 spec (`docs/M1_M2_SPEC.md`) | ✅ done (30-point critique applied) |
 | P0 contracts + 5 owners (SEP, AMT, GRID, EVAL, DATA) | ✅ implemented |
 | Integration | ✅ 1174 tests passed (1 skipped) after the 2026-10-04 speed/presence fix; all 5 `D:\backing` songs + 1 Cambridge-MT mix run end to end |
@@ -32,10 +32,10 @@ All M1a/M2 work is in the WIP commit on branch **`wip/m1a-m2`**. `main` still po
 | stereo-preservation (last entry in decisions.md) | Pre-registered only, not run. |
 | Tier A descriptive pass on the 5 songs | Started (`data/scratch/exp/tiera_desc.py`), killed at the pause. Partial output is in `data/scratch/exp/tierA/`. |
 
-## Speed and presence fix (2026-10-04, reviewed and fixed, not committed)
+## Speed and presence fix (2026-10-04, reviewed and fixed, committed as `2857d6d`)
 
-Evidence: `data/scratch/speed/` (first fix) and `data/scratch/speed2/` (review fixes: `results.json`,
-`retention2.json`, `analyze2.py`, `retention2.py`, `logs/`).
+Evidence (local only, `data/` is not in the repo): `data/scratch/speed/` (first fix) and `data/scratch/speed2/`
+(review fixes: `results.json`, `retention2.json`, `analyze2.py`, `retention2.py`, `logs/`).
 
 ### Speed (done)
 
@@ -117,14 +117,15 @@ mask the backing used:
 
 - **Decide keys in the guitar mask with evidence:** run E3b (ask before GPU > 30 min) or get a GP file for KH/aotonat. Until then the default stays `guitar+present` (keys/synth, as E3 left it). See the KH trade-off above.
 - Remaining speed options (not done): `amt_gtr` (141–197 s) is now the largest stage; run the CPU Basic Pitch pass in parallel with GPU stages; upstream loader (1.46× vs 1.28× realtime) when VRAM allows; the bass pass is still full length (49–94 s).
-- **Workflow time:** the build itself took ~2 days, mostly the serial GPU experiment queue (~7 h of GPU time). Next time:
+- **Process:** M1a+M2 took ~2 days, mostly the serial GPU experiment queue (~7 h of GPU time). Next time:
   - keep experiments small (cap tracks, stop at the first clear answer);
   - run review/fix/accept without re-running experiments;
   - ask the user before any GPU job longer than ~30 min.
 
 ## Next steps (in order)
 
-1. `git checkout wip/m1a-m2`. Quick check: `D:\bandscribe\bandscribe.cmd doctor` and `D:\bandscribe\.venv\Scripts\python.exe -m pytest -q`.
+1. `git checkout wip/m1a-m2`. Quick check from the project folder: `bandscribe.cmd doctor` and
+   `.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
 2. ~~Speed work~~ done 2026-10-04 (profiles + presence windows, reviewed and fixed, above). Optional: time `--profile fast` on SC.mp3.
 3. Review (correctness + GPU/Windows), fix, then check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on the user.
 4. Merge `wip/m1a-m2` into `main` and commit the milestone.
@@ -132,7 +133,8 @@ mask the backing used:
 
 ## Facts worth keeping
 
-- The Claude desktop app sandbox redirects `%APPDATA%`/`%LOCALAPPDATA%` writes, so everything lives under `D:\bandscribe`. Use uv only through `D:\bandscribe\tools\uvw.cmd`.
+- The Claude desktop app sandbox redirects `%APPDATA%`/`%LOCALAPPDATA%` writes, so everything lives under the project
+  folder (`D:\bandscribe` on the dev PC). Use uv only through `tools\uvw.cmd`.
 - **Envs:**
   - core `.venv`: no torch.
   - gpu `envs\gpu\.venv`: torch 2.11.0+cu128.
@@ -173,7 +175,6 @@ mask the backing used:
 ## Pending on the user
 
 - Optional: accept the Hugging Face gate for `MuScriptor/muscriptor-small` (VRAM fallback).
-- Delete the HF token that was pasted into chat (https://huggingface.co/settings/tokens). The login uses a separate OAuth token.
 - Guitar Pro files (.gp/.gp5) for any song in `D:\backing`, to use as scored ground truth (Tier A).
 - Listen to KH/aotonat backings vs originals: do they really still contain guitar?
 - NVIDIA Control Panel: check the "CUDA - Sysmem Fallback Policy" setting (needed for bench items b1/b3). A

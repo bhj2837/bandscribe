@@ -6,7 +6,7 @@
 # 3.10 resolution note: onnxruntime >= 1.24 needs Python >= 3.11, so the lock resolves
 # onnxruntime<=1.23.2, numpy<=2.2.6, scipy<=1.15.3. That is expected and fine for Basic Pitch.
 #
-# Manage with D:\bandscribe\tools\uvw.cmd lock / sync, run from this directory (keeps python + cache on D:).
+# Manage with ..\..\tools\uvw.cmd lock / sync, run from this directory (keeps python + cache in the project folder).
 [project]
 name = "bandscribe-bp310-env"
 version = "0.1.0"
