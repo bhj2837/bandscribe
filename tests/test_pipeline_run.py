@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import atomic
-from gtab.jobs.store import JobStore
-from gtab.pipeline import graph, publish, runner
+from bandscribe import atomic
+from bandscribe.jobs.store import JobStore
+from bandscribe.pipeline import graph, publish, runner
 from grid_testlib import Fakes, synth_song, write_gpu_run
 
 
@@ -60,7 +60,7 @@ def test_plan_reports_all_missing_models_before_running(job, fakes):
     with pytest.raises(runner.ModelsMissing) as ei:
         runner.run(key, None, store=store)
     assert ei.value.names == ["model.beats", "model.amt_ms1"]
-    assert "gtab models fetch model.beats" in str(ei.value) and "model.amt_ms1" in str(ei.value)
+    assert "bandscribe models fetch model.beats" in str(ei.value) and "model.amt_ms1" in str(ei.value)
     assert fakes.calls == []
     assert not (store.job_dir(key) / "stages").exists()
     items = runner.plan(key, None, store=store, missing_ok=True)
@@ -78,7 +78,7 @@ def test_degraded_cached_gpu_stage_warns(job, fakes):
     runner.run(key, None, store=store, until="stems", progress=lambda k, i: ev.append((k, i)))
     warn = [i for k, i in ev if k == "stage_degraded_cache"]
     assert [w["stage"] for w in warn] == ["sep"]
-    assert "낮은 칸(low)" in warn[0]["message"] and f"gtab run {key} --force sep" in warn[0]["message"]
+    assert "낮은 칸(low)" in warn[0]["message"] and f"bandscribe run {key} --force sep" in warn[0]["message"]
 
 
 def test_data_outputs_ignore_worker_and_manifest(job, fakes):
@@ -100,7 +100,7 @@ def test_publish_copies_links_and_is_idempotent(job, fakes):
     res = runner.run(key, None, store=store)
     export = store.job_dir(key) / "export"
     doc = atomic.read_json(export / "export.json")
-    assert doc["format"] == "gtab.export/1"
+    assert doc["format"] == "bandscribe.export/1"
     assert set(doc["files"]) == {"midi/guitar_all.mid", "midi/bass_raw.mid", "practice/mix_minus_guitar.wav",
                                  "practice/mix_minus_bass.wav", "practice/bass_stem.wav", "instrumentation.json"}
     assert doc["files"]["practice/bass_stem.wav"]["stage"] == "sep"
@@ -179,7 +179,7 @@ def test_resolve_job_by_prefix(job):
 @pytest.fixture
 def real_grid_job(tmp_path, monkeypatch):
     """A job whose beats/sep/stems stages are fakes writing synthetic data; grid/sections/vocal/resid1 are real."""
-    from gtab.analysis import stage as gstage
+    from bandscribe.analysis import stage as gstage
 
     sr = 44100
     y, grid, hits = synth_song("ABAB", n_bars=4, sr=sr, seed=1)
@@ -195,7 +195,7 @@ def real_grid_job(tmp_path, monkeypatch):
     def fake_beats(ctx):
         out = Path(ctx.out_dir)
         atomic.write_json(out / "beats.json", {
-            "format": "gtab.beats/1", "tracker": "beat_this/final0", "checkpoint_sha256": None, "dbn": False,
+            "format": "bandscribe.beats/1", "tracker": "beat_this/final0", "checkpoint_sha256": None, "dbn": False,
             "fps": 50.0, "beats_s": [round(t * 50) / 50 for t in beat_times],
             "downbeats_s": [round(t * 50) / 50 for t in beat_times[::4]], "duration_s": len(y) / sr})
         (out / "_worker").mkdir()
@@ -215,7 +215,7 @@ def real_grid_job(tmp_path, monkeypatch):
         out.mkdir()
         sf.write(str(out / "guitar_mono.wav"), y, sr, subtype="FLOAT")
         atomic.write_json(Path(ctx.out_dir) / "views.json",
-                          {"format": "gtab.views/1", "views": {"guitar_mono": {"path": "views/guitar_mono.wav"}}})
+                          {"format": "bandscribe.views/1", "views": {"guitar_mono": {"path": "views/guitar_mono.wav"}}})
 
     real = dict(gstage.STAGES)
     fake = {"run": None, "code_version": "1", "params": lambda cfg: {}, "models": lambda cfg: {}}

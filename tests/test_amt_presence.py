@@ -1,4 +1,4 @@
-"""Sampled piano+other presence windows (gtab.amt.presence): deterministic, bounded, spread, active-only."""
+"""Sampled piano+other presence windows (bandscribe.amt.presence): deterministic, bounded, spread, active-only."""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,7 @@ import random
 import numpy as np
 import pytest
 
-from gtab.amt import presence as P
+from bandscribe.amt import presence as P
 
 FPS = 10.0
 BAR_S = 2.0

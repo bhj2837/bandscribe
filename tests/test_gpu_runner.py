@@ -16,9 +16,9 @@ from filelock import FileLock, Timeout
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Objects")
 
-from gtab import gpu, paths  # noqa: E402
-from gtab.gpu import GpuLockTimeout, run_worker  # noqa: E402
-from gtab.winjob import pid_alive  # noqa: E402
+from bandscribe import gpu, paths  # noqa: E402
+from bandscribe.gpu import GpuLockTimeout, run_worker  # noqa: E402
+from bandscribe.winjob import pid_alive  # noqa: E402
 
 CORE = paths.CORE_PYTHON
 
@@ -268,7 +268,7 @@ def test_next_holder_waits_for_a_hard_killed_holders_workers(tmp_path, lock_path
 
     straggler = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1.5)"])
     try:
-        from gtab import atomic
+        from bandscribe import atomic
         atomic.write_json(gpu._pids_sidecar(), {"owner_pid": 0, "pids": [straggler.pid]})
         t0 = time.monotonic()
         r = run_worker("selftest", {"mode": "echo"}, tmp_path / "w", python=CORE, lock_timeout_s=30)

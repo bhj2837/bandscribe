@@ -1,4 +1,4 @@
-"""gtab.models: models.lock.json registry, sha256 memo, ModelMissing (M1_M2_SPEC 1.5)."""
+"""bandscribe.models: models.lock.json registry, sha256 memo, ModelMissing (M1_M2_SPEC 1.5)."""
 from __future__ import annotations
 
 import hashlib
@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from gtab import models, paths
+from bandscribe import models, paths
 
 
 @pytest.fixture
 def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     r = tmp_path / "root"
     (r / "data" / "models").mkdir(parents=True)
-    monkeypatch.setattr(paths, "GTAB_ROOT", r)
+    monkeypatch.setattr(paths, "ROOT", r)
     monkeypatch.setattr(paths, "MODELS", r / "data" / "models")
     monkeypatch.setattr(paths, "MODELS_LOCK", r / "data" / "models" / "models.lock.json")
     return r
@@ -45,12 +45,12 @@ def test_record_get_replace_and_format(root: Path) -> None:
     models.record(_entry("a.first", "data/models/a.bin", b"zz"))
     models.record(_entry("x", "data/models/x/w.bin", b"abc", notes="replaced"))
     doc = json.loads(paths.MODELS_LOCK.read_text(encoding="utf-8"))
-    assert doc["format"] == "gtab.models/1"
+    assert doc["format"] == "bandscribe.models/1"
     assert list(doc["models"]) == ["a.first", "x"]  # sorted, replaced in place (no duplicate)
     assert doc["models"]["x"]["notes"] == "replaced"
     assert set(doc["models"]["x"]) == {"name", "path", "url", "bytes", "sha256", "license", "source", "notes",
                                        "recorded_utc"}
-    assert models.MODELS_LOCK == paths.MODELS_LOCK  # live attribute for gtab.model_fetch
+    assert models.MODELS_LOCK == paths.MODELS_LOCK  # live attribute for bandscribe.model_fetch
 
 
 def test_local_path_and_model_missing(root: Path) -> None:
@@ -59,7 +59,7 @@ def test_local_path_and_model_missing(root: Path) -> None:
     e = ei.value
     assert isinstance(e, RuntimeError) and e.name == "beat_this.final0"
     assert e.hint_ko == str(e)
-    assert "Beat This! 체크포인트가 없습니다" in str(e) and "gtab models fetch beat_this.final0" in str(e)
+    assert "Beat This! 체크포인트가 없습니다" in str(e) and "bandscribe models fetch beat_this.final0" in str(e)
 
     models.record(_entry("beat_this.final0", "data/models/beat_this/final0.ckpt", b"ckpt"))
     with pytest.raises(models.ModelMissing, match="파일이 없습니다"):
@@ -106,7 +106,7 @@ def test_sha256_cached_memo(root: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert models.sha256_cached(p) == want
     assert len(calls) == 1  # second call is a memo hit
     cache = json.loads(models.sha_cache_path().read_text(encoding="utf-8"))
-    assert cache["format"] == "gtab.sha_cache/1" and len(cache["entries"]) == 1
+    assert cache["format"] == "bandscribe.sha_cache/1" and len(cache["entries"]) == 1
     # a changed file (size / mtime) is re-hashed
     p.write_bytes(b"y" * 100_001)
     assert models.sha256_cached(p) == hashlib.sha256(b"y" * 100_001).hexdigest()
@@ -117,7 +117,7 @@ def test_corrupt_sha_cache_is_discarded(root: Path) -> None:
     p = _put(root, "data/models/m.bin", b"abc")
     models.sha_cache_path().write_text("{not json", encoding="utf-8")
     assert models.sha256_cached(p) == hashlib.sha256(b"abc").hexdigest()
-    assert json.loads(models.sha_cache_path().read_text(encoding="utf-8"))["format"] == "gtab.sha_cache/1"
+    assert json.loads(models.sha_cache_path().read_text(encoding="utf-8"))["format"] == "bandscribe.sha_cache/1"
     with pytest.raises(FileNotFoundError):
         models.sha256_cached(root / "missing.bin")
 
@@ -133,7 +133,7 @@ def test_corrupt_lock_is_a_clear_error_and_never_overwritten(root: Path) -> None
 
 def test_lenient_entry_fields(root: Path) -> None:
     # doctor/test fixtures write minimal entries; get() must still work
-    paths.MODELS_LOCK.write_text(json.dumps({"format": "gtab.models/1", "models": {"m": {"path": "a/b.bin"}}}),
+    paths.MODELS_LOCK.write_text(json.dumps({"format": "bandscribe.models/1", "models": {"m": {"path": "a/b.bin"}}}),
                                  encoding="utf-8")
     e = models.get("m")
     assert e is not None and e.name == "m" and e.path == "a/b.bin" and e.bytes == 0
@@ -141,7 +141,7 @@ def test_lenient_entry_fields(root: Path) -> None:
 
 def test_concurrent_records_in_processes_keep_every_entry(root: Path) -> None:
     code = (
-        "import sys; from pathlib import Path; from gtab import models, paths\n"
+        "import sys; from pathlib import Path; from bandscribe import models, paths\n"
         "paths.MODELS_LOCK = Path(sys.argv[1]); paths.MODELS = paths.MODELS_LOCK.parent\n"
         "for i in range(10):\n"
         "    models.record(models.ModelEntry(name=f'{sys.argv[2]}{i}', path='p', url='u', bytes=1, sha256='0'*64,\n"
@@ -156,7 +156,7 @@ def test_concurrent_records_in_processes_keep_every_entry(root: Path) -> None:
 
 def test_seeded_registry_matches_config() -> None:
     """The real models.lock.json (seeded by P0) records the SW checkpoint with the configured sha."""
-    from gtab.config import Config
+    from bandscribe.config import Config
 
     lock = Path(__file__).resolve().parents[1] / "data" / "models" / "models.lock.json"
     if not lock.is_file():

@@ -9,16 +9,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from gtab import config, paths
-from gtab.eval import suites
+from bandscribe import config, paths
+from bandscribe.eval import suites
 
 pytest.importorskip("mir_eval")
 
 
 def _tracks(n: int = 25):
-    from gtab.schema.dataset import DatasetTrack, Part
-    from gtab.schema.gt import GtLine
-    from gtab.schema.notes import BackendInfo, NoteEvent, NoteSet
+    from bandscribe.schema.dataset import DatasetTrack, Part
+    from bandscribe.schema.gt import GtLine
+    from bandscribe.schema.notes import BackendInfo, NoteEvent, NoteSet
 
     out = []
     for i in range(n):
@@ -28,7 +28,7 @@ def _tracks(n: int = 25):
                  for t, p in zip(on, rng.integers(40, 80, 40))]
         tid = f"0{i % 6}_track{i:02d}_comp"
         out.append(DatasetTrack(
-            format="gtab.dataset_track/1", dataset="guitarset", track_id=tid, split=None, group=f"0{i % 6}",
+            format="bandscribe.dataset_track/1", dataset="guitarset", track_id=tid, split=None, group=f"0{i % 6}",
             tier="C", license="CC BY 4.0", mix=None,
             parts=[Part(id="mic", kind="guitar", audio=f"audio_mono-mic/{tid}_mic.wav", channels=1)],
             lines=[GtLine(id="guitar", name="guitar", kind="guitar", takes=[1])], families_present=["guitar"],
@@ -43,7 +43,7 @@ class _Res:
 
 
 def test_bp_smoke_uses_worker_once_and_flags_result(tmp_path, monkeypatch):
-    from gtab import datasets
+    from bandscribe import datasets
 
     tracks = {t.track_id: t for t in _tracks()}
     monkeypatch.setattr(datasets, "iter_tracks", lambda name, split=None: iter(tracks.values()))
@@ -59,7 +59,7 @@ def test_bp_smoke_uses_worker_once_and_flags_result(tmp_path, monkeypatch):
             tid = Path(v["wav"]).name.removesuffix("_mic.wav")
             gt = tracks[tid].notes["guitar"].notes
             notes = [{"onset_s": n.onset_s + 0.01, "offset_s": n.offset_s, "pitch": n.pitch} for n in gt[:-4]]
-            Path(v["out"]).write_text(json.dumps({"format": "gtab.notes/1", "view": v["id"],
+            Path(v["out"]).write_text(json.dumps({"format": "bandscribe.notes/1", "view": v["id"],
                                                   "backend": {"name": "basicpitch"}, "notes": notes}), encoding="utf-8")
         return _Res()
 

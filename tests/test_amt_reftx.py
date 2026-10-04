@@ -1,16 +1,16 @@
-"""Tier B reference transcription plumbing (gtab.amt.reftx) with a fake MuScriptor call."""
+"""Tier B reference transcription plumbing (bandscribe.amt.reftx) with a fake MuScriptor call."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import numpy as np
 
-from gtab import audio
-from gtab.amt import instruments as I
-from gtab.amt import reftx as R
-from gtab.amt import stage as S
-from gtab.schema.dataset import DatasetTrack, Part
-from gtab.schema.gt import GtLine
+from bandscribe import audio
+from bandscribe.amt import instruments as I
+from bandscribe.amt import reftx as R
+from bandscribe.amt import stage as S
+from bandscribe.schema.dataset import DatasetTrack, Part
+from bandscribe.schema.gt import GtLine
 
 SR = 44100
 
@@ -23,7 +23,7 @@ def _track(root: Path) -> DatasetTrack:
         x = (0.1 * np.sin(2 * np.pi * f * t)).astype(np.float32)
         audio.write_f32(root / f"{pid}.wav", np.stack([x, -x], axis=1) if ch == 2 else x, SR)
         parts.append(Part(id=pid, kind=kind, audio=f"{pid}.wav", channels=ch, line=line))
-    return DatasetTrack(format="gtab.dataset_track/1", dataset="cambridge_mt", track_id="Song A", split=None,
+    return DatasetTrack(format="bandscribe.dataset_track/1", dataset="cambridge_mt", track_id="Song A", split=None,
                         group="Song A", tier="B", license="test", mix=None, parts=parts,
                         lines=[GtLine(id="L1", name="Gtr", kind="guitar", takes=[1, 2]),
                                GtLine(id="B", name="Bass", kind="bass", takes=[3])],
@@ -38,7 +38,7 @@ def test_reference_transcribe_sums_takes_masks_and_writes(tmp_path, monkeypatch)
 
     def fake(views, params, cfg, *, work_dir, cache, job, force_rung):
         calls.append({"views": views, "force_rung": force_rung, "cache": cache.root, "work_dir": work_dir})
-        return {v["id"]: {"format": "gtab.notes/1", "view": v["id"], "notes": []} for v in views}, {}
+        return {v["id"]: {"format": "bandscribe.notes/1", "view": v["id"], "notes": []} for v in views}, {}
 
     root = tmp_path / "ds"
     out = R.reference_transcribe(_track(root), tmp_path / "out", {}, root=root, cache_root=tmp_path / "c",
@@ -67,7 +67,7 @@ def test_line_without_audio_is_skipped(tmp_path, monkeypatch):
 
     def fake(views, params, cfg, **kw):
         seen.extend(v["id"] for v in views)
-        return {v["id"]: {"format": "gtab.notes/1", "notes": []} for v in views}, {}
+        return {v["id"]: {"format": "bandscribe.notes/1", "notes": []} for v in views}, {}
 
     assert sorted(R.reference_transcribe(tr, tmp_path / "o", {}, root=root, transcribe=fake,
                                          cache_root=tmp_path / "c")) == ["L1"]
@@ -76,7 +76,7 @@ def test_line_without_audio_is_skipped(tmp_path, monkeypatch):
 
 
 def test_line_audio_leaves_out_a_di_next_to_an_amp_track(tmp_path):
-    """Same rule as the Tier B remix (gtab.eval.remix.mix_parts): a DI is used only when it is the line's only
+    """Same rule as the Tier B remix (bandscribe.eval.remix.mix_parts): a DI is used only when it is the line's only
     source, so the reference transcribes the audio that is actually in the mix."""
     root = tmp_path / "ds"
     t = np.arange(SR) / SR

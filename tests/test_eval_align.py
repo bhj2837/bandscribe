@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from gtab import paths
+from bandscribe import paths
 
-ALIGN_PY = paths.GTAB_ROOT / "gtab" / "eval" / "align.py"
+ALIGN_PY = paths.ROOT / "bandscribe" / "eval" / "align.py"
 
 
 def test_align_module_does_not_import_beat_code():
@@ -22,16 +22,16 @@ def test_align_module_does_not_import_beat_code():
             modules += [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom):
             modules.append(node.module or "")
-            if node.module in ("gtab", "gtab.analysis", "gtab.workers"):
+            if node.module in ("bandscribe", "bandscribe.analysis", "bandscribe.workers"):
                 modules += [f"{node.module}.{a.name}" for a in node.names]
-    forbidden = ("gtab.analysis", "gtab.workers", "gtab.pipeline", "beat_this", "madmom")
+    forbidden = ("bandscribe.analysis", "bandscribe.workers", "bandscribe.pipeline", "beat_this", "madmom")
     bad = [m for m in modules if m.startswith(forbidden)]
     assert modules and not bad, bad
 
 
 def _score(bars: int = 32, seed: int = 7):
     """Distinct chords per bar (major/minor triads on random roots) + a random eighth-note melody."""
-    from gtab.schema.gt import GtNote, GtNotes
+    from bandscribe.schema.gt import GtNote, GtNotes
 
     rng = np.random.default_rng(seed)
     notes = []
@@ -46,14 +46,14 @@ def _score(bars: int = 32, seed: int = 7):
             if rng.random() < 0.7:
                 notes.append(GtNote(line="L2", ref_track=2, bar=b, tick=e * 24.0, dur_ticks=22.0,
                                     pitch=int(rng.integers(64, 80)), string=None, fret=None))
-    return GtNotes(format="gtab.gtnotes/1", song_id="a8", tpb=48, notes=notes,
+    return GtNotes(format="bandscribe.gtnotes/1", song_id="a8", tpb=48, notes=notes,
                    bars=[{"bar": b, "numerator": 4, "denominator": 4, "beat_unit": "quarter", "nominal_bpm": 120.0}
                          for b in range(1, bars + 1)])
 
 
 def _warped_map(bars: int = 32, lead_in_s: float = 1.0):
     """Known warp: tempo ramp 100 -> 130 BPM with ±3 % sinusoidal drift; 1 s of silence before bar 1."""
-    from gtab.eval.refscore import tempo_map_dict, tempo_map_from_dict
+    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
 
     n = bars * 4 + 1
     t, times = lead_in_s, []
@@ -69,8 +69,8 @@ def _warped_map(bars: int = 32, lead_in_s: float = 1.0):
 @pytest.mark.slow
 def test_dtw_recovers_downbeats_of_warped_render():
     pytest.importorskip("synctoolbox")
-    from gtab.eval import align, render_ref
-    from gtab.eval.refscore import tempo_map_from_dict
+    from bandscribe.eval import align, render_ref
+    from bandscribe.eval.refscore import tempo_map_from_dict
 
     gt, true_tm = _score(), _warped_map()
     audio = align.to_mono_22k(render_ref.render_internal(gt, true_tm), 44100)
@@ -101,8 +101,8 @@ def test_dtw_recovers_downbeats_of_warped_render():
 
 
 def test_render_internal_is_deterministic():
-    from gtab.eval import render_ref
-    from gtab.eval.refscore import nominal_tempo_map
+    from bandscribe.eval import render_ref
+    from bandscribe.eval.refscore import nominal_tempo_map
 
     gt = _score(bars=4)
     tm = nominal_tempo_map(gt)
@@ -113,7 +113,7 @@ def test_render_internal_is_deterministic():
 
 
 def test_map_times_extrapolates_at_nominal_speed():
-    from gtab.eval import align
+    from bandscribe.eval import align
 
     path = np.array([[10.0, 20.0, 30.0], [15.0, 30.0, 45.0]])
     t = align.map_times(path, np.array([0.0, 0.3, 1.0]))  # frames 0, 15, 50 at 50 Hz
@@ -121,8 +121,8 @@ def test_map_times_extrapolates_at_nominal_speed():
 
 
 def test_click_track_accents_downbeats():
-    from gtab.eval import align
-    from gtab.eval.refscore import nominal_tempo_map
+    from bandscribe.eval import align
+    from bandscribe.eval.refscore import nominal_tempo_map
 
     gt = _score(bars=2)
     tm = nominal_tempo_map(gt)

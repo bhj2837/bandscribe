@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from gtab.jobs import CycleError, JobStore, Stage, StageContext, run_dag, topo_order
+from bandscribe.jobs import CycleError, JobStore, Stage, StageContext, run_dag, topo_order
 
 SONG = "f-00000000000000aa"
 INPUTS = {"pcm_sha256": "1" * 64}
@@ -150,7 +150,7 @@ def test_manifest_records_recipe(store: JobStore):
     assert m["device"] == "gpu" and m["code_version"] == "1"
     assert m["deps"] == {"input": _manifest(res["input"])["key"]}
     assert m["inputs"] == INPUTS
-    assert "gtab_version" in m
+    assert "bandscribe_version" in m
 
 
 def test_rerun_is_fully_cached(store: JobStore):

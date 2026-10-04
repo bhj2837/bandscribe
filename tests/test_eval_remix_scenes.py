@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gtab.eval import remix
+from bandscribe.eval import remix
 
 EXPECTED_LINES = {
     "A": ["rhythm", "lead"], "A_rhythm_only": ["rhythm"], "B": ["rhythm", "lead"], "F": ["rhythm", "lead"],

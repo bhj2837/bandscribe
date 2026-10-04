@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import atomic, gpu
-from gtab.amt import stage as S
+from bandscribe import atomic, gpu
+from bandscribe.amt import stage as S
 
 BP = S.bp310_python()
 pytestmark = [pytest.mark.bp310, pytest.mark.slow,
@@ -19,7 +19,7 @@ SR = 44100
 
 
 def _run(req: dict, work: Path):
-    base = {"format": "gtab.worker/1", "job": None, "out_dir": str(work.parent), "device": "cpu", "threads": 4}
+    base = {"format": "bandscribe.worker/1", "job": None, "out_dir": str(work.parent), "device": "cpu", "threads": 4}
     res = gpu.run_worker("amt_basicpitch", {**base, **req}, work, python=BP, use_lock=False, timeout_s=600)
     assert res.ok, (res.error, res.stderr_path.read_text(encoding="utf-8", errors="replace")[-3000:])
     return res.output
@@ -56,13 +56,13 @@ def test_melody_has_notes_with_bends_and_is_byte_identical(tmp_path):
     out = _run({"mode": "transcribe", "views": views, "params": {"min_note_frames": 4}}, tmp_path / "a" / "_worker")
     assert out["min_note_len_frames"] == 3 and out["min_note_frames_kept"] == 4 and out["threads"] == 4
     doc = atomic.read_json(tmp_path / "a" / "raw.json")
-    assert doc["format"] == "gtab.notes/1" and doc["backend"]["params"]["min_note_frames"] == 4
+    assert doc["format"] == "bandscribe.notes/1" and doc["backend"]["params"]["min_note_frames"] == 4
     pitches = {n["pitch"] for n in doc["notes"]}
     assert {60, 64, 67, 72} <= pitches
     assert any("bend" in n for n in doc["notes"])
     assert all(n["amplitude"] > 0 for n in doc["notes"])
     try:
-        from gtab.schema.notes import NoteSet
+        from bandscribe.schema.notes import NoteSet
 
         NoteSet.model_validate(doc)
     except ImportError:

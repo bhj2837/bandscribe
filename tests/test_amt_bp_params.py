@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from gtab.amt import stage as S
-from gtab.workers import amt_basicpitch as W
+from bandscribe.amt import stage as S
+from bandscribe.workers import amt_basicpitch as W
 
 
 @pytest.mark.parametrize("frames", [1, 3, 4, 5, 7, 11, 13, 30])

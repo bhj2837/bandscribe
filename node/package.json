@@ -1,8 +1,8 @@
 {
-  "name": "gtab-node",
+  "name": "bandscribe-node",
   "private": true,
   "version": "0.1.0",
-  "description": "gtab helper scripts: Guitar Pro import / audio render via alphaTab (MPL-2.0). Local use only.",
+  "description": "bandscribe helper scripts: Guitar Pro import / audio render via alphaTab (MPL-2.0). Local use only.",
   "type": "module",
   "license": "UNLICENSED",
   "engines": { "node": ">=22" },

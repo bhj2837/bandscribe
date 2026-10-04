@@ -1,4 +1,4 @@
-"""gtab.workers.gpu_common (ladder, watchdog, bf16 refusal) and the additive ResourceSampler marks.
+"""bandscribe.workers.gpu_common (ladder, watchdog, bf16 refusal) and the additive ResourceSampler marks.
 
 Most tests run in the core env with fakes: the ladder's torch calls are behind seams (``mem_info``,
 ``cuda_available``) and an OOM is simulated with the RuntimeError text CUDA uses. The ``gpuenv`` tests run the
@@ -15,11 +15,11 @@ from typing import Any
 
 import pytest
 
-from gtab import paths
-from gtab.workers import base, gpu_common
-from gtab.workers.gpu_common import SharedGrowth, Watchdog, run_ladder
+from bandscribe import paths
+from bandscribe.workers import base, gpu_common
+from bandscribe.workers.gpu_common import SharedGrowth, Watchdog, run_ladder
 
-GTAB_ROOT = Path(__file__).resolve().parents[1]
+BANDSCRIBE_ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeSampler:
@@ -263,7 +263,7 @@ def test_refuse_bf16(req: dict) -> None:
 
 def test_refuse_bf16_env(monkeypatch: pytest.MonkeyPatch) -> None:
     gpu_common.refuse_bf16({"dtype": "upstream", "x": "bf16 is only a word here"})
-    monkeypatch.setenv("GTAB_AUTOCAST_DTYPE", "bfloat16")
+    monkeypatch.setenv("BANDSCRIBE_AUTOCAST_DTYPE", "bfloat16")
     with pytest.raises(ValueError):
         gpu_common.refuse_bf16({"dtype": "fp16"})
 
@@ -324,7 +324,7 @@ def test_sampler_threshold_from_request() -> None:
 
 
 def test_worker_result_carries_new_sysmon_fields(tmp_path: Path) -> None:
-    from gtab.gpu import run_worker
+    from bandscribe.gpu import run_worker
 
     r = run_worker("selftest", {"mode": "echo", "vram": {"shared_growth_fail_mb": 99}}, tmp_path / "w",
                    python=paths.CORE_PYTHON, use_lock=False, timeout_s=60)
@@ -339,9 +339,9 @@ def test_worker_result_carries_new_sysmon_fields(tmp_path: Path) -> None:
 
 
 def _gpu_env_run(code: str, timeout: float = 300) -> dict:
-    env = paths.child_env({"PYTHONPATH": str(GTAB_ROOT)})
+    env = paths.child_env({"PYTHONPATH": str(BANDSCRIBE_ROOT)})
     proc = subprocess.run([str(paths.GPU_PYTHON), "-c", textwrap.dedent(code)], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=timeout, env=env, cwd=str(GTAB_ROOT))
+                          encoding="utf-8", errors="replace", timeout=timeout, env=env, cwd=str(BANDSCRIBE_ROOT))
     assert proc.returncode == 0, proc.stderr[-3000:]
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
@@ -350,7 +350,7 @@ def _gpu_env_run(code: str, timeout: float = 300) -> dict:
 def test_ladder_with_real_torch_oom_class() -> None:
     out = _gpu_env_run("""
         import json, torch
-        from gtab.workers import gpu_common as g
+        from bandscribe.workers import gpu_common as g
         rungs = [{"label": "a", "device": "cuda", "params": {}}, {"label": "b", "device": "cuda", "params": {}}]
         def attempt(r, wd):
             wd.arm()
@@ -371,8 +371,8 @@ def test_cap_makes_large_allocation_oom_then_smaller_fits() -> None:
     out = _gpu_env_run("""
         import json, torch
         from filelock import FileLock
-        from gtab import paths
-        from gtab.workers import gpu_common as g
+        from bandscribe import paths
+        from bandscribe.workers import gpu_common as g
         with FileLock(str(paths.GPU_LOCK), timeout=600):
             g.apply_cap({"vram": {"cap_mb": 700}})
             sizes = {"big": 1024, "small": 256}

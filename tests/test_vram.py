@@ -1,4 +1,4 @@
-"""gtab.vram: needs, budget, wait policy, GPU-stage retries, gpu_run.json; plus the doctor's M2 checks (no GPU)."""
+"""bandscribe.vram: needs, budget, wait policy, GPU-stage retries, gpu_run.json; plus the doctor's M2 checks (no GPU)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from gtab import paths, vram
-from gtab.vram import GpuSnapshot, RungNeed
+from bandscribe import paths, vram
+from bandscribe.vram import GpuSnapshot, RungNeed
 
 SEP_LABELS = ["chunk=588800", "chunk=352256", "chunk=262144"]
 
@@ -85,7 +85,7 @@ def test_load_table_defaults_and_measured_entries(tmp_path: Path) -> None:
     assert t["beats_beatthis"]["final0"] == RungNeed(500, 500)
     p = vram.vram_table_path()
     p.parent.mkdir(parents=True)
-    p.write_text(json.dumps({"format": "gtab.vram_table/1", "entries": {
+    p.write_text(json.dumps({"format": "bandscribe.vram_table/1", "entries": {
         "sep_msst": {"chunk=588800": {"reserved_peak_mb": 1796.0, "ctx_mb": 330.0, "rtf": 6.1},
                      "chunk=352256": {"reserved_peak_mb": 1354.0}},  # no ctx -> default
         "new_backend": {"x": {"reserved_peak_mb": 10.0, "ctx_mb": 5}}}}), encoding="utf-8")
@@ -106,7 +106,7 @@ def test_corrupt_table_is_ignored() -> None:
 
 
 def test_cfg_get_with_real_config_and_dicts() -> None:
-    from gtab.config import Config
+    from bandscribe.config import Config
 
     cfg = Config()
     assert vram.cfg_get(cfg, "gpu.vram_margin_gb") == pytest.approx(0.7)
@@ -125,8 +125,8 @@ def test_cfg_get_with_real_config_and_dicts() -> None:
 
 def test_default_mirrors_equal_the_config_defaults() -> None:
     """GPU_DEFAULTS / SEP_DEFAULTS stand in for a missing Config (None, partial dicts): they must not drift."""
-    from gtab.config import Config
-    from gtab.sep.run import SEP_DEFAULTS
+    from bandscribe.config import Config
+    from bandscribe.sep.run import SEP_DEFAULTS
 
     cfg = Config()
     for mirror in (vram.GPU_DEFAULTS, SEP_DEFAULTS):
@@ -294,7 +294,7 @@ def test_gpu_run_round_trip(tmp_path: Path, label: str, device: str, index: int,
     doc = vram.write_gpu_run(tmp_path, "sep_msst", SEP_LABELS, out, 12.5)
     back = vram.read_gpu_run(tmp_path)
     assert back == doc
-    assert back["format"] == "gtab.gpu_run/1" and back["ladder"] == SEP_LABELS
+    assert back["format"] == "bandscribe.gpu_run/1" and back["ladder"] == SEP_LABELS
     assert back["rung"] == {"index": index, "label": label, "device": device}
     assert back["degraded"] is degraded and back["waited_s"] == 12.5
 
@@ -309,24 +309,24 @@ def test_read_gpu_run_missing_or_foreign(tmp_path: Path) -> None:
 
 
 def _doctor_checks() -> dict[str, Any]:
-    from gtab import doctor
+    from bandscribe import doctor
 
     return {c.name: c for c in doctor._check_models(None)}
 
 
 def test_doctor_vram_table_absent_is_informational() -> None:
     c = _doctor_checks()["gpu.vram_table"]
-    assert c.ok and not c.required and "gtab bench gpu" in c.detail
+    assert c.ok and not c.required and "bandscribe bench gpu" in c.detail
 
 
 def test_doctor_vram_table_present_and_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     from datetime import date
 
-    from gtab import doctor
+    from bandscribe import doctor
 
     p = vram.vram_table_path()
     p.parent.mkdir(parents=True)
-    p.write_text(json.dumps({"format": "gtab.vram_table/1", "entries": {"sep_msst": {
+    p.write_text(json.dumps({"format": "bandscribe.vram_table/1", "entries": {"sep_msst": {
         "chunk=588800": {"reserved_peak_mb": 1796, "measured_utc": "2026-09-30T10:00:00+00:00"}}},
         "calibration": {"shared_growth_noise_mb": 12.0}}), encoding="utf-8")
     monkeypatch.setattr(doctor, "_today", lambda: date(2026, 10, 2))
@@ -340,17 +340,17 @@ def test_doctor_vram_table_present_and_stale(monkeypatch: pytest.MonkeyPatch) ->
 def test_doctor_models_present(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     c = _doctor_checks()["models.present"]
     assert not c.ok and c.status == "warn"  # no lock file
-    monkeypatch.setattr(paths, "GTAB_ROOT", tmp_path)
+    monkeypatch.setattr(paths, "ROOT", tmp_path)
     (tmp_path / "m").mkdir()
     (tmp_path / "m" / "sw.ckpt").write_bytes(b"x")
     lock = paths.DATA / "models" / "models.lock.json"
     lock.parent.mkdir(parents=True)
-    lock.write_text(json.dumps({"format": "gtab.models/1", "models": {
+    lock.write_text(json.dumps({"format": "bandscribe.models/1", "models": {
         "bs_roformer_sw.ckpt": {"path": "m/sw.ckpt"}, "gone": {"path": "m/gone.bin"}}}), encoding="utf-8")
     c = _doctor_checks()["models.present"]
-    assert not c.ok and "gone" in c.detail and "gtab models fetch beat_this.final0" in c.detail
+    assert not c.ok and "gone" in c.detail and "bandscribe models fetch beat_this.final0" in c.detail
     (tmp_path / "m" / "final0.ckpt").write_bytes(b"x")
-    lock.write_text(json.dumps({"format": "gtab.models/1", "models": {
+    lock.write_text(json.dumps({"format": "bandscribe.models/1", "models": {
         "bs_roformer_sw.ckpt": {"path": "m/sw.ckpt"}, "beat_this.final0": {"path": "m/final0.ckpt"}}}),
         encoding="utf-8")
     c = _doctor_checks()["models.present"]

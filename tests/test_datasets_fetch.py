@@ -1,4 +1,4 @@
-"""gtab.datasets.fetch against a local http.server: resume, checksums, refusals, extraction, lock records."""
+"""bandscribe.datasets.fetch against a local http.server: resume, checksums, refusals, extraction, lock records."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from fixtures.datasets_fakes import HttpFixture
-from gtab.datasets import fetch as F
-from gtab.datasets import registry, store
+from bandscribe.datasets import fetch as F
+from bandscribe.datasets import registry, store
 
 
 @pytest.fixture
@@ -195,7 +195,7 @@ def _registry(tmp_path, http, monkeypatch, *, md5_ok=True) -> Path:
     http.files["/opt.zip"] = _zip_bytes({"o.txt": b"o"})
     md5 = _md5(zdata) if md5_ok else "f" * 32
     reg = tmp_path / "registry.toml"
-    reg.write_text(f'''format = "gtab.dataset_registry/1"
+    reg.write_text(f'''format = "bandscribe.dataset_registry/1"
 [toyset]
 title = "Toy"
 tier = "C"
@@ -345,7 +345,7 @@ def test_gdrive_folder_fetch_and_resume(http, tmp_path, monkeypatch):
     monkeypatch.setattr(F, "GDRIVE_FILE_URL", http.url("/dl/{id}"))
     monkeypatch.setattr(F, "GDRIVE_PACE_S", 0.0)
     reg = tmp_path / "registry.toml"
-    reg.write_text('''format = "gtab.dataset_registry/1"
+    reg.write_text('''format = "bandscribe.dataset_registry/1"
 [drv]
 title = "Drive"
 tier = "C"

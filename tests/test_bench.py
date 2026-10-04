@@ -1,4 +1,4 @@
-"""gtab.bench: row extraction, vram_table merge rules, calibration, the ballast launcher, and a faked full run."""
+"""bandscribe.bench: row extraction, vram_table merge rules, calibration, the ballast launcher, and a faked full run."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from gtab import bench, paths, vram
-from gtab.vram import GpuSnapshot
+from bandscribe import bench, paths, vram
+from bandscribe.vram import GpuSnapshot
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +50,7 @@ def test_merge_only_clean_successful_rows_median_over_repeats() -> None:
     t2 = bench.merge_table(None, [_row(ctx_mb=6.0), _row(label="chunk=352256", ctx_mb=89.0),
                                   _row(label="chunk=262144", ctx_mb=97.0)], gpu=None, driver=None, measured_utc="x")
     assert {v["ctx_mb"] for v in t2["entries"]["sep_msst"].values()} == {89.0}
-    assert t["format"] == "gtab.vram_table/1" and t["gpu"] == "RTX 2060"
+    assert t["format"] == "bandscribe.vram_table/1" and t["gpu"] == "RTX 2060"
     # the merged table drives the VRAM pre-check
     p = vram.vram_table_path()
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -61,7 +61,7 @@ def test_merge_only_clean_successful_rows_median_over_repeats() -> None:
 
 
 def test_merge_keeps_other_entries_and_replaces_benched_ones() -> None:
-    old = {"format": "gtab.vram_table/1", "entries": {"amt_muscriptor": {"medium": {"reserved_peak_mb": 2360}},
+    old = {"format": "bandscribe.vram_table/1", "entries": {"amt_muscriptor": {"medium": {"reserved_peak_mb": 2360}},
                                                         "sep_msst": {"chunk=588800": {"reserved_peak_mb": 2000}}}}
     t = bench.merge_table(old, [_row(reserved=1796)], gpu=None, driver=None, measured_utc="x")
     assert t["entries"]["amt_muscriptor"]["medium"]["reserved_peak_mb"] == 2360
@@ -165,7 +165,7 @@ class FakeBallast:
 
 
 def test_run_bench_faked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pytest.importorskip("gtab.audio")
+    pytest.importorskip("bandscribe.audio")
     mdir = tmp_path / "models"
     mdir.mkdir()
     (mdir / "sw.ckpt").write_bytes(b"w")
@@ -237,7 +237,7 @@ def test_run_bench_faked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 def _cli_app() -> Any:
     import typer
 
-    from gtab.commands import bench as bench_cmd
+    from bandscribe.commands import bench as bench_cmd
 
     app = typer.Typer()
 
@@ -290,7 +290,7 @@ def test_amt_fallback_rung_without_cached_weights_is_skipped_before_any_worker(t
                                                                              monkeypatch: pytest.MonkeyPatch) -> None:
     """Only muscriptor-medium is accepted on this PC: the bench must not take the GPU lock for a rung whose
     weights are not in the HF cache (the worker never downloads); run_bench records it as skipped."""
-    from gtab import paths
+    from bandscribe import paths
 
     rev = "f32236969308476e01fd3aae67357de5feb05a2d"
     w = tmp_path / "hf" / "hub" / "models--MuScriptor--muscriptor-medium" / "snapshots" / rev / "model.safetensors"

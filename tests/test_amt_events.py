@@ -1,11 +1,11 @@
-"""MuScriptor event stream -> raw NoteSet (gtab.workers.amt_muscriptor pure helpers; no torch needed)."""
+"""MuScriptor event stream -> raw NoteSet (bandscribe.workers.amt_muscriptor pure helpers; no torch needed)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import pytest
 
-from gtab.workers import amt_muscriptor as W
+from bandscribe.workers import amt_muscriptor as W
 
 
 @dataclass
@@ -72,10 +72,10 @@ def test_noteset_doc_shape():
     doc = W.noteset_doc(view_id="guitar_mono", view_sha256="ab" * 32,
                         backend={"name": "muscriptor", "version": "0.3.0"}, instruments=["acoustic_guitar"],
                         audio_s=3.0, notes=notes)
-    assert doc["format"] == "gtab.notes/1" and doc["time_offset_applied_s"] == 0.0
+    assert doc["format"] == "bandscribe.notes/1" and doc["time_offset_applied_s"] == 0.0
     assert doc["backend"]["instruments"] == ["acoustic_guitar"]
     try:
-        from gtab.schema.notes import NoteSet
+        from bandscribe.schema.notes import NoteSet
     except ImportError:
         pytest.skip("P0 schema not present yet")
     NoteSet.model_validate(doc)
@@ -90,7 +90,7 @@ def test_sort_instruments_is_mt3_order_and_rejects_unknown():
 
 
 def test_worker_mt3_table_matches_schema():
-    from gtab.amt.instruments import MT3_GROUPS
+    from bandscribe.amt.instruments import MT3_GROUPS
 
     assert W.MT3_IDS == dict(MT3_GROUPS)
     assert len(W.MT3_IDS) == 35
@@ -126,7 +126,7 @@ def test_offset_notes_moves_segment_notes_to_view_time():
 
 
 def test_noteset_doc_records_segments_only_for_segmented_views():
-    from gtab.schema.notes import NoteSet
+    from bandscribe.schema.notes import NoteSet
 
     be = {"name": "muscriptor", "version": "0.3.0"}
     notes = W.offset_notes(W.assemble_notes(_stream(), 3.0), 10.0)
@@ -145,7 +145,7 @@ def test_noteset_doc_records_segments_only_for_segmented_views():
 def test_noteset_schema_rejects_overlapping_segments():
     from pydantic import ValidationError
 
-    from gtab.schema.notes import NoteSet
+    from bandscribe.schema.notes import NoteSet
 
     base = {"view": "x", "backend": {"name": "muscriptor"}, "notes": []}
     NoteSet.model_validate({**base, "segments": [[0.0, 10.0], [10.0, 20.0]]})  # touching is fine

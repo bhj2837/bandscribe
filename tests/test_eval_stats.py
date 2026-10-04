@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gtab.eval import stats
-from gtab.eval.stats import ItemCounts
+from bandscribe.eval import stats
+from bandscribe.eval.stats import ItemCounts
 
 
 def _items(n_groups: int, per_group: int, p: float, seed: int, *, n_notes: int = 50) -> list[ItemCounts]:

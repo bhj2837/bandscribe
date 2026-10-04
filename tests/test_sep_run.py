@@ -1,4 +1,4 @@
-"""gtab.sep.run / gtab.sep.stage with a fake ``run_gpu_stage``: params = key, request contents, overrides,
+"""bandscribe.sep.run / bandscribe.sep.stage with a fake ``run_gpu_stage``: params = key, request contents, overrides,
 input-loudness gain math, sep.json / gpu_run.json, the STAGES contract and plan-time missing models."""
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import paths, vram
-from gtab.sep import run as seprun
-from gtab.sep import stage as sepstage
+from bandscribe import paths, vram
+from bandscribe.sep import run as seprun
+from bandscribe.sep import stage as sepstage
 
 SEP_KEYS = {"ckpt_sha256", "config_sha256", "msst_commit", "chunk_ladder", "num_overlap", "batch_size", "dtype",
             "input_lufs"}
@@ -45,7 +45,7 @@ def _mix(path: Path, seconds: float = 1.0) -> Path:
 
 
 class FakeStage:
-    """Stands in for gtab.vram.run_gpu_stage: records the request and writes six stems like the worker."""
+    """Stands in for bandscribe.vram.run_gpu_stage: records the request and writes six stems like the worker."""
 
     def __init__(self, rung_label: str = "chunk=588800", status: str = "ok") -> None:
         self.calls: list[dict[str, Any]] = []
@@ -110,13 +110,13 @@ def test_separate_builds_request_and_writes_provenance(cfg: dict, tmp_path: Path
     gpu_run = json.loads((tmp_path / "out" / "gpu_run.json").read_text(encoding="utf-8"))
     assert gpu_run["degraded"] is True and gpu_run["waited_s"] == 3.5
     sep_json = json.loads((tmp_path / "out" / "sep.json").read_text(encoding="utf-8"))
-    assert sep_json["format"] == "gtab.sep/1" and sep_json["zero_dc"] is True
+    assert sep_json["format"] == "bandscribe.sep/1" and sep_json["zero_dc"] is True
     assert sep_json["stem_order"] == list(seprun.STEM_ORDER) and sep_json["rung"] == {"index": 1, "label": "chunk=352256"}
     assert sep_json["rtf"] == 6.0 and sep_json["input_lufs"] == "off"
 
 
 def test_input_lufs_gain_math(cfg: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from gtab.ingest import loudness
+    from bandscribe.ingest import loudness
 
     fake = FakeStage()
     monkeypatch.setattr(vram, "run_gpu_stage", fake)

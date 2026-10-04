@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import soundfile as sf
 
-from gtab.analysis import vocal
+from bandscribe.analysis import vocal
 from grid_testlib import make_grid
 
 
@@ -28,7 +28,7 @@ def test_activity_and_per_bar(tmp_path):
     mix = band + voc
     doc = vocal.vocal_activity(_write(tmp_path / "v.wav", voc), _write(tmp_path / "m.wav", mix),
                                grid["bars"], -30.0)
-    assert doc["format"] == "gtab.vocal/1" and doc["fps"] == 10 and doc["threshold_rel_db"] == -30.0
+    assert doc["format"] == "bandscribe.vocal/1" and doc["fps"] == 10 and doc["threshold_rel_db"] == -30.0
     assert len(doc["rel_db"]) == len(doc["active"]) == 180
     ratios = {b["bar"]: b["active_ratio"] for b in doc["per_bar"]}
     assert ratios[3] == 1.0 and ratios[4] == 1.0

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gtab.analysis import grid as G
+from bandscribe.analysis import grid as G
 
 FPS_ENV = 22050 / 256
 
@@ -28,7 +28,7 @@ def onsets_from(times, strengths=None, duration=None):
 
 
 def beats_raw(beats, downbeats, duration):
-    return {"format": "gtab.beats/1", "tracker": "beat_this/final0", "checkpoint_sha256": None, "dbn": False,
+    return {"format": "bandscribe.beats/1", "tracker": "beat_this/final0", "checkpoint_sha256": None, "dbn": False,
             "fps": 50.0, "beats_s": q20(beats), "downbeats_s": q20(downbeats), "duration_s": duration}
 
 
@@ -224,7 +224,7 @@ def test_output_shape_matches_schema_fields():
     assert set(g["beats"][0]) == {"t_s", "t_raw_s", "bar", "beat", "is_downbeat", "shift_ms", "activation"}
     assert set(g["bars"][0]) == {"bar", "start_s", "end_s", "n_beats", "numerator", "denominator", "beat_unit",
                                  "pickup"}
-    from gtab.schema.grid import Grid
+    from bandscribe.schema.grid import Grid
 
     Grid.model_validate(g)
 
@@ -232,7 +232,7 @@ def test_output_shape_matches_schema_fields():
 @pytest.mark.parametrize("pickup", [0, 1, 3])
 def test_tempo_map_reads_the_grid(pickup):
     """The consumers' view (P0 TempoMap: MIDI export, evaluation) of a derived grid, pickup bar included."""
-    from gtab.schema.grid import Grid, TempoMap
+    from bandscribe.schema.grid import Grid, TempoMap
 
     t = 1.0 + np.arange(pickup + 32) * 0.5
     g = grid_of(t, t[pickup::4], t)

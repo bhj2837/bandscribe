@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gtab.analysis import repetition
+from bandscribe.analysis import repetition
 from grid_testlib import riff_song
 
 

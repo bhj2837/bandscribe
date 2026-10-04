@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from gtab import config, paths
-from gtab.config import Config, ConfigError, load_config
+from bandscribe import config, paths
+from bandscribe.config import Config, ConfigError, load_config
 
 # The exact text the user was shown and agreed to (M0_SPEC 3). Duplicated here on purpose: if someone
 # rewords the constant in config.py, this test must fail.

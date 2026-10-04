@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import atomic, gpu, paths
-from gtab.amt import instruments as I
-from gtab.amt import stage as S
+from bandscribe import atomic, gpu, paths
+from bandscribe.amt import instruments as I
+from bandscribe.amt import stage as S
 
 W = S.muscriptor_weights("medium", S.AMT_DEFAULTS["amt.muscriptor_revision"])
 pytestmark = [pytest.mark.gpu, pytest.mark.slow,
@@ -39,7 +39,7 @@ def clip(tmp_path_factory) -> Path:
 
 def _req(clip: Path, out: Path, *, loader="upstream", need_medium=2400.0, **extra) -> dict:
     return {
-        "format": "gtab.worker/1", "job": None, "out_dir": str(out.parent), "device": "auto",
+        "format": "bandscribe.worker/1", "job": None, "out_dir": str(out.parent), "device": "auto",
         "model": {"size": "medium", "weights_path": str(W), "sha256": None, "revision": "x", "loader": loader,
                   "repo": "MuScriptor/muscriptor-medium",
                   "fallback": [{"size": "small", "repo": "MuScriptor/muscriptor-small", "weights_path": None}]},

@@ -10,8 +10,8 @@ import types
 import numpy as np
 import pytest
 
-from gtab import paths
-from gtab.eval import experiments, runs
+from bandscribe import paths
+from bandscribe.eval import experiments, runs
 
 # ------------------------------------------------------------------------------------------------ slug
 
@@ -95,9 +95,9 @@ def _fake_rows(out_dir, cfg, args):
 
 @pytest.fixture
 def fake_amt(monkeypatch):
-    mod = types.ModuleType("gtab.amt.experiments")
+    mod = types.ModuleType("bandscribe.amt.experiments")
     mod.EXPERIMENTS = {"E1": _fake_rows}
-    monkeypatch.setitem(sys.modules, "gtab.amt.experiments", mod)
+    monkeypatch.setitem(sys.modules, "bandscribe.amt.experiments", mod)
     return mod
 
 
@@ -128,9 +128,9 @@ def test_dry_run_changes_nothing(registry, fake_amt):
 
 
 def test_missing_backend_is_clean_error(registry, monkeypatch):
-    mod = types.ModuleType("gtab.amt.experiments")
+    mod = types.ModuleType("bandscribe.amt.experiments")
     mod.EXPERIMENTS = {}
-    monkeypatch.setitem(sys.modules, "gtab.amt.experiments", mod)
+    monkeypatch.setitem(sys.modules, "bandscribe.amt.experiments", mod)
     with pytest.raises(experiments.ExperimentStateError, match="구현되지"):
         experiments.run_experiment("E2", None, registry_path=registry, dry_run=True)
 
@@ -238,9 +238,9 @@ def test_failed_experiment_keeps_status_and_leaves_note(registry, tmp_path, monk
     def no_data(out_dir, cfg, args):
         raise ExperimentDataMissing("Tier B 데이터가 없습니다")
 
-    mod = types.ModuleType("gtab.amt.experiments")
+    mod = types.ModuleType("bandscribe.amt.experiments")
     mod.EXPERIMENTS = {"E1": no_data, "E2": lambda out, cfg, args: []}
-    monkeypatch.setitem(sys.modules, "gtab.amt.experiments", mod)
+    monkeypatch.setitem(sys.modules, "bandscribe.amt.experiments", mod)
     before = registry.read_bytes()
     with pytest.raises(experiments.ExperimentRunError) as ei:
         experiments.run_experiment("E1", None, registry_path=registry, runs_root=tmp_path / "runs", gitsha="abcdef1")

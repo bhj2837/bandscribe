@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from gtab.eval import node
+from bandscribe.eval import node
 
 pytestmark = [pytest.mark.node,
               pytest.mark.skipif(not node.alphatab_available(), reason="node + node/node_modules/@coderline/alphatab needed")]
@@ -18,7 +18,7 @@ pytest.importorskip("guitarpro")
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 import gp_make  # noqa: E402
 
-from gtab.eval import gp_import, refscore  # noqa: E402
+from bandscribe.eval import gp_import, refscore  # noqa: E402
 
 
 @pytest.fixture(scope="module")

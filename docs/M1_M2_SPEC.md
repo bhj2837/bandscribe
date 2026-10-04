@@ -40,7 +40,7 @@ the installed wheels / real files / GPU probes by the critique pass, scripts in 
   function name used in §9.4 exists, including `sync_via_mrmsdtw_with_anchors(..., anchor_pairs=[(t_score,
   t_audio), ...])`. It imports `matplotlib.pyplot` at import time and imports sklearn without declaring it;
   `libfmp` 1.3 pulls IPython 8 into the core env → keep all of these imports lazy (§0).
-  The core env currently has numpy 2.5.3 → it will be downgraded to 2.4.x by the lock (fine: gtab needs `>=2.0`).
+  The core env currently has numpy 2.5.3 → it will be downgraded to 2.4.x by the lock (fine: bandscribe needs `>=2.0`).
 - ✔ PyPI `pyguitarpro` 0.11 (2026-05-03), Python >=3.10, dep `attrs`, LGPL-3.0-only. String 1 = highest-pitched
   string; `Note.realValue` = tuning + fret **without** the capo (`Track.offset`); `guitarpro.parse` decodes strings
   as cp1252 by default.
@@ -95,7 +95,7 @@ the installed wheels / real files / GPU probes by the critique pass, scripts in 
   does not publish track ids.
 - **libsndfile float WAVs are not byte-deterministic**: `soundfile.write(..., subtype="FLOAT")` adds a `PEAK`
   chunk with a timestamp (two writes of the same array 1.5 s apart differ; verified on this PC). CPU stages must
-  write WAVs with `gtab.audio.write_f32` (§1.4), never `soundfile.write`.
+  write WAVs with `bandscribe.audio.write_f32` (§1.4), never `soundfile.write`.
 
 ---
 
@@ -104,39 +104,39 @@ the installed wheels / real files / GPU probes by the critique pass, scripts in 
 - **Ownership is exclusive.** Each file below has exactly one owner. Do not edit a file you do not own; if you
   need a change there, put it under "integration requests" in your final report. New tests go in new files
   named after your area (`tests/test_<area>_*.py`).
-- **torch boundary.** torch may be imported only (lazily) in `gtab/workers/*` and `gtab/third_party/msst/*`.
-  Nothing in core (`gtab/**` otherwise) imports torch, beat_this, muscriptor, basic_pitch or onnxruntime.
+- **torch boundary.** torch may be imported only (lazily) in `bandscribe/workers/*` and `bandscribe/third_party/msst/*`.
+  Nothing in core (`bandscribe/**` otherwise) imports torch, beat_this, muscriptor, basic_pitch or onnxruntime.
   `tests/test_no_torch_in_core.py` (P0) enforces this by AST scan.
 - **Stages depend only on `ctx.params`, dep dirs and the job input.** `ctx.config` may be read only for
   non-semantic knobs (timeouts, VRAM wait policy, lock timeouts). Everything that changes a stage's output must be
   in its params (so it is in the cache key, DESIGN §9.3).
 - **CPU stage outputs are byte-deterministic** (DESIGN §8.7): no wall-clock timestamps, pids, absolute temp paths
-  or dict-order accidents in any **data output** file; floats rounded where noted; WAVs via `gtab.audio.write_f32`;
-  JSON via `gtab.atomic.write_json` (stable key order = insertion order → build dicts deterministically);
+  or dict-order accidents in any **data output** file; floats rounded where noted; WAVs via `bandscribe.audio.write_f32`;
+  JSON via `bandscribe.atomic.write_json` (stable key order = insertion order → build dicts deterministically);
   MIDI via mido with explicit ordering. **Data outputs = every file in the stage dir except `manifest.json` and
   `_worker/**`** (provenance: `_worker/request.json` holds the random temp `out_dir`, `result.json` timestamps and
   pids, and M0's manifest hashes both). Determinism checks (tests, a9) compare data outputs only; helper
-  `gtab.pipeline.runner.data_outputs(stage_dir) -> dict[rel, sha256]` (GRID) is the one implementation.
+  `bandscribe.pipeline.runner.data_outputs(stage_dir) -> dict[rel, sha256]` (GRID) is the one implementation.
   Multithreaded numerics in CPU stages run with a pinned thread count (BLAS via `threadpoolctl`, onnxruntime via
   `SessionOptions`) so results do not depend on the machine's core count.
-- **Workers never import `gtab.schema`** (keeps the bp310 worker Python-3.10-safe and decouples envs). They
+- **Workers never import `bandscribe.schema`** (keeps the bp310 worker Python-3.10-safe and decouples envs). They
   write plain JSON that matches the schema; the core-side stage function validates it with pydantic.
-- **Nothing downloads during `gtab run`, and nothing downloads while the GPU lock is held.** Every model goes
-  through `gtab models fetch` (§5, DESIGN §9.4) — including the Beat This! checkpoint, which the worker receives as
-  a local path (never a hub name). All other downloads go through explicit commands (`gtab data fetch`, uv/npm
+- **Nothing downloads during `bandscribe run`, and nothing downloads while the GPU lock is held.** Every model goes
+  through `bandscribe models fetch` (§5, DESIGN §9.4) — including the Beat This! checkpoint, which the worker receives as
+  a local path (never a hub name). All other downloads go through explicit commands (`bandscribe data fetch`, uv/npm
   installs). Workers set `HF_HUB_OFFLINE=1`. A stage whose model file is missing fails **before anything runs**
   (at plan time, §3.1) with a Korean message naming the fetch command; this also keeps stage keys stable (a model
   sha that appears after a first-run download would change the key of that stage and everything downstream).
-- **Heavy imports stay lazy.** `gtab.cli` and every `gtab.commands.*` module import only typer/rich/stdlib at module
+- **Heavy imports stay lazy.** `bandscribe.cli` and every `bandscribe.commands.*` module import only typer/rich/stdlib at module
   level; librosa, synctoolbox, libfmp (pulls IPython 8), music21, pandas, sklearn, matplotlib, numba, mir_eval,
   pretty_midi and pyguitarpro are imported inside functions. Enforced by P0's `tests/test_import_weight.py`.
 - **Never circumvent bot protection** (no UA spoofing, no Cloudflare solvers) when a dataset site refuses a plain
   download; fall back to the manual `import-local` path.
 - **Licenses:** everything stays local; nothing is redistributed. Every downloaded model/dataset is recorded
-  (models → `data/models/models.lock.json` via `gtab.models`; datasets → `data/datasets/datasets.lock.json` via
-  `gtab.datasets`). MuScriptor weights CC BY-NC 4.0 + rights warranty (user accepted on HF); SW weights: unknown
+  (models → `data/models/models.lock.json` via `bandscribe.models`; datasets → `data/datasets/datasets.lock.json` via
+  `bandscribe.datasets`). MuScriptor weights CC BY-NC 4.0 + rights warranty (user accepted on HF); SW weights: unknown
   provenance, personal use only.
-- **Printing:** `gtab/commands/*` are part of the CLI and may print (rich); everything else logs only (M0 rule).
+- **Printing:** `bandscribe/commands/*` are part of the CLI and may print (rich); everything else logs only (M0 rule).
   Long-running stage functions report progress through the runner's `progress` callback, not print.
 - **Windows:** all M0 pitfalls apply (cp949, launcher venv python, ASCII paths, `winjob.run_captured` for every
   external program incl. `node`, no `shell=True`).
@@ -144,7 +144,7 @@ the installed wheels / real files / GPU probes by the critique pass, scripts in 
     `node.exe <nodejs dir>\node_modules\npm\bin\npm-cli.js ci` (nodejs dir = parent of `shutil.which("node")`) with
     env `npm_config_cache=<paths.NPM_CACHE>`, `npm_config_update_notifier=false`, `npm_config_fund=false`,
     `npm_config_audit=false` (npm's default cache is under `%LOCALAPPDATA%`, which the app sandbox redirects).
-  - **Every generated file/folder name is ASCII `[a-z0-9_-]`** via `gtab.eval.runs.slug()` (EVAL; colon → `-`,
+  - **Every generated file/folder name is ASCII `[a-z0-9_-]`** via `bandscribe.eval.runs.slug()` (EVAL; colon → `-`,
     other characters → `_`, empty → error). System ids like `job:amt_gtr`, `external:klangio` and item ids like
     `guitarset:00_BN1-129-Eb_comp` keep their original spelling *inside* JSON, never in paths (`a:b` is illegal on
     NTFS and even creates an alternate data stream). User-facing ids are ASCII (`--system other`, not `기타`).
@@ -183,11 +183,11 @@ muscriptor/beat-this; keep the `pytorch-cu128` index pins). `uvw.cmd lock` + `sy
 Smoke: `envs\gpu\.venv\Scripts\python.exe -c "import torch,muscriptor,beat_this,einops,rotary_embedding_torch,
 beartype;print(torch.__version__, torch.cuda.is_available())"` → `2.11.0+cu128 True`.
 
-### 1.2 `gtab/paths.py` additions
+### 1.2 `bandscribe/paths.py` additions
 
 ```python
-BP310_PYTHON: Path = GTAB_ROOT / "envs" / "bp310" / ".venv" / "Scripts" / "python.exe"
-NODE_DIR: Path     = GTAB_ROOT / "node"
+BP310_PYTHON: Path = BANDSCRIBE_ROOT / "envs" / "bp310" / ".venv" / "Scripts" / "python.exe"
+NODE_DIR: Path     = BANDSCRIBE_ROOT / "node"
 EVAL: Path         = DATA / "eval"          # tierA/, tierB/, external/, reftx_cache/
 RUNS: Path         = DATA / "runs"
 DATASETS: Path     = DATA / "datasets"
@@ -200,7 +200,7 @@ Add EVAL, RUNS, DATASETS, BENCH, NPM_CACHE to `_DIRS`. `_managed_env()` gains `"
 workers, node children and — via `apply_process_env` — the CLI itself). `tests/test_cli.py::MANAGED_ENV` lists
 the managed keys; P0 adds `MPLBACKEND` there (test_cli.py is already P0's file).
 
-### 1.3 Config sections (`gtab/config.py` models + `gtab/defaults.toml`; keep `tests/test_config.py` sync test)
+### 1.3 Config sections (`bandscribe/config.py` models + `bandscribe/defaults.toml`; keep `tests/test_config.py` sync test)
 
 All new sections use `extra="forbid"`. Values are defaults **[잠정]** unless stated.
 
@@ -214,7 +214,7 @@ parts = "auto"                 # used from M6 on; stored now
 
 [sep]
 backend = "sw_msst"
-model_dir = "data/models/bs_roformer_sw"          # relative to GTAB_ROOT
+model_dir = "data/models/bs_roformer_sw"          # relative to BANDSCRIBE_ROOT
 ckpt = "BS-Rofo-SW-Fixed.ckpt"
 config = "BS-Rofo-SW-Fixed.yaml"
 ckpt_sha256 = "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
@@ -261,7 +261,7 @@ active_rel_db = -40.0                              # a stem/bar is "active" abov
 mix_class_min_notes = 8
 
 [grid]
-checkpoint = "final0"                              # model name "beat_this.final0" in models.lock.json (gtab models fetch)
+checkpoint = "final0"                              # model name "beat_this.final0" in models.lock.json (bandscribe models fetch)
 dbn = false                                        # true is rejected at config load (needs madmom, not installed)
 refine_window_ms = 35.0                            # Beat This! times are quantised to 20 ms, so refinement matters
 half_double_check = true
@@ -305,7 +305,7 @@ Config validation (P0): `grid.dbn = true` → ConfigError `"grid.dbn=true 는 ma
 `amt.dtype`/`sep.dtype` accept only `upstream|fp16`; `sep.input_lufs` is `"off"` or a float in [−30, −6];
 `amt.bp_min_note_frames` int in [1, 30].
 
-### 1.4 `gtab/audio.py` (importable in all three envs: stdlib + numpy + soundfile, Python-3.10-safe)
+### 1.4 `bandscribe/audio.py` (importable in all three envs: stdlib + numpy + soundfile, Python-3.10-safe)
 
 ```python
 SR = 44100
@@ -324,7 +324,7 @@ def rms_db(x) -> float                                          # 10*log10(mean(
 Test: two `write_f32` of the same array (1 s apart) are byte-identical; soundfile reads back bit-exact;
 values > 1.0 survive; `F32Writer` equals `write_f32`.
 
-### 1.5 `gtab/models.py` (model registry; core + workers)
+### 1.5 `bandscribe/models.py` (model registry; core + workers)
 
 ```python
 @dataclass class ModelEntry: name: str; path: str; url: str; bytes: int; sha256: str; license: str;
@@ -335,49 +335,49 @@ def sha256_cached(path: Path) -> str            # memo keyed by (abs path, size,
                                                 # read-modify-write under filelock(".sha_cache.json.lock") — core AND
                                                 # workers write it; a corrupt cache file is discarded, never fatal
 def verify(name: str) -> bool                   # recompute sha256, compare
-def local_path(name: str) -> Path               # GTAB_ROOT / entry.path; raises ModelMissing if unrecorded or absent
+def local_path(name: str) -> Path               # BANDSCRIBE_ROOT / entry.path; raises ModelMissing if unrecorded or absent
 class ModelMissing(RuntimeError)                # .name, .hint_ko e.g. "Beat This! 체크포인트가 없습니다. 먼저
-                                                # `gtab models fetch beat_this.final0` 를 실행하세요."
+                                                # `bandscribe models fetch beat_this.final0` 를 실행하세요."
 ```
 Stage `models(cfg)` functions (§3.1) call `local_path` / `sha256_cached`; `ModelMissing` raised there surfaces at
-plan time (runner, §4), before any stage runs. `gtab.models` imports stdlib + filelock only (Python-3.10-safe,
+plan time (runner, §4), before any stage runs. `bandscribe.models` imports stdlib + filelock only (Python-3.10-safe,
 importable in all three envs).
-`models.lock.json` = `{"format": "gtab.models/1", "models": {name: ModelEntry-as-dict}}`. P0 seeds:
+`models.lock.json` = `{"format": "bandscribe.models/1", "models": {name: ModelEntry-as-dict}}`. P0 seeds:
 `bs_roformer_sw.ckpt` (sha from config, url `"unknown (original uploader account deleted; local copy)"`,
 license `"unknown - personal use only"`), `bs_roformer_sw.yaml`, `bs_roformer_sw.audiosep.yaml`,
 `muscriptor-medium` (`hf://MuScriptor/muscriptor-medium@f322369…`, sha of model.safetensors,
 `"CC BY-NC 4.0 + HF gated conditions (rights warranty / indemnity), accepted by the user's HF account"`).
-`beat_this.final0` is **not** seeded (not on disk yet); DATA's `gtab models fetch` records it (§9.5).
+`beat_this.final0` is **not** seeded (not on disk yet); DATA's `bandscribe models fetch` records it (§9.5).
 
-### 1.6 Schemas (`gtab/schema/*.py`; pydantic v2, `extra="forbid"`, `allow_inf_nan=False`; Python-3.10-safe)
+### 1.6 Schemas (`bandscribe/schema/*.py`; pydantic v2, `extra="forbid"`, `allow_inf_nan=False`; Python-3.10-safe)
 
 Formats are defined in §6; P0 writes the models exactly as listed there plus round-trip tests:
 `notes.py` (§6.1), `grid.py` (§6.2 incl. `TempoMap`), `sections.py` (§6.3), `instrumentation.py` (§6.5 incl.
 `MT3_GROUPS`, `FAMILIES`), `gt.py` (§6.7), `dataset.py` (§6.8), `evalio.py` (§6.9). Export them from
-`gtab/schema/__init__.py`. Every file-level model carries `format: Literal["gtab.<name>/1"]` (a field named
+`bandscribe/schema/__init__.py`. Every file-level model carries `format: Literal["bandscribe.<name>/1"]` (a field named
 `schema` would shadow `BaseModel.schema`).
 
 ### 1.7 Packages, CLI wiring, test infra
 
-- Empty (docstring-only) `__init__.py` for: `gtab/commands`, `gtab/analysis`, `gtab/sep`, `gtab/amt`, `gtab/eval`,
-  `gtab/datasets`, `gtab/datasets/loaders`, `gtab/pipeline`, `gtab/third_party`.
-- `gtab/commands/{run,bench,eval,gt,data,models}.py` stubs: each exports `register(app: typer.Typer) -> None` that
+- Empty (docstring-only) `__init__.py` for: `bandscribe/commands`, `bandscribe/analysis`, `bandscribe/sep`, `bandscribe/amt`, `bandscribe/eval`,
+  `bandscribe/datasets`, `bandscribe/datasets/loaders`, `bandscribe/pipeline`, `bandscribe/third_party`.
+- `bandscribe/commands/{run,bench,eval,gt,data,models}.py` stubs: each exports `register(app: typer.Typer) -> None` that
   adds its command(s) with the Korean help from §5 and a body `raise typer.Exit(_not_ready())`. Owners replace the
   whole file. Command modules import only typer/rich/stdlib at module level (M0 lazy-backend pattern).
-- **Stub stage modules** `gtab/analysis/stage.py`, `gtab/sep/stage.py`, `gtab/amt/stage.py`, each
+- **Stub stage modules** `bandscribe/analysis/stage.py`, `bandscribe/sep/stage.py`, `bandscribe/amt/stage.py`, each
   `STAGES: dict[str, dict] = {}` plus a docstring pointing to §3.2. GRID/SEP/AMT replace their file wholesale.
   GRID's `graph.py` imports these lazily and turns a missing stage name into a Korean error
   (`"단계 '<name>' 가 아직 구현되지 않았습니다 (<module>)"`), so the graph lands before its providers.
-- `gtab/cli.py`: after the existing commands, `for mod in ("run","bench","eval","gt","data","models"):
-  _register_optional(app, f"gtab.commands.{mod}")` — import failure registers a placeholder group/command that
-  prints `"<name> 명령을 불러오지 못했습니다: <error>"` and exits 1, so one broken module never breaks `gtab`.
+- `bandscribe/cli.py`: after the existing commands, `for mod in ("run","bench","eval","gt","data","models"):
+  _register_optional(app, f"bandscribe.commands.{mod}")` — import failure registers a placeholder group/command that
+  prints `"<name> 명령을 불러오지 못했습니다: <error>"` and exits 1, so one broken module never breaks `bandscribe`.
 - `tests/conftest.py` markers of §0; `tests/test_no_torch_in_core.py`.
 - `tests/test_py310_compat.py`: `ast.parse(src, feature_version=(3, 10))` for every module a bp310 worker can
-  import — `gtab/__init__.py`, `gtab/workers/__init__.py`, `gtab/workers/base.py`, `gtab/atomic.py`,
-  `gtab/sysmon.py`, `gtab/paths.py`, `gtab/audio.py`, `gtab/models.py` — plus every `gtab/**/*.py` whose first
-  5 lines contain `# gtab: py310` (AMT marks `amt_basicpitch.py`; the M0 versions pass today). Parse only — the
+  import — `bandscribe/__init__.py`, `bandscribe/workers/__init__.py`, `bandscribe/workers/base.py`, `bandscribe/atomic.py`,
+  `bandscribe/sysmon.py`, `bandscribe/paths.py`, `bandscribe/audio.py`, `bandscribe/models.py` — plus every `bandscribe/**/*.py` whose first
+  5 lines contain `# bandscribe: py310` (AMT marks `amt_basicpitch.py`; the M0 versions pass today). Parse only — the
   `bp310`-marked worker test covers real imports on 3.10. SEP's additive `base.py` change must keep this green.
-- `tests/test_import_weight.py`: in a fresh subprocess, `import gtab.cli` and every `gtab.commands.*` module, then
+- `tests/test_import_weight.py`: in a fresh subprocess, `import bandscribe.cli` and every `bandscribe.commands.*` module, then
   assert none of `torch, librosa, synctoolbox, libfmp, IPython, music21, pandas, sklearn, matplotlib, numba,
   mir_eval, pretty_midi, guitarpro` is in `sys.modules` (CLI start-up stays fast; §0).
 - `.gitignore`: add `node/node_modules/` (already present) — nothing else; `data/` stays ignored.
@@ -388,34 +388,34 @@ Formats are defined in §6; P0 writes the models exactly as listed there plus ro
 
 | Owner | Scope (DESIGN) | Files (exclusive) |
 |---|---|---|
-| **P0** integrator | contracts, deps, wiring | §1: `pyproject.toml`, `uv.lock`, `envs/gpu/pyproject.toml`, `envs/gpu/uv.lock`, `gtab/config.py`, `gtab/defaults.toml`, `gtab/paths.py`, `gtab/cli.py`, `gtab/audio.py`, `gtab/models.py`, `gtab/schema/{notes,grid,sections,instrumentation,gt,dataset,evalio}.py`, `gtab/schema/__init__.py`, all new empty `__init__.py`, **initial stubs** of `gtab/commands/{run,bench,eval,gt,data,models}.py` and `gtab/{analysis,sep,amt}/stage.py` (ownership passes to the owner named below on their first commit), `tests/conftest.py`, `tests/test_config.py`, `tests/test_audio.py`, `tests/test_models.py`, `tests/test_schema_m2.py`, `tests/test_no_torch_in_core.py`, `tests/test_py310_compat.py`, `tests/test_import_weight.py`, `tests/test_cli.py` (registration + `MANAGED_ENV`) |
-| **SEP** | S3, VRAM, bench (M2) | `gtab/third_party/msst/**`, `gtab/workers/sep_msst.py`, `gtab/workers/gpu_common.py`, `gtab/workers/vram_ballast.py`, `gtab/workers/base.py` (additive, stays py3.10-safe), `gtab/vram.py`, `gtab/sep/{stage,run,derive,archive,checks,experiments}.py`, `gtab/bench.py`, `gtab/commands/bench.py`, `gtab/doctor.py` (two additive checks), `tests/test_sep_*.py`, `tests/test_vram.py`, `tests/test_gpu_common.py`, `tests/test_bench.py` |
-| **AMT** | S6 backends, S3.5 v0 transcription + instrumentation, MIDI, **all transcription-scored experiments** (E1, E2, E3, E23, E24-sep, E24-amt, latency, gate-m2) | `envs/bp310/{pyproject.toml,uv.lock}`, `gtab/workers/amt_muscriptor.py`, `gtab/workers/amt_basicpitch.py`, `gtab/amt/{stage,cache,instruments,instrumentation,latency,midi,reftx,experiments}.py`, `tests/test_amt_*.py` |
-| **GRID** | S2 (beats→grid, sections, repeat map), S3.5 vocal activity + repeat residual pass 1, pipeline graph + `gtab run` | `gtab/workers/beats_beatthis.py`, `gtab/analysis/{onsets,grid,sections,repetition,vocal,stage}.py`, `gtab/pipeline/{graph,publish,runner}.py`, `gtab/commands/run.py`, `tests/test_grid_*.py`, `tests/test_sections_*.py`, `tests/test_s35_*.py`, `tests/test_pipeline_*.py` |
-| **EVAL** | §8 harness (M1a), GT tools, synthetic remix, decisions/contamination | `gtab/eval/**` (incl. `templates/`, `runs.py` with `slug()`), `gtab/analysis/stereo.py`, `gtab/commands/{eval,gt}.py`, `node/{package.json,package-lock.json,gtab_score.mjs}`, `docs/decisions.md`, `docs/eval/contamination.md`, `tests/test_eval_*.py`, `tests/fixtures/gp_make.py` |
-| **DATA** | Tier B/C registry, fetch, loaders, **model fetch** | `gtab/datasets/{registry.toml,registry.py,fetch.py,store.py}`, `gtab/datasets/loaders/{guitarset,idmt_bass,egdb,filobass,cambridge_mt,medleydb}.py`, `gtab/datasets/__init__.py` (public API, replaces P0 stub), `gtab/model_fetch.py`, `gtab/model_sources.toml`, `gtab/commands/{data,models}.py`, `tests/test_datasets_*.py`, `tests/test_model_fetch.py` |
+| **P0** integrator | contracts, deps, wiring | §1: `pyproject.toml`, `uv.lock`, `envs/gpu/pyproject.toml`, `envs/gpu/uv.lock`, `bandscribe/config.py`, `bandscribe/defaults.toml`, `bandscribe/paths.py`, `bandscribe/cli.py`, `bandscribe/audio.py`, `bandscribe/models.py`, `bandscribe/schema/{notes,grid,sections,instrumentation,gt,dataset,evalio}.py`, `bandscribe/schema/__init__.py`, all new empty `__init__.py`, **initial stubs** of `bandscribe/commands/{run,bench,eval,gt,data,models}.py` and `bandscribe/{analysis,sep,amt}/stage.py` (ownership passes to the owner named below on their first commit), `tests/conftest.py`, `tests/test_config.py`, `tests/test_audio.py`, `tests/test_models.py`, `tests/test_schema_m2.py`, `tests/test_no_torch_in_core.py`, `tests/test_py310_compat.py`, `tests/test_import_weight.py`, `tests/test_cli.py` (registration + `MANAGED_ENV`) |
+| **SEP** | S3, VRAM, bench (M2) | `bandscribe/third_party/msst/**`, `bandscribe/workers/sep_msst.py`, `bandscribe/workers/gpu_common.py`, `bandscribe/workers/vram_ballast.py`, `bandscribe/workers/base.py` (additive, stays py3.10-safe), `bandscribe/vram.py`, `bandscribe/sep/{stage,run,derive,archive,checks,experiments}.py`, `bandscribe/bench.py`, `bandscribe/commands/bench.py`, `bandscribe/doctor.py` (two additive checks), `tests/test_sep_*.py`, `tests/test_vram.py`, `tests/test_gpu_common.py`, `tests/test_bench.py` |
+| **AMT** | S6 backends, S3.5 v0 transcription + instrumentation, MIDI, **all transcription-scored experiments** (E1, E2, E3, E23, E24-sep, E24-amt, latency, gate-m2) | `envs/bp310/{pyproject.toml,uv.lock}`, `bandscribe/workers/amt_muscriptor.py`, `bandscribe/workers/amt_basicpitch.py`, `bandscribe/amt/{stage,cache,instruments,instrumentation,latency,midi,reftx,experiments}.py`, `tests/test_amt_*.py` |
+| **GRID** | S2 (beats→grid, sections, repeat map), S3.5 vocal activity + repeat residual pass 1, pipeline graph + `bandscribe run` | `bandscribe/workers/beats_beatthis.py`, `bandscribe/analysis/{onsets,grid,sections,repetition,vocal,stage}.py`, `bandscribe/pipeline/{graph,publish,runner}.py`, `bandscribe/commands/run.py`, `tests/test_grid_*.py`, `tests/test_sections_*.py`, `tests/test_s35_*.py`, `tests/test_pipeline_*.py` |
+| **EVAL** | §8 harness (M1a), GT tools, synthetic remix, decisions/contamination | `bandscribe/eval/**` (incl. `templates/`, `runs.py` with `slug()`), `bandscribe/analysis/stereo.py`, `bandscribe/commands/{eval,gt}.py`, `node/{package.json,package-lock.json,bandscribe_score.mjs}`, `docs/decisions.md`, `docs/eval/contamination.md`, `tests/test_eval_*.py`, `tests/fixtures/gp_make.py` |
+| **DATA** | Tier B/C registry, fetch, loaders, **model fetch** | `bandscribe/datasets/{registry.toml,registry.py,fetch.py,store.py}`, `bandscribe/datasets/loaders/{guitarset,idmt_bass,egdb,filobass,cambridge_mt,medleydb}.py`, `bandscribe/datasets/__init__.py` (public API, replaces P0 stub), `bandscribe/model_fetch.py`, `bandscribe/model_sources.toml`, `bandscribe/commands/{data,models}.py`, `tests/test_datasets_*.py`, `tests/test_model_fetch.py` |
 
 Cross-owner dependencies are **only through the APIs in this spec** (arrow = "imports / calls"):
 
 | From → To | API |
 |---|---|
-| AMT, GRID → SEP | `gtab.workers.gpu_common`, `gtab.vram` (incl. `write_gpu_run`/`read_gpu_run`) |
-| AMT → SEP | `gtab.sep.run.separate(...)` (E1, E24-sep; §9.1) |
-| AMT, SEP → EVAL | `gtab.eval.metrics`, `gtab.eval.stats`, `gtab.eval.remix` (`tierb_mix`, `make_scene(full_band=True)`) |
-| SEP → EVAL | `gtab.analysis.stereo` |
-| EVAL → AMT | `gtab.amt.reftx`, `gtab.amt.experiments.EXPERIMENTS` |
-| EVAL → SEP | `gtab.sep.experiments.EXPERIMENTS` (`stereo-preservation` only) |
-| EVAL, AMT → DATA | `gtab.datasets` public API |
-| DATA → P0 | `gtab.models.record/verify` (model fetch) |
+| AMT, GRID → SEP | `bandscribe.workers.gpu_common`, `bandscribe.vram` (incl. `write_gpu_run`/`read_gpu_run`) |
+| AMT → SEP | `bandscribe.sep.run.separate(...)` (E1, E24-sep; §9.1) |
+| AMT, SEP → EVAL | `bandscribe.eval.metrics`, `bandscribe.eval.stats`, `bandscribe.eval.remix` (`tierb_mix`, `make_scene(full_band=True)`) |
+| SEP → EVAL | `bandscribe.analysis.stereo` |
+| EVAL → AMT | `bandscribe.amt.reftx`, `bandscribe.amt.experiments.EXPERIMENTS` |
+| EVAL → SEP | `bandscribe.sep.experiments.EXPERIMENTS` (`stereo-preservation` only) |
+| EVAL, AMT → DATA | `bandscribe.datasets` public API |
+| DATA → P0 | `bandscribe.models.record/verify` (model fetch) |
 | GRID → SEP, AMT, GRID | `STAGES` dicts (lazy import, §1.7) |
-| GRID → P0 | `gtab.models.local_path` (Beat This! checkpoint) |
+| GRID → P0 | `bandscribe.models.local_path` (Beat This! checkpoint) |
 
 **Merge order** (each step lands on `main` before the next step may depend on it; owners work in parallel inside
 a step and against stubs/fakes for later steps):
 1. **P0** (contracts, stubs, deps).
 2. **Foundations** (first commit of each owner, within its first hours): SEP `vram.py` + `gpu_common.py` + base.py
-   additions; EVAL `metrics.py` + `stats.py` + `runs.py`; DATA `registry/fetch/store` + `gtab.datasets` API +
-   `gtab models fetch`. Until then consumers stub locally in tests.
+   additions; EVAL `metrics.py` + `stats.py` + `runs.py`; DATA `registry/fetch/store` + `bandscribe.datasets` API +
+   `bandscribe models fetch`. Until then consumers stub locally in tests.
 3. **Components**: SEP (vendored MSST, worker, stages, `sep.run`), AMT (workers, stages, reftx), GRID (beats worker,
    analysis, graph/runner/publish), EVAL (remix, GT tools, suites, report), DATA (loaders).
 4. **Experiments & gates** (E1–E3, E23, E24-*, latency, gate-m2, stereo-preservation, bench runs): need steps 2–3
@@ -423,7 +423,7 @@ a step and against stubs/fakes for later steps):
 
 ---
 
-## 3. Stage graph for `gtab run <file|url|job> --until notes`
+## 3. Stage graph for `bandscribe run <file|url|job> --until notes`
 
 ### 3.1 Stage contract
 
@@ -432,34 +432,34 @@ Each owner module exports
 STAGES: dict[str, dict] = {
   "<stage>": {"run": Callable[[StageContext], None], "code_version": "1",
               "params": Callable[[Config], dict], "device": "cpu"|"gpu",
-              "models": Callable[[Config], dict[str, str]]},   # model name -> sha256 (gtab.models.sha256_cached)
+              "models": Callable[[Config], dict[str, str]]},   # model name -> sha256 (bandscribe.models.sha256_cached)
 }
 ```
-`gtab/pipeline/graph.py` (GRID) owns **names and deps** (table below) and builds `list[Stage]` by importing
-`gtab.analysis.stage`, `gtab.sep.stage`, `gtab.amt.stage`. `input_hashes = {"input.mix": meta["decode"]["pcm_sha256"],
+`bandscribe/pipeline/graph.py` (GRID) owns **names and deps** (table below) and builds `list[Stage]` by importing
+`bandscribe.analysis.stage`, `bandscribe.sep.stage`, `bandscribe.amt.stage`. `input_hashes = {"input.mix": meta["decode"]["pcm_sha256"],
 "input.ingest": sha256(canonical_json(meta["params"]))}`. Stage key = M0 `JobStore.stage_key` (name + code
 version + params + dep keys + input hashes + model shas). The mix is `store.input_dir(song_key)/"mix_44k_f32.wav"`.
 Profile and hints enter only through the params of the stages that use them.
 
-`models(cfg)` may raise `gtab.models.ModelMissing`; the runner calls every selected stage's `models` at plan time
+`models(cfg)` may raise `bandscribe.models.ModelMissing`; the runner calls every selected stage's `models` at plan time
 and reports all missing models at once (exit 1) before running anything (§0).
 
-GPU stages call `gtab.vram.run_gpu_stage(...)` (§8.1), which does `wait_for_budget` and then
-`gtab.gpu.run_worker(name, request, work_dir=ctx.out_dir/"_worker", timeout_s=cfg.gpu.worker_timeout_s,
+GPU stages call `bandscribe.vram.run_gpu_stage(...)` (§8.1), which does `wait_for_budget` and then
+`bandscribe.gpu.run_worker(name, request, work_dir=ctx.out_dir/"_worker", timeout_s=cfg.gpu.worker_timeout_s,
 lock_timeout_s=cfg.gpu.lock_timeout_s)`, retrying on `insufficient_vram`. The worker writes its data
 files into `ctx.out_dir` (paths in the request); `_worker/{request,result}.json` and logs stay in the stage dir
 as provenance. A failed worker (`ok=False` or `lock_released_dirty=True`) raises `StageError` with a Korean
 message naming `_worker/stderr.log`; the DAG publishes nothing for that stage (M0).
 
 **Rung provenance (the rung is not in the key).** Every GPU stage writes `gpu_run.json` at its stage root via
-`gtab.vram.write_gpu_run(out_dir, backend, worker_output)`:
-`{"format":"gtab.gpu_run/1","backend","ladder":[labels],"rung":{"index","label","device"},"degraded": bool,
+`bandscribe.vram.write_gpu_run(out_dir, backend, worker_output)`:
+`{"format":"bandscribe.gpu_run/1","backend","ladder":[labels],"rung":{"index","label","device"},"degraded": bool,
 "waited_s"}` with `degraded = rung.index > 0 or device == "cpu"` (relative to the configured ladder). Output
 bytes differ by chunk size, medium vs small and GPU vs CPU, but the key holds only the ladder — so a result made
 while a game was running would otherwise be reused forever. The runner reads `gpu_run.json` of every **cached**
 GPU stage and, if `degraded`, prints `"<stage>: 낮은 칸(<label>)으로 만든 캐시입니다. 여유가 있을 때
-'gtab run <곡> --force <stage>' 로 다시 만드세요."` (warning, not failure). Experiments never use
-`gtab run` caches for measured backends: they pass `force_rung` and write the rung into their metric rows (§6.10).
+'bandscribe run <곡> --force <stage>' 로 다시 만드세요."` (warning, not failure). Experiments never use
+`bandscribe run` caches for measured backends: they pass `force_rung` and write the rung into their metric rows (§6.10).
 
 ### 3.2 Stages (list order = DAG order; GPU order is beats → sep → amt_ms1 → amt_gtr, DESIGN §9.5)
 
@@ -472,7 +472,7 @@ GPU stage and, if `degraded`, prints `"<stage>: 낮은 칸(<label>)으로 만든
 | 5 | `stems` | SEP | sep | cpu / core | `sep.leftover_warn_db` | `nonvox.wav`, `leftover.wav` (stereo), `practice/mix_minus_guitar.wav`, `practice/mix_minus_bass.wav` (stereo), `views/{mix,guitar,bass,piano_other,nonvox,guitar_other}_mono.wav`, `views.json`, `stem_stats.json`, `energy.npz` (§6.4) |
 | 6 | `vocal` | GRID | stems, grid, sep (reads `stems/vocals.wav`; integration 2026-10-03) | cpu / core | `s35.vocal_active_rel_db` | `vocal_activity.json` (§6.6) |
 | 7 | `resid1` | GRID | stems, grid, sections | cpu / core | `s35.resid_min_occurrences` | `repeat_resid_pass1.wav` (mono f32), `resid1.json` (§6.6) |
-| 8 | `amt_ms1` | AMT | stems, grid, sections (2026-10-04: presence windows) | gpu / gpu env / `amt_muscriptor` | `amt.*` MuScriptor keys (`muscriptor_model`, `revision`, `fallback`, `loader`, `dtype`, decode keys, `piano_other_instruments`), `run.profile`, view list, `presence` (mode + window budget `amt.presence_*`, `instr.active_rel_db`); models: medium sha | `raw/bass_mono__muscriptor.json`; `raw/piano_other_presence__muscriptor.json` (NoteSet with `segments`; every profile) or, with `amt.presence_pass = "full"`, `raw/piano_other_mono__muscriptor.json`; `eval` extras (read by no later stage): `raw/mix_mono__muscriptor.json` (= B0) and the full-length `raw/piano_other_mono__muscriptor.json`; `presence.json` (`gtab.presence/1`: mode, windows with home section / covered stems, evidence classes, skipped reason); `gpu_run.json` |
+| 8 | `amt_ms1` | AMT | stems, grid, sections (2026-10-04: presence windows) | gpu / gpu env / `amt_muscriptor` | `amt.*` MuScriptor keys (`muscriptor_model`, `revision`, `fallback`, `loader`, `dtype`, decode keys, `piano_other_instruments`), `run.profile`, view list, `presence` (mode + window budget `amt.presence_*`, `instr.active_rel_db`); models: medium sha | `raw/bass_mono__muscriptor.json`; `raw/piano_other_presence__muscriptor.json` (NoteSet with `segments`; every profile) or, with `amt.presence_pass = "full"`, `raw/piano_other_mono__muscriptor.json`; `eval` extras (read by no later stage): `raw/mix_mono__muscriptor.json` (= B0) and the full-length `raw/piano_other_mono__muscriptor.json`; `presence.json` (`bandscribe.presence/1`: mode, windows with home section / covered stems, evidence classes, skipped reason); `gpu_run.json` |
 | 9 | `amt_bp` | AMT | stems | cpu / bp310 / `amt_basicpitch` (no GPU lock) | `amt.bp_*` incl. `bp_threads`; models: bundled ONNX sha, or `{"basic_pitch": "absent"}` when the bp310 env is missing (key changes once it is installed) | `raw/{guitar_mono,bass_mono}__basicpitch.json` (NoteSet with bends); **optional**: without bp310 it writes `skipped.json` (`{"reason":"bp310 env missing"}`) and a Korean warning, and downstream stages treat Basic Pitch outputs as absent (DESIGN: auxiliary) |
 | 10 | `instr` | AMT | amt_ms1, stems, sections, grid | cpu / core | `instr.*` (incl. `presence_min_notes`), `hints.instruments`, `run.profile` | `instrumentation.json` (§6.5; evidence: piano+other presence pass, bass pass, stem energy, hints; eval's mix pass reported with weight 0 — identical estimate in every profile) |
 | 11 | `amt_gtr` | AMT | stems, instr | gpu / gpu env / `amt_muscriptor` | MuScriptor keys + `amt.guitar_view` + `amt.guitar_mask` (the policy only; the mask *content* comes from `instr`'s output and is covered by the `instr` dep key, not by params) | `raw/<amt.guitar_view>__muscriptor.json` (default `guitar_mono`), `gpu_run.json` |
@@ -483,23 +483,23 @@ Notes:
 - `vocal`/`resid1` are not needed for MIDI but are S3.5 deliverables; routing them through `s35` makes
   `--until notes` produce them (DESIGN M2 "S3.5 v0").
 - **Profiles (revised 2026-10-04; speed + the 怪獣の花唄 misrouting bug):** `quality` (default) and `fast` run
-  **no** `mix_mono` view (no B0) and a **sampled** piano+other presence pass (`gtab.amt.presence`: up to
+  **no** `mix_mono` view (no B0) and a **sampled** piano+other presence pass (`bandscribe.amt.presence`: up to
   `amt.presence_max_windows` = 6 windows of `amt.presence_window_s` = 10 s starting on bars, at most
   `presence_max_total_s` = 60 s and `presence_max_fraction` = 20 % of the song, at least one; `fast` halves the
   windows and the 60 s cap). `eval` adds the `mix_mono` B0 pass and the full-length piano+other pass as **extra
   outputs**: its `instr` uses the same sampled presence pass as `quality`, so its guitar mask and guitar pass are
   the system under test, not a variant (review 2026-10-04). `amt.presence_pass = auto (sampled) | sampled |
   full` overrides the presence source in every profile. Evaluation that needs B0
-  (`gtab eval ... --system b0`, the Tier A baselines) plans `amt_ms1` with `run.profile = "eval"`
-  (`gtab.eval.suites.JobStage`) and skips B0 with a Korean hint when the job has no eval run. S7's bleed penalty
+  (`bandscribe eval ... --system b0`, the Tier A baselines) plans `amt_ms1` with `run.profile = "eval"`
+  (`bandscribe.eval.suites.JobStage`) and skips B0 with a Korean hint when the job has no eval run. S7's bleed penalty
   (M6) needs full-length piano+other notes: M6 requests the full pass or adds an on-demand pass.
 - Segmented views: a request view may carry `segments: [[start_s, end_s], ...]` (sorted, disjoint); the worker
   transcribes each segment separately, returns notes in view time and writes `segments` into the NoteSet
   (§6.1 optional field). Segments enter that view's cache params; whole-view keys are unchanged.
-- **Transcription cache (shared S3.5 ↔ S6, DESIGN §9.3):** `gtab/amt/cache.py`:
+- **Transcription cache (shared S3.5 ↔ S6, DESIGN §9.3):** `bandscribe/amt/cache.py`:
   `amt_key(backend, backend_version, model_sha256, view_pcm_sha256, instruments: list[str]|None, params: dict,
   code_version, rung_label) -> str` (sha256 of canonical JSON). `instruments` is **sorted by MT3 id**
-  (`gtab.amt.instruments.sort_mt3`) before it enters the key *and* before it is sent to MuScriptor — MuScriptor
+  (`bandscribe.amt.instruments.sort_mt3`) before it enters the key *and* before it is sent to MuScriptor — MuScriptor
   turns the list into ids in the given order and its conditioning depends on that order. `rung_label` (e.g.
   `medium`, `small`) is part of the entry key, so a degraded transcription never answers for the top rung. Entries: `jobs/<song_key>/cache/amt/<key[:2]>/<key>.json` =
   raw NoteSet **before** latency correction, written atomically. `amt_ms1`/`amt_gtr`/`amt_bp` send only the
@@ -509,12 +509,12 @@ Notes:
   and records `time_offset_applied_s = −latency_s`. Basic Pitch: 0 (its own latency is measured in the same M2
   experiment and only reported).
 
-### 3.3 Publishing (`gtab/pipeline/publish.py`, GRID)
+### 3.3 Publishing (`bandscribe/pipeline/publish.py`, GRID)
 
 After a run whose stage set includes `notes`, publish into `jobs/<song_key>/export/` (DESIGN §7.1):
 `midi/guitar_all.mid`, `midi/bass_raw.mid`, `midi/b0_guitar.mid` (if present), `practice/mix_minus_guitar.wav`,
 `practice/mix_minus_bass.wav` (from `stems`), `practice/bass_stem.wav` (from **`sep`**'s `stems/bass.wav`),
-`instrumentation.json`, `export.json` (`{"format":"gtab.export/1","files":{rel:{"stage","key12","sha256"}}}`).
+`instrumentation.json`, `export.json` (`{"format":"bandscribe.export/1","files":{rel:{"stage","key12","sha256"}}}`).
 Build in `store.make_temp_dir(job_dir, "export")`:
 - **Small files (MIDI, JSON) are copied**; only WAVs are hardlinked (`os.link`, fallback copy), and every hardlinked
   WAV is marked read-only (`os.chmod(S_IREAD)`) — the attribute is shared with the stage file, which protects the
@@ -522,14 +522,14 @@ Build in `store.make_temp_dir(job_dir, "export")`:
   DAW therefore never alters a cached stage file.
 - Swap like ingest's rebuild: rename old `export/` aside to `make_temp_dir(job_dir, "export-old")`, rename new in,
   remove old. **If the old dir is locked** (a DAW/player has a file open), the aside rename or the removal fails →
-  leave the `.tmp-export-old-*` dir for `gtab gc` (M0 `gc_temp` scans job dirs) and log a Korean note; if even the
+  leave the `.tmp-export-old-*` dir for `bandscribe gc` (M0 `gc_temp` scans job dirs) and log a Korean note; if even the
   aside rename fails, keep the old export, leave the new build as `.tmp-export-*`, and fail publish with
   `"export 폴더의 파일이 다른 프로그램에서 열려 있습니다: <path>. 닫고 다시 실행하세요."` (exit 1; stages stay cached).
 - Idempotent (same stage keys → same `export.json`, no rewrite).
 
 ---
 
-## 4. Runner (`gtab/pipeline/runner.py`, GRID)
+## 4. Runner (`bandscribe/pipeline/runner.py`, GRID)
 
 ```python
 @dataclass class RunPlanItem: stage: str; key12: str; cached: bool; device: str
@@ -548,7 +548,7 @@ all absent models (`--dry-run` shows them as `모델 없음` rows instead). Wall
 ## 5. CLI (Korean help; exit codes: 0 ok, 1 failure, 2 usage/config error)
 
 ```
-gtab run <파일|URL|작업키> [--until 단계] [--from 단계] [--force 단계,단계] [--profile fast|quality]
+bandscribe run <파일|URL|작업키> [--until 단계] [--from 단계] [--force 단계,단계] [--profile fast|quality]
          [--instruments auto|"guitar,keys"] [--dry-run] [--set 키=값 ...]
   "파이프라인을 실행한다. 기본은 --until notes: 6 스템, nonvox, leftover, 편성(instrumentation.json),
    guitar_all.mid, bass_raw.mid, 연습용 반주(기타 뺀 믹스, 베이스 뺀 믹스). 끝난 단계는 캐시를 쓴다."
@@ -556,7 +556,7 @@ gtab run <파일|URL|작업키> [--until 단계] [--from 단계] [--force 단계
   --instruments → --set hints.instruments=...; --profile → --set run.profile=...
   Output: 단계 표(단계, 키, 캐시/실행, 소요, 장치), then 결과 파일 목록 (export/ 경로), 경고(leftover, VRAM 대기).
 
-gtab bench gpu [--clip 파일|작업키] [--seconds 240] [--backend sep|amt|beats|all] [--rungs all|auto]
+bandscribe bench gpu [--clip 파일|작업키] [--seconds 240] [--backend sep|amt|beats|all] [--rungs all|auto]
                [--cap-mb N] [--ballast-mb N|auto] [--fallback on|off|unknown] [--repeat 1]
   "GPU 벤치마크: 백엔드와 사다리 칸마다 VRAM(reserved·NVML·Shared Usage)과 실시간 배수를 잰다.
    결과는 data/bench/ 아래에 저장되고 VRAM 사전 점검 표(vram_table.json)를 갱신한다.
@@ -567,28 +567,28 @@ gtab bench gpu [--clip 파일|작업키] [--seconds 240] [--backend sep|amt|beat
   --rungs all = each rung separately with force_rung; auto = normal ladder from rung 0 (bench never prechecks,
   so the worker really attempts rung 0). Capped or ballasted runs are reported but never merged into vram_table.
 
-gtab eval run --suite quick|bp-smoke|synth|tierA|tierB|components [--system 이름] [--out 폴더] [--set ...]
-gtab eval compare <실행A> <실행B>                      "두 평가 실행을 곡 블록 부트스트랩으로 비교한다."
-gtab eval import-external <곡ID> <파일(.mid/.gp5/.gp)> --system songsterr_ai|klangio|mvsep101|other [--map "1=L1,2=L2"]
-gtab eval exp <E1|E2|E3|E23|E24-sep|E24-amt|latency|gate-m2|stereo-preservation> [--dry-run] [--data 세트]
+bandscribe eval run --suite quick|bp-smoke|synth|tierA|tierB|components [--system 이름] [--out 폴더] [--set ...]
+bandscribe eval compare <실행A> <실행B>                      "두 평가 실행을 곡 블록 부트스트랩으로 비교한다."
+bandscribe eval import-external <곡ID> <파일(.mid/.gp5/.gp)> --system songsterr_ai|klangio|mvsep101|other [--map "1=L1,2=L2"]
+bandscribe eval exp <E1|E2|E3|E23|E24-sep|E24-amt|latency|gate-m2|stereo-preservation> [--dry-run] [--data 세트]
   "사전 등록된 실험을 돌린다."  (ids = the `## <id>` headings of docs/decisions.md, exactly)
-gtab eval reftx <데이터셋> [--track ID]              "Tier B 참 단독 트랙을 MuScriptor로 참조 전사한다."
+bandscribe eval reftx <데이터셋> [--track ID]              "Tier B 참 단독 트랙을 MuScriptor로 참조 전사한다."
 
-gtab gt import <곡ID> <참조탭(.gp3/.gp4/.gp5/.gp/.gpx)> --audio <파일|작업키>
+bandscribe gt import <곡ID> <참조탭(.gp3/.gp4/.gp5/.gp/.gpx)> --audio <파일|작업키>
   "참조 탭을 가져와 반복·다른 엔딩을 펼치고 gt.yaml 초안을 만든다(구간·Line 지도는 직접 채운다)."
-gtab gt render <곡ID> [--engine internal|alphatab]   "참조 탭을 오디오로 렌더한다(청취·A/B용)."
-gtab gt align <곡ID> [--taps 라벨파일]                "DTW로 정답 템포맵을 만들고 align_check.wav 를 쓴다(Beat This! 안 씀)."
-gtab gt taps <곡ID> <Audacity 라벨 파일>              "Audacity 라벨 트랙의 다운비트 탭을 가져와 정렬을 보정한다."
-gtab gt approve <곡ID>                               "align_check.wav 를 듣고 승인한 것으로 기록한다."
+bandscribe gt render <곡ID> [--engine internal|alphatab]   "참조 탭을 오디오로 렌더한다(청취·A/B용)."
+bandscribe gt align <곡ID> [--taps 라벨파일]                "DTW로 정답 템포맵을 만들고 align_check.wav 를 쓴다(Beat This! 안 씀)."
+bandscribe gt taps <곡ID> <Audacity 라벨 파일>              "Audacity 라벨 트랙의 다운비트 탭을 가져와 정렬을 보정한다."
+bandscribe gt approve <곡ID>                               "align_check.wav 를 듣고 승인한 것으로 기록한다."
 
-gtab data list                                       "데이터셋 목록: 계층, 라이선스, 크기, 상태, 위치"
-gtab data fetch <이름> [--yes] [--part 파일]          "URL·크기·라이선스·저장 위치를 보여 주고 y/N 을 받은 뒤 받는다."
-gtab data verify [<이름>]                            "받은 파일의 SHA256 을 다시 계산해 기록과 비교한다."
-gtab data import-local <이름> <폴더> [--song 이름]     "직접 받은 데이터(수동 다운로드)를 등록한다."
+bandscribe data list                                       "데이터셋 목록: 계층, 라이선스, 크기, 상태, 위치"
+bandscribe data fetch <이름> [--yes] [--part 파일]          "URL·크기·라이선스·저장 위치를 보여 주고 y/N 을 받은 뒤 받는다."
+bandscribe data verify [<이름>]                            "받은 파일의 SHA256 을 다시 계산해 기록과 비교한다."
+bandscribe data import-local <이름> <폴더> [--song 이름]     "직접 받은 데이터(수동 다운로드)를 등록한다."
 
-gtab models list                                     "모델 목록: 이름, 크기, 라이선스, 상태(없음/받음/검증됨), 위치"
-gtab models fetch <이름> [--yes]                      "URL·크기·라이선스·저장 위치를 보여 주고 y/N 을 받은 뒤 받는다."
-gtab models verify [<이름>]                          "모델 파일의 SHA256 을 다시 계산해 models.lock.json 과 비교한다."
+bandscribe models list                                     "모델 목록: 이름, 크기, 라이선스, 상태(없음/받음/검증됨), 위치"
+bandscribe models fetch <이름> [--yes]                      "URL·크기·라이선스·저장 위치를 보여 주고 y/N 을 받은 뒤 받는다."
+bandscribe models verify [<이름>]                          "모델 파일의 SHA256 을 다시 계산해 models.lock.json 과 비교한다."
 ```
 
 ---
@@ -603,7 +603,7 @@ PyGuitarPro convention; alphaTab and GuitarSet/IDMT indices are converted on imp
 pitch of string `i+1`; pitch = tuning + capo + fret; all relative paths are POSIX-style relative to the file that
 contains them.
 
-### 6.1 Notes — `gtab/schema/notes.py`
+### 6.1 Notes — `bandscribe/schema/notes.py`
 
 ```python
 class PitchBend(_Model):  t_s: list[float]; cents: list[float]         # same length; cents relative to `pitch`
@@ -620,9 +620,9 @@ class BackendInfo(_Model):
     params: dict[str, Any] = {}; instruments: list[str] | None = None   # the hard mask actually used (None = all)
     device: str | None = None; dtype: str | None = None
 class NoteSet(_Model):
-    format: Literal["gtab.notes/1"] = "gtab.notes/1"
+    format: Literal["bandscribe.notes/1"] = "bandscribe.notes/1"
     view: str                              # view id: mix_mono | guitar_mono | bass_mono | piano_other_mono | nonvox_mono | ...
-    view_sha256: str | None = None         # gtab.audio.pcm_sha256 of the input view
+    view_sha256: str | None = None         # bandscribe.audio.pcm_sha256 of the input view
     backend: BackendInfo
     time_offset_applied_s: float = 0.0     # already added to onset/offset (MuScriptor: -latency)
     audio_duration_s: Seconds | None = None
@@ -634,11 +634,11 @@ def notes_to_arrays(ns: NoteSet, *, instruments: set[str] | None = None) -> tupl
 ```
 File naming: `<view>__<backend>.json`. No timestamps.
 
-### 6.2 Beats and grid — `gtab/schema/grid.py`
+### 6.2 Beats and grid — `bandscribe/schema/grid.py`
 
 ```python
 class BeatsRaw(_Model):   # beats.json
-    format: Literal["gtab.beats/1"]; tracker: str            # "beat_this/final0"
+    format: Literal["bandscribe.beats/1"]; tracker: str            # "beat_this/final0"
     checkpoint_sha256: str | None; dbn: bool; fps: float     # 50
     beats_s: list[float]; downbeats_s: list[float]; duration_s: Seconds
 class GridBeat(_Model):
@@ -649,7 +649,7 @@ class GridBar(_Model):
     numerator: int; denominator: int; beat_unit: Literal["quarter","dotted_quarter","eighth"]; pickup: bool = False
 class TempoSegment(_Model): start_bar: int; end_bar: int; bpm: float        # end exclusive; bpm of the beat unit
 class Grid(_Model):       # grid.json
-    format: Literal["gtab.grid/1"]; tpb: int = 48; duration_s: Seconds
+    format: Literal["bandscribe.grid/1"]; tpb: int = 48; duration_s: Seconds
     beats: list[GridBeat]; bars: list[GridBar]; tempo: list[TempoSegment]
     meter: list[dict]                   # [{"start_bar","end_bar","numerator","denominator","beat_unit"}]
     beat_unit: Literal["quarter","dotted_quarter","eighth"]      # dominant
@@ -675,32 +675,32 @@ class TempoMap:                          # plain class, numpy; used by grid AND 
 ```
 TempoMap tests (P0): round trip time→(bar,tick)→time < 1e-9 s; tempo change; pickup bar 0; extrapolation.
 
-### 6.3 Sections and repeat map — `gtab/schema/sections.py`
+### 6.3 Sections and repeat map — `bandscribe/schema/sections.py`
 
 ```python
 class Section(_Model): id: str; label: str; start_bar: int; end_bar: int      # end exclusive
                        start_s: Seconds; end_s: Seconds; confidence: Prob
-class Sections(_Model): format: Literal["gtab.sections/1"]; method: str; sections: list[Section]; params: dict
+class Sections(_Model): format: Literal["bandscribe.sections/1"]; method: str; sections: list[Section]; params: dict
 class Occurrence(_Model): section: str; start_bar: int; n_bars: int; offset_s: float     # offset vs group reference
 class RepeatGroup(_Model): label: str; occurrences: list[Occurrence]; reference: str      # reference section id
 class BarMatch(_Model): bar: int; matches: list[dict]     # [{"bar": int, "score": Prob, "offset_s": float}] best first
-class RepeatMap(_Model): format: Literal["gtab.repeat_map/1"]; groups: list[RepeatGroup]; bars: list[BarMatch]; params: dict
+class RepeatMap(_Model): format: Literal["bandscribe.repeat_map/1"]; groups: list[RepeatGroup]; bars: list[BarMatch]; params: dict
 ```
 
 ### 6.4 Separation outputs (SEP)
 
-`sep.json`: `{"format":"gtab.sep/1","backend":"sw_msst","msst_commit","ckpt_sha256","config_sha256",
+`sep.json`: `{"format":"bandscribe.sep/1","backend":"sw_msst","msst_commit","ckpt_sha256","config_sha256",
 "stem_order":["bass","drums","other","vocals","guitar","piano"],"chunk_size","num_overlap","dtype":"fp32+amp",
 "zero_dc":true,"input_lufs","input_gain_db","device_used","rung":{"index","label"},"audio_s","process_s","rtf",
 "vram":{...§7.1...}}` (GPU stage; not byte-deterministic).
-`views.json`: `{"format":"gtab.views/1","views":{"guitar_mono":{"path":"views/guitar_mono.wav","pcm_sha256":..,
+`views.json`: `{"format":"bandscribe.views/1","views":{"guitar_mono":{"path":"views/guitar_mono.wav","pcm_sha256":..,
 "source":"stems/guitar.wav","mono":"(L+R)/2"}, ...}}`; views: `mix`, `guitar`, `bass`, `piano_other` (piano +
 other), `nonvox`, `guitar_other` (guitar + other; E2 option), each `<id>_mono`.
-`stem_stats.json`: `{"format":"gtab.stem_stats/1","mix_rms_db","stems":{name:{"rms_db","rel_db","peak"}},
+`stem_stats.json`: `{"format":"bandscribe.stem_stats/1","mix_rms_db","stems":{name:{"rms_db","rel_db","peak"}},
 "leftover":{"rms_db_rel_mix","flag": rel > leftover_warn_db,"worst_windows":[{"start_s","rel_db"}] (10 s windows,
 top 5)},"nonvox":{"rel_db"}}`. `energy.npz`: per stem (incl. mix, nonvox, leftover) RMS in dB at 10 Hz (float32).
 
-### 6.5 Instrumentation — `gtab/schema/instrumentation.py`
+### 6.5 Instrumentation — `bandscribe/schema/instrumentation.py`
 
 ```python
 MT3_GROUPS: dict[str, int] = {  # = installed muscriptor 0.3.0 MT3_FULL_PLUS group table (verified: 35 entries, 0-33 + drums 36)
@@ -724,7 +724,7 @@ class ClassEvidence(_Model): p: Prob; present: bool; sources: dict[str, dict]
     # "presence_transcription" (piano+other pass, 2026-10-04) | "bass_transcription" | "stem_energy" | "hint"
     # | "guitar_stem_rule" | "mix_transcription" (eval: reported, w = 0, used = false)
 class Instrumentation(_Model):
-    format: Literal["gtab.instrumentation/1"]; profile: str
+    format: Literal["bandscribe.instrumentation/1"]; profile: str
     classes: dict[str, ClassEvidence]          # every MT3 group, deterministic order = MT3_GROUPS order
     families: dict[str, Prob]
     masks: dict[str, list[str] | None]         # {"guitar_mono": [...], "mix_mono": None, "bass_mono": [...], "piano_other_mono": [...]}
@@ -736,12 +736,12 @@ class Instrumentation(_Model):
 
 ### 6.6 S3.5 CPU artifacts (GRID)
 
-`vocal_activity.json`: `{"format":"gtab.vocal/1","fps":10,"rel_db":[...float32 rounded 0.1...],"active":[0/1...],
+`vocal_activity.json`: `{"format":"bandscribe.vocal/1","fps":10,"rel_db":[...float32 rounded 0.1...],"active":[0/1...],
 "per_bar":[{"bar","active_ratio"}],"threshold_rel_db"}`.
-`resid1.json`: `{"format":"gtab.resid1/1","per_bar":[{"bar","resid_rel_db"|null,"group"|null}],
+`resid1.json`: `{"format":"bandscribe.resid1/1","per_bar":[{"bar","resid_rel_db"|null,"group"|null}],
 "groups_used":[label...],"skipped":[{"label","reason"}],"method":"beat-aligned median background, repet3 soft mask (W=min(median,V))"}`.
 
-### 6.7 Ground truth — `gtab/schema/gt.py`
+### 6.7 Ground truth — `bandscribe/schema/gt.py`
 
 Per song directory `data/eval/tierA/<song_id>/` (song_id ASCII `[a-z0-9_-]+`):
 `gt.yaml`, `ref.<ext>` (byte copy), `refscore.json` (neutral import, unexpanded), `gt_notes.json` (expanded),
@@ -755,7 +755,7 @@ class GtLine(_Model): id: str; name: str; kind: Literal["guitar","bass"]; takes:
 class GtSection(_Model): id: str; start_bar: int; end_bar: int     # expanded musical bars, end EXCLUSIVE (like Section)
                          scenario: str; roles: dict[str, Literal["lead","rhythm","both","silent"]]; split: Literal["dev","test"]
 class GtSpec(_Model):     # gt.yaml
-    format: Literal["gtab.gt/1"]; song_id: str; title: str | None; artist: str | None
+    format: Literal["bandscribe.gt/1"]; song_id: str; title: str | None; artist: str | None
     audio: dict                    # {"song_key": "f-...", "note": "CD rip"}
     version_flags: dict            # {"version": "album|mv|live", "trimmed": bool, "note": str}
     reference: dict                # {"file": "ref.gp5", "format": "gp5", "expanded_bars": int, "bar_order": list[int] | None,
@@ -766,11 +766,11 @@ class GtSpec(_Model):     # gt.yaml
 class GtNote(_Model): line: str; ref_track: int; bar: int; tick: float; dur_ticks: float; pitch: Midi
                       string: int | None; fret: int | None; tied: bool = False; shared: bool = False
                       onset_s: Seconds | None = None; offset_s: Seconds | None = None     # filled after align
-class GtNotes(_Model): format: Literal["gtab.gtnotes/1"]; song_id: str; tpb: int; bars: list[dict]   # [{"bar","numerator","denominator","beat_unit","nominal_bpm"}]
+class GtNotes(_Model): format: Literal["bandscribe.gtnotes/1"]; song_id: str; tpb: int; bars: list[dict]   # [{"bar","numerator","denominator","beat_unit","nominal_bpm"}]
                        notes: list[GtNote]
-# tempo_map.json: {"format":"gtab.tempomap/1","source":"dtw|dtw+taps|synthetic","tpb":48,
+# tempo_map.json: {"format":"bandscribe.tempomap/1","source":"dtw|dtw+taps|synthetic","tpb":48,
 #                  "beats":[{"t_s","bar","beat"}],"beats_per_bar":{"<bar>": n}}
-# taps.json: {"format":"gtab.taps/1","source_file","taps":[{"t_s","bar"|null,"label"}]}
+# taps.json: {"format":"bandscribe.taps/1","source_file","taps":[{"t_s","bar"|null,"label"}]}
 ```
 `shared`: set by import for notes whose (pitch, bar, tick) also occur in another line (unison, DESIGN R3).
 The `gt.yaml` skeleton explains in Korean comments that `end_bar` is exclusive ("17~24마디면 start_bar: 17,
@@ -778,14 +778,14 @@ end_bar: 25").
 `bar_order` handles D.S./coda manually (list of written bar numbers in play order); `None` = automatic
 repeat/alternate-ending expansion.
 
-### 6.8 Dataset tracks — `gtab/schema/dataset.py`
+### 6.8 Dataset tracks — `bandscribe/schema/dataset.py`
 
 ```python
 class Part(_Model): id: str; kind: Literal["guitar","bass","vocals","drums","keys","other","mix","di"]
                     audio: str                           # path relative to the dataset root
                     channels: int; line: str | None = None; take: int | None = None
 class DatasetTrack(_Model):
-    format: Literal["gtab.dataset_track/1"]; dataset: str; track_id: str; split: str | None
+    format: Literal["bandscribe.dataset_track/1"]; dataset: str; track_id: str; split: str | None
     group: str | None                        # song/performer id for block bootstrap and comp/solo pairing
     tier: Literal["B","C"]; license: str
     mix: str | None; parts: list[Part]; lines: list[GtLine]
@@ -797,14 +797,14 @@ class DatasetTrack(_Model):
     meta: dict
 ```
 
-### 6.9 Predictions for evaluation — `gtab/schema/evalio.py`
+### 6.9 Predictions for evaluation — `bandscribe/schema/evalio.py`
 
 ```python
 class PredNote(_Model): onset_s: Seconds; offset_s: Seconds; pitch: Midi
                         line: str                          # line id or "unassigned"
                         posterior: Prob | None = None      # max part posterior (coverage–accuracy curve)
                         shared: bool = False; bar: int | None = None; tick: float | None = None   # bar/tick only if quantized
-class Prediction(_Model): format: Literal["gtab.prediction/1"]; system: str; item: str   # song_id / dataset:track / scene id
+class Prediction(_Model): format: Literal["bandscribe.prediction/1"]; system: str; item: str   # song_id / dataset:track / scene id
                           lines: list[dict]; notes: list[PredNote]; meta: dict = {}
 ```
 
@@ -820,15 +820,15 @@ predictions live in `data/eval/external/<slug(system)>/<slug(item)>.json`:
   fill it, and rows with different rungs are never pooled).
 - `summary.json` — aggregate metrics with CIs, baselines, MDE checks (deterministic).
 - `report.html` — jinja2: per item/line/scenario tables, confusion matrix, coverage–accuracy curve (inline SVG
-  via matplotlib), worst-bars list (bar links `gtab://job/<song_key>?bar=N` placeholder for the M4 UI).
+  via matplotlib), worst-bars list (bar links `bandscribe://job/<song_key>?bar=N` placeholder for the M4 UI).
 - `worst_bars.csv`.
 `metrics.csv` and `summary.json` must be byte-identical between two runs with the same inputs.
 
 ### 6.11 Registries
 
-- `data/datasets/datasets.lock.json`: `{"format":"gtab.datasets/1","datasets":{name:{"files":{fname:{"url"|"local",
+- `data/datasets/datasets.lock.json`: `{"format":"bandscribe.datasets/1","datasets":{name:{"files":{fname:{"url"|"local",
   "bytes","sha256","md5"|null,"fetched_utc"}},"extracted":"<dir>","status":"fetched|verified|manual"}}}`.
-- `data/bench/vram_table.json`: `{"format":"gtab.vram_table/1","gpu","driver","entries":{backend:{rung_label:
+- `data/bench/vram_table.json`: `{"format":"bandscribe.vram_table/1","gpu","driver","entries":{backend:{rung_label:
   {"reserved_peak_mb","ctx_mb","nvml_delta_peak_mb","rtf","fallback":"on|off|unknown","measured_utc","clip_s"}}},
   "calibration":{"shared_growth_noise_mb","runs"}}`.
   **Two quantities, two sources, never mixed** (NVML and `mem_get_info` free disagreed by ≈ 350 MB on this PC):
@@ -845,7 +845,7 @@ predictions live in `data/eval/external/<slug(system)>/<slug(item)>.json`:
 
 Request:
 ```json
-{"format": "gtab.worker/1", "job": {"song_key": "...", "stage": "...", "stage_key": "..."} ,
+{"format": "bandscribe.worker/1", "job": {"song_key": "...", "stage": "...", "stage_key": "..."} ,
  "out_dir": "<abs path; the worker writes data files only here>",
  "device": "auto|cuda|cpu",
  "vram": {"policy": "wait|error|cpu", "cpu_allowed": false, "precheck": true,
@@ -898,10 +898,10 @@ Request (+ envelope): `{"mix_wav", "model": {"ckpt", "ckpt_sha256", "config_yaml
 "input_gain_db": 0.0, "outputs": {"stems_dir": "stems"}}` (stems_dir relative to out_dir). Rung labels
 `chunk=<n>`; CPU rung `chunk=<smallest>@cpu` only if `vram.cpu_allowed`. `input_gain_db` (E1 / `sep.input_lufs`)
 is computed core-side by the `sep` stage (`input_lufs − integrated LUFS of the mix` via
-`gtab.ingest.loudness.measure`, rounded to 0.01 dB; 0 when `"off"`); the worker multiplies the mix by the gain and
+`bandscribe.ingest.loudness.measure`, rounded to 0.01 dB; 0 when `"off"`); the worker multiplies the mix by the gain and
 every stem by its inverse.
 Output extra: `{"stem_order": [...from yaml training.instruments...], "stems": {"guitar": "stems/guitar.wav", ...},
-"chunk_size": 588800, "config_sha256", "zero_dc": true}`. Writes stereo float32 WAVs via `gtab.audio.write_f32`.
+"chunk_size": 588800, "config_sha256", "zero_dc": true}`. Writes stereo float32 WAVs via `bandscribe.audio.write_f32`.
 Modes: `"mode": "separate"` (default) | `"selftest_identity"` (CPU, builds an identity "model" and runs the
 vendored demix loop on the given wav; reports max abs reconstruction error; used by `gpuenv` tests).
 
@@ -962,13 +962,13 @@ Note events → NoteSet with `amplitude` and `bend` (Basic Pitch bends are per-f
 86.13 fps → cents = 100/3 × bin; `t_s` = note onset + frame index / (22050/256)). Output extra: `{"model_path",
 "model_sha256", "onnxruntime_version", "basic_pitch_version", "frames_per_second": 86.1328, "min_note_len_frames"
 (= threshold passed), "min_note_frames_kept", "threads"}`.
-Imports only stdlib, numpy, soundfile, basic_pitch, onnxruntime and `gtab.workers.base` (3.10-compatible); the file
-carries `# gtab: py310` (P0's compat test). The bp310 lock notes the 3.10 resolution (`onnxruntime<=1.23.2`,
+Imports only stdlib, numpy, soundfile, basic_pitch, onnxruntime and `bandscribe.workers.base` (3.10-compatible); the file
+carries `# bandscribe: py310` (P0's compat test). The bp310 lock notes the 3.10 resolution (`onnxruntime<=1.23.2`,
 `numpy<=2.2.6`, `scipy<=1.15.3`).
 
 ### 7.5 `beats_beatthis` (GRID, gpu env)
 
-Request: `{"wav": "<mix>", "checkpoint_path": "<abs local path from gtab.models.local_path('beat_this.final0')>",
+Request: `{"wav": "<mix>", "checkpoint_path": "<abs local path from bandscribe.models.local_path('beat_this.final0')>",
 "checkpoint_sha256", "dbn": false, "float16": false, "out_beats": "beats.json", "out_activations":
 "activations.npz"}`. The worker **never** receives a hub name (a name would download inside the GPU lock and load
 with `weights_only=False`); it verifies the sha256, then `Audio2Frames(checkpoint_path=<local path>, ...)`, which
@@ -985,11 +985,11 @@ already snaps each downbeat to the nearest beat). Output extra: `{"checkpoint_pa
 
 ## 8. VRAM budget, wait policy, OOM ladder (SEP; used by all GPU workers)
 
-### 8.1 `gtab/vram.py` (torch-free, core + workers)
+### 8.1 `bandscribe/vram.py` (torch-free, core + workers)
 
 ```python
 @dataclass class GpuSnapshot: total_mb: float; used_mb: float; free_mb: float; processes: list[dict]
-def snapshot() -> GpuSnapshot | None                       # NVML (gtab.sysmon); None if unavailable
+def snapshot() -> GpuSnapshot | None                       # NVML (bandscribe.sysmon); None if unavailable
 def budget_mb(snap: GpuSnapshot, margin_mb: float) -> float  # NVML free_mb - margin_mb (margin = other apps' fluctuation)
 @dataclass class RungNeed: reserved_peak_mb: float; ctx_mb: float
 def load_table(path=paths.VRAM_TABLE, *, ctx_default_mb: float) -> dict[str, dict[str, RungNeed]]  # falls back per entry to DEFAULT_NEEDS
@@ -1020,7 +1020,7 @@ def read_gpu_run(stage_dir: Path) -> dict | None
 With a typical desktop (≈ 4.1 GB NVML free, budget ≈ 3.4 GB) every top rung fits: SW 1800 + 500 = 2.3 GB,
 MuScriptor-medium upstream 2400 + 500 = 2.9 GB. VRAM only binds when a game or another CUDA app is running.
 
-### 8.2 `gtab/workers/gpu_common.py` (torch, lazy; workers only)
+### 8.2 `bandscribe/workers/gpu_common.py` (torch, lazy; workers only)
 
 ```python
 def pick_device(req: dict) -> "torch.device"
@@ -1072,9 +1072,9 @@ Under the default policy `"wait"`, "every GPU rung failed" means waiting (bounde
 
 ### 9.1 SEP — separation, VRAM, bench (M2)
 
-1. **First:** `gtab/vram.py` + `gtab/workers/gpu_common.py` signatures (§8) with working basic logic; base.py
+1. **First:** `bandscribe/vram.py` + `bandscribe/workers/gpu_common.py` signatures (§8) with working basic logic; base.py
    additive changes (`snapshot()`, `mark()`, growth/delta fields; Python-3.10-safe — P0's compat test). Commit.
-2. **Vendor MSST** at `msst_commit` into `gtab/third_party/msst/`: exactly `models/bs_roformer/{__init__,
+2. **Vendor MSST** at `msst_commit` into `bandscribe/third_party/msst/`: exactly `models/bs_roformer/{__init__,
    bs_roformer,attend}.py`, upstream `LICENSE` (MIT), `VENDOR.md` (repo URL, commit, file list with upstream and
    local sha256, every local patch listed). Local patches (all verified necessary by the critique probe):
    - `__init__.py` **trimmed** to `from .bs_roformer import BSRoformer` (upstream also imports the conformer and
@@ -1085,7 +1085,7 @@ Under the default policy `"wait"`, "every GPU rung failed" means waiting (bounde
      `F.scaled_dot_product_attention` (flash kernels do not exist on sm_75; SDPA picks mem-efficient/math);
    - no module-level matplotlib/librosa.
    `zero_dc=True` (HEAD default: zeroes the DC bin of every stem) is kept and documented in `VENDOR.md` and
-   `sep.json`. `gtab/third_party/msst/demix.py`: port of MSST `demix` (generic, non-htdemucs branch: step = chunk //
+   `sep.json`. `bandscribe/third_party/msst/demix.py`: port of MSST `demix` (generic, non-htdemucs branch: step = chunk //
    num_overlap, fade = chunk // 10, border = chunk − step, reflect pad when length > 2·border, windowed
    overlap-add) **with CPU float32 accumulators** (upstream HEAD keeps them on GPU; we keep VRAM for the model) and
    a per-chunk callback for the Watchdog.
@@ -1098,35 +1098,35 @@ Under the default policy `"wait"`, "every GPU rung failed" means waiting (bounde
 4. **Worker `sep_msst`** (§7.2) with the §8 ladder; stems in yaml `training.instruments` order; `input_gain_db`
    applied before / inverted after. After the model is on the GPU: `ctx.sampler.mark("model_loaded")`,
    `Watchdog.arm()`.
-5. **Stages** `sep`, `stems` in `gtab/sep/stage.py` (`sep` params exactly as §3.2 row 4; writes `gpu_run.json`);
-   `gtab/sep/derive.py` streams blocks (M0 RAM rule: never hold six stems at once): `nonvox = mix − vocals − drums
+5. **Stages** `sep`, `stems` in `bandscribe/sep/stage.py` (`sep` params exactly as §3.2 row 4; writes `gpu_run.json`);
+   `bandscribe/sep/derive.py` streams blocks (M0 RAM rule: never hold six stems at once): `nonvox = mix − vocals − drums
    − bass`, `leftover = mix − Σ6 stems`, `mix_minus_guitar = mix − guitar`, `mix_minus_bass = mix − bass`, mono
    views `(L+R)/2` of mix, guitar, bass, `piano + other`, nonvox, `guitar + other`; `stem_stats.json`,
    `energy.npz`. Leftover rel RMS > `leftover_warn_db` → warning in stats and in the run output (not a failure).
-6. **`gtab/sep/run.py`** — the one entry point for separation outside jobs (AMT's E1/E24-sep, EVAL scenes):
+6. **`bandscribe/sep/run.py`** — the one entry point for separation outside jobs (AMT's E1/E24-sep, EVAL scenes):
    `separate(mix_wav: Path, out_dir: Path, cfg, *, force_rung: str | None = None, input_lufs: float | str | None =
    None, dtype: str | None = None) -> SepResult` (`SepResult`: `stems: dict[str, Path]`, `rung`, `sep_json: dict`).
    Same request builder and `run_gpu_stage` as the stage; overrides default to the config values.
-7. `gtab/sep/archive.py`: `archive(wav, flac) -> gain` (peak-normalise to −0.1 dBFS, 24-bit FLAC, gain in a
+7. `bandscribe/sep/archive.py`: `archive(wav, flac) -> gain` (peak-normalise to −0.1 dBFS, 24-bit FLAC, gain in a
    sidecar `.gain.json`), `restore(flac) -> np.ndarray`; `roundtrip_error_db(wav, *, ref_rms_db: float) -> float`
    = error RMS after un-gaining **relative to `ref_rms_db` = the mix's RMS** (not the stem's own RMS: 24-bit
    quantisation noise after peak normalisation is ≈ −149 dBFS RMS, so a sparse stem with crest factor > ≈ 49 dB
    would fail a self-relative −100 dB test). Stems whose RMS is below −60 dB relative to the mix are reported as
-   `skipped_sparse` rather than failed. (CLI `gtab clean --archive` is later; M2 needs the function + measurement.)
-8. `gtab/sep/checks.py`: `stereo_preservation(true_stereo, est_stereo, sr) -> dict` — per-bin coherence and ILD
-   (via `gtab.analysis.stereo.coherence_ild_maps`) of the true guitar-only stem vs the SW guitar stem, energy-
+   `skipped_sparse` rather than failed. (CLI `bandscribe clean --archive` is later; M2 needs the function + measurement.)
+8. `bandscribe/sep/checks.py`: `stereo_preservation(true_stereo, est_stereo, sr) -> dict` — per-bin coherence and ILD
+   (via `bandscribe.analysis.stereo.coherence_ild_maps`) of the true guitar-only stem vs the SW guitar stem, energy-
    weighted mean |Δcoh|, |ΔILD| dB, and `window_features` deltas.
-9. `gtab/sep/experiments.py` `EXPERIMENTS = {"stereo-preservation": ...}` (b7 real-stem archive error + b8; §10,
+9. `bandscribe/sep/experiments.py` `EXPERIMENTS = {"stereo-preservation": ...}` (b7 real-stem archive error + b8; §10,
    §11). **E1 and E24-sep are AMT's** (they are scored by MuScriptor vs reftx); SEP supplies `separate()`.
-10. **Bench** `gtab/bench.py` + `gtab/commands/bench.py` (§5): for each backend × rung run the worker with
+10. **Bench** `bandscribe/bench.py` + `bandscribe/commands/bench.py` (§5): for each backend × rung run the worker with
     `force_rung` and `precheck: false`, record `vram.attempts`, top-level cuda/sysmon, `ctx_mb`, rtf, load time;
     write `data/bench/<YYYYMMDD-HHMMSS>_<gitsha7>/bench.json` + `bench.csv`; merge uncapped, ballast-free `ok`
     rows into `vram_table.json` (median over `--repeat`). `bench.json` records at start the NVML process list with
     per-process used MB (`null` where WDDM reports N/A) — the Claude app itself (claude.exe, msedgewebview2) holds
-    VRAM and cannot be closed while it drives gtab, so b1/b9 evidence states what was running.
+    VRAM and cannot be closed while it drives bandscribe, so b1/b9 evidence states what was running.
     - `--cap-mb` = OOM-ladder validation (b4: expects `oom` on large rungs, success lower down). It cannot show
       Sysmem Fallback (the PyTorch allocator raises before real memory runs out).
-    - `--ballast-mb N|auto` (b3): `gtab/workers/vram_ballast.py` (gpu env) is started with
+    - `--ballast-mb N|auto` (b3): `bandscribe/workers/vram_ballast.py` (gpu env) is started with
       `winjob.spawn_in_job` in **its own Job Object, outside the GPU lock**, before the measured worker. It
       allocates N MB with `torch.empty(..., dtype=torch.uint8, device="cuda").fill_(1)` in 256 MB blocks
       (touching commits real VRAM), writes `ready.json` (`{"held_mb"}`), then sleeps until a `stop` file appears
@@ -1139,9 +1139,9 @@ Under the default policy `"wait"`, "every GPU rung failed" means waiting (bounde
       `calibration.shared_growth_noise_mb`; bench prints the recommended `gpu.shared_growth_fail_mb =
       max(64, 2 × noise)` (an integration request if it differs from 64).
     - Backends `amt` and `beats` call AMT's/GRID's workers with their documented requests (no import of their code).
-11. `gtab/doctor.py` two additive non-required checks: `gpu.vram_table` (present / age / entries) and
+11. `bandscribe/doctor.py` two additive non-required checks: `gpu.vram_table` (present / age / entries) and
     `models.present` (every `models.lock.json` entry exists; `beat_this.final0` missing → hint
-    `gtab models fetch beat_this.final0`).
+    `bandscribe models fetch beat_this.final0`).
 
 Tests: `test_vram.py` (choose_rung with `RungNeed`, orchestrator vs worker need never mixed, wait policy with fake
 clock/snapshots, `cpu` policy honours `cpu_backends`, `run_gpu_stage` retry bound with a fake `run_worker`,
@@ -1150,7 +1150,7 @@ raises OOM; all GPU rungs fail + CPU not allowed → `(None, attempts)`; Watchdo
 measured from `arm()`, adapter growth ignored, slow → warning only, slow + PDH unavailable → SharedGrowth),
 `test_sep_demix.py` (`gpuenv`: `selftest_identity` reconstruction error < 1e-5 on a 30 s random stereo file, chunk
 262144 and 588800), `test_sep_vendor.py` (`gpuenv`: vendored files match `VENDOR.md` sha256; strict load of a
-tiny random-weights BSRoformer state dict; importing `gtab.third_party.msst` does not import librosa and emits no
+tiny random-weights BSRoformer state dict; importing `bandscribe.third_party.msst` does not import librosa and emits no
 `sdp_kernel` FutureWarning on CPU), `test_sep_upstream_parity.py` (`gpu`, `slow`: vendored model + our demix vs
 upstream MSST `demix` from a pristine checkout of `msst_commit` at `data/scratch/msst_ref/` (skipped if absent) on
 a 20 s clip → SNR > 60 dB per stem), `test_sep_derive.py` (fake stems on disk: nonvox/leftover/practice identities
@@ -1174,13 +1174,13 @@ ballast launcher with a fake worker that writes `ready.json`).
    false`, deps `basic-pitch==0.4.0`, `onnxruntime`, `soundfile`, `numpy`, `filelock`, `pydantic`; a comment notes
    the 3.10 resolution `onnxruntime<=1.23.2`, `numpy<=2.2.6`, `scipy<=1.15.3`); install Python 3.10 with
    `tools\uvw.cmd python install 3.10` (goes to `D:\gtab\tools\python`, the global 3.10 is never touched); lock +
-   sync from `D:\gtab\envs\bp310`. gtab is **not** installed there (requires 3.12); workers import it through the
+   sync from `D:\gtab\envs\bp310`. bandscribe is **not** installed there (requires 3.12); workers import it through the
    `PYTHONPATH` that `gpu.run_worker` sets. Record the bundled ONNX model (`basic_pitch/saved_models/icassp_2022/
    nmp.onnx` in the bp310 site-packages) as `basic_pitch.icassp2022` in `models.lock.json`; `amt_bp`'s `models()`
    hashes that file, or returns `{"basic_pitch": "absent"}` if `paths.BP310_PYTHON` does not exist (§3.2 row 9).
 3. Workers `amt_muscriptor` (§7.3; default loader `upstream`, optional `lean`; `ctx.sampler.mark("model_loaded")`
    + `Watchdog.arm()` after load; `refuse_bf16`) and `amt_basicpitch` (§7.4; `transcribe` and `sweep` modes).
-4. `gtab/amt/instruments.py`: family ↔ class maps (from the schema), hint parsing (`"guitar,keys"` → classes;
+4. `bandscribe/amt/instruments.py`: family ↔ class maps (from the schema), hint parsing (`"guitar,keys"` → classes;
    unknown family → Korean ConfigError), `sort_mt3(classes) -> list[str]` (MT3 id order; used for every request and
    cache key), mask builders: `mask_bass()`, `mask_piano_other(mode)`, `mask_guitar_view(instrumentation, policy)`
    with policy `amt.guitar_mask`: `guitar_only` = 3 guitar classes; `guitar+present` (default) = 3 guitar classes ∪
@@ -1189,7 +1189,7 @@ ballast launcher with a fake worker that writes `ready.json`).
    were in `guitar+present` for a day on 2026-10-04 and were taken out after the real-song check: no bleed removed,
    guitar sub-class labels reshuffled.)
    `mask_piano_other(mode)` = keys/synth/strings (+ guitar for `keys+guitar`).
-5. `gtab/amt/instrumentation.py` — S3.5 v0 estimator (hand rules **[잠정]**, E3 calibrates):
+5. `bandscribe/amt/instrumentation.py` — S3.5 v0 estimator (hand rules **[잠정]**, E3 calibrates):
    - mix transcription evidence per class (experiments only, `mix_as_evidence`; `eval` reports it with
      weight 0): `active_ratio` = fraction of bars (from sections/grid bars via
      `sections.json` bar times) with ≥2 notes of that class; `e = clip(active_ratio / 0.1, 0, 1)` if ≥
@@ -1216,10 +1216,10 @@ ballast launcher with a fake worker that writes `ready.json`).
      ≥ `guitar_stem_active_ratio` of bars, all three guitar classes are present** (DESIGN S3.5 start value).
    - `per_section` family activity; `warnings` (e.g. "건반 에너지는 있는데 믹스 전사에 건반 음이 없음").
    - every profile: no mix evidence; the presence pass and the bass pass replace it.
-6. Stages `amt_ms1`, `amt_bp`, `instr`, `amt_gtr`, `s35`, `notes` (`gtab/amt/stage.py`) with the cache (§3.2); GPU
-   stages via `gtab.vram.run_gpu_stage` and `write_gpu_run`. `amt_bp` is optional (§3.2 row 9); `s35`/`notes`
+6. Stages `amt_ms1`, `amt_bp`, `instr`, `amt_gtr`, `s35`, `notes` (`bandscribe/amt/stage.py`) with the cache (§3.2); GPU
+   stages via `bandscribe.vram.run_gpu_stage` and `write_gpu_run`. `amt_bp` is optional (§3.2 row 9); `s35`/`notes`
    treat its outputs as absent when `skipped.json` exists.
-7. `gtab/amt/midi.py`: `write_performance_midi(path, tracks: list[(name, program, NoteSet)], grid: Grid | None)`
+7. `bandscribe/amt/midi.py`: `write_performance_midi(path, tracks: list[(name, program, NoteSet)], grid: Grid | None)`
    via mido, ticks_per_beat 480 (per **quarter note**, as MIDI tempo is always µs per quarter), time signatures from
    `grid.bars`, deterministic event order, velocity 90 when absent, one track per name. Time 0 of the MIDI = time 0
    of the audio. Tempo: one `set_tempo` per grid beat interval so DAW bar lines follow the song; a beat of unit
@@ -1235,20 +1235,20 @@ ballast launcher with a fake worker that writes `ready.json`).
    MuScriptor transcription, one track per class present, GM programs (0-based) acoustic 25, clean 27, distorted 30;
    `bass_raw.mid` = bass classes of `bass_mono` (electric 33, acoustic 32); `b0_guitar.mid` = guitar classes of the
    mix transcription merged into one track (baseline B0, DESIGN 8.5).
-8. `gtab/amt/latency.py`: `spectral_flux_onsets(wav) -> np.ndarray`; `estimate_latency(notes, ref_onsets, max_ms=100)
+8. `bandscribe/amt/latency.py`: `spectral_flux_onsets(wav) -> np.ndarray`; `estimate_latency(notes, ref_onsets, max_ms=100)
    -> {"median_ms","mad_ms","n"}`; experiment `latency` (pre-registered split, so the criterion does not grade
    itself): **estimate** the constant on a dev set = GuitarSet players `00`–`02` (+ the EGDB dev split if
    available); **report** the median absolute onset residual after correction on held-out GuitarSet players
    `03`–`05` (block bootstrap CI over tracks); flux onsets on the same clips as a cross-check. Set `amt.latency_s`
    (in `defaults.toml` via an integration request) to the dev GT-based median. Cross-check only: muscriptor's own
    `transcribe_and_postprocess` estimate (constant-tempo grid, DESIGN S6).
-9. `gtab/amt/reftx.py`: `reference_transcribe(track: DatasetTrack, out_dir, cfg) -> dict[line, NoteSet]` — mono
+9. `bandscribe/amt/reftx.py`: `reference_transcribe(track: DatasetTrack, out_dir, cfg) -> dict[line, NoteSet]` — mono
    downmix of each true solo guitar/bass part → MuScriptor (guitar parts: 3 guitar classes; bass: bass classes)
-   with the reftx cache (rung label in the key). Used by `gtab eval reftx` (EVAL CLI) — "Tier B 참 단독 트랙의
+   with the reftx cache (rung label in the key). Used by `bandscribe eval reftx` (EVAL CLI) — "Tier B 참 단독 트랙의
    MuScriptor 참조 전사".
-10. `gtab/amt/experiments.py` `EXPERIMENTS = {"E1", "E2", "E3", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"}`
-    (§10). E1/E24-sep call `gtab.sep.run.separate(..., force_rung=<top rung>, input_lufs=/dtype=)` on
-    `gtab.eval.remix.tierb_mix(...)` inputs and score MuScriptor (via AMT's own worker, `force_rung="medium"`) on the
+10. `bandscribe/amt/experiments.py` `EXPERIMENTS = {"E1", "E2", "E3", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"}`
+    (§10). E1/E24-sep call `bandscribe.sep.run.separate(..., force_rung=<top rung>, input_lufs=/dtype=)` on
+    `bandscribe.eval.remix.tierb_mix(...)` inputs and score MuScriptor (via AMT's own worker, `force_rung="medium"`) on the
     SW stems against reftx. E23 uses `amt_basicpitch` mode `sweep` (one model pass per track). Every metric row
     carries `rung` (§6.10).
 
@@ -1273,16 +1273,16 @@ separate `transcribe` runs; **two runs → byte-identical NoteSet files**), `tes
 `test_lean_loader_parity`: lean and upstream loaders give identical notes on the clip and lean's
 `max_reserved_mb` is lower — the gate for switching the default).
 
-### 9.3 GRID — S2, S3.5 CPU parts, pipeline, `gtab run`
+### 9.3 GRID — S2, S3.5 CPU parts, pipeline, `bandscribe run`
 
 1. Worker `beats_beatthis` (§7.5); stage `beats`: `models(cfg)` = `{"beat_this.final0":
-   sha256_cached(gtab.models.local_path("beat_this.final0"))}` (raises `ModelMissing` → plan-time Korean error
-   naming `gtab models fetch beat_this.final0`); the stage passes the local path and never records or downloads
+   sha256_cached(bandscribe.models.local_path("beat_this.final0"))}` (raises `ModelMissing` → plan-time Korean error
+   naming `bandscribe models fetch beat_this.final0`); the stage passes the local path and never records or downloads
    models itself; writes `gpu_run.json`.
-2. `gtab/analysis/onsets.py`: mix → mono 22050 Hz (soxr) → `librosa.effects.hpss` on the STFT (n_fft 2048,
+2. `bandscribe/analysis/onsets.py`: mix → mono 22050 Hz (soxr) → `librosa.effects.hpss` on the STFT (n_fft 2048,
    hop 256; margin 2.0 **[잠정]**) → percussive onset strength (`librosa.onset.onset_strength`) + peak picking →
    `onsets.npz` (env, times, fps). **Full mix only** — drum stems are not used (DESIGN S2).
-3. `gtab/analysis/grid.py` (`derive_grid(beats_raw, activations, onsets, params) -> Grid`), in this order:
+3. `bandscribe/analysis/grid.py` (`derive_grid(beats_raw, activations, onsets, params) -> Grid`), in this order:
    1. downbeat check: Beat This!'s minimal postprocessing already snaps downbeats to beats, so this step only
       verifies every downbeat coincides with a beat (±1 ms); violations (e.g. after a future DBN option) are
       snapped within `downbeat_snap_ms` or dropped, and counted in confidence;
@@ -1310,7 +1310,7 @@ separate `transcribe` runs; **two runs → byte-identical NoteSet files**), `tes
       beat); within ±`compound_margin` → `ambiguous`, both hypotheses kept in `alternatives` (UI toggle later,
       E14); triplet *feel* is decided later in M3;
    7. tempo per bar (median beat interval, 0.1 BPM), confidences from activations.
-4. `gtab/analysis/sections.py`: beat-synchronous CENS (librosa `chroma_cens`) + MFCC (13, standardized) →
+4. `bandscribe/analysis/sections.py`: beat-synchronous CENS (librosa `chroma_cens`) + MFCC (13, standardized) →
    recurrence/self-similarity with `librosa.segment.recurrence_matrix` (affinity) → Laplacian segmentation
    (McFee–Ellis; number of segments by eigengap in [2, `max_sections`]) → boundaries snapped to downbeats,
    segments shorter than `min_section_bars` merged → labels by clustering segment feature means → `sections.json`;
@@ -1321,9 +1321,9 @@ separate `transcribe` runs; **two runs → byte-identical NoteSet files**), `tes
    `threadpoolctl.threadpool_limits(1)`; eigenvectors are sign-normalised (largest-|x| component positive) and
    ordered by (eigenvalue, index); KMeans uses `random_state=0`, `n_init=10`; labels are renamed A, B, C… in order
    of first appearance; scores rounded to 1e-4 and times to 1e-6 before writing.
-5. `gtab/analysis/vocal.py`: vocals-stem RMS at 10 Hz relative to mix RMS, median-smoothed 0.5 s, active if >
+5. `bandscribe/analysis/vocal.py`: vocals-stem RMS at 10 Hz relative to mix RMS, median-smoothed 0.5 s, active if >
    `vocal_active_rel_db`; per-bar active ratio.
-6. `gtab/analysis/repetition.py` (**repeat residual pass 1, no solo gate**, DESIGN S3.5 step 5; **exact port of
+6. `bandscribe/analysis/repetition.py` (**repeat residual pass 1, no solo gate**, DESIGN S3.5 step 5; **exact port of
    `docs/research/experiments/repet3.py`'s mask**, which is DESIGN's evidence for the 0 → 17 dB lead SIR gain): for
    each repeat group with ≥ `resid_min_occurrences` occurrences, guitar-stem mono STFT (n_fft 4096, hop 1024) of
    every occurrence warped onto the reference occurrence's beat grid (per-beat linear frame resampling, offset
@@ -1333,10 +1333,10 @@ separate `transcribe` runs; **two runs → byte-identical NoteSet files**), `tes
    guitar stem. The mask core is a pure function `background_mask(V_stack: np.ndarray) -> np.ndarray` (shape
    `(occ, freq, frames)`) so it can be parity-tested. Groups with fewer occurrences: `null` + `skipped` reason.
    `resid1.json` `method` = `"beat-aligned median background, repet3 soft mask (W=min(median,V))"`.
-7. `gtab/analysis/stereo.py` is **EVAL's** file (router features); GRID does not need it in M2.
-8. Pipeline: `gtab/pipeline/graph.py` (§3; lazy imports of the three `STAGES` modules with the Korean
+7. `bandscribe/analysis/stereo.py` is **EVAL's** file (router features); GRID does not need it in M2.
+8. Pipeline: `bandscribe/pipeline/graph.py` (§3; lazy imports of the three `STAGES` modules with the Korean
    not-implemented error of §1.7), `runner.py` (§4 incl. `data_outputs`, plan-time `ModelMissing`, degraded-cache
-   warning from `gpu_run.json`), `publish.py` (§3.3), `gtab/commands/run.py` (§5).
+   warning from `gpu_run.json`), `publish.py` (§3.3), `bandscribe/commands/run.py` (§5).
 
 Tests: `test_grid_derive.py` (fake beats/onsets: constant tempo, tempo ramp, pickup 1–3 beats, half-time tracker
 output → doubled, double-time → halved, 6/8 synthetic onsets at thirds → compound, 4/4 duple → simple, ambiguous
@@ -1361,8 +1361,8 @@ checkpoint loaded from the local path with `weights_only=True`).
 
 ### 9.4 EVAL — measurement harness (M1a) and experiment framework (M2)
 
-1. `gtab/eval/matching.py` + `metrics.py` (DESIGN 8.4 items 1, 2, 3, 4, 7, 10, and 11 which M1a names).
-   Note inputs are `(intervals (n,2) seconds, pitches (n,) MIDI)` tuples (`gtab.schema.notes.notes_to_arrays`);
+1. `bandscribe/eval/matching.py` + `metrics.py` (DESIGN 8.4 items 1, 2, 3, 4, 7, 10, and 11 which M1a names).
+   Note inputs are `(intervals (n,2) seconds, pitches (n,) MIDI)` tuples (`bandscribe.schema.notes.notes_to_arrays`);
    line-aware metrics take events built by `events_from_gt(GtNotes | DatasetTrack)` and
    `events_from_prediction(Prediction)`. mir_eval is imported lazily (§0).
    - `note_prf(ref, est, *, onset_tol=0.05, pitch_tol_cents=50, offset_ratio=None, chroma=False) -> PRF`:
@@ -1392,14 +1392,14 @@ checkpoint loaded from the local path with `weights_only=True`).
    - `coverage_accuracy(gt_events, est_events, taus) -> list[(tau, coverage, accuracy)]` (posterior < τ →
      Unassigned; accuracy conditional on assigned; single point when no posteriors).
    - `shared_prf(gt_events, est_events, sections)` in unison-tagged sections (#11).
-2. `gtab/eval/stats.py`: `block_bootstrap(items: list[ItemCounts], stat: Callable, n=10000, seed) ->
+2. `bandscribe/eval/stats.py`: `block_bootstrap(items: list[ItemCounts], stat: Callable, n=10000, seed) ->
    (point, lo, hi)` resampling items (songs / tracks; `group` field) with replacement and recomputing the statistic
    from pooled counts; `paired_bootstrap(a, b, stat, ...) -> (delta, lo, hi)`; `decide(delta, lo, hi, mde,
    subsets) -> "adopt"|"reject"|"hold"` implementing DESIGN 8.1 (CI excludes 0 and point ≥ MDE and no scenario
    subset with CI upper < −2 points). numpy `Generator(PCG64(seed))`, deterministic.
-3. `gtab/eval/baselines.py`: `majority(pred)` (all assigned notes → one line), `no_split` (guitar stem
+3. `bandscribe/eval/baselines.py`: `majority(pred)` (all assigned notes → one line), `no_split` (guitar stem
    transcription as one line), `b0` (mix transcription guitar classes as one line). Symbolic-split baseline is M6.
-4. `gtab/eval/remix.py` (DESIGN 8.2 synthetic; port of `docs/research/experiments/synth_exp.py` +
+4. `bandscribe/eval/remix.py` (DESIGN 8.2 synthetic; port of `docs/research/experiments/synth_exp.py` +
    `router_exp.py`): generators `tone`, `amp_cab`, `rhythm_take`, `lead_line`, `twin_lead`, `pan`,
    `stereo_reverb` ported **with identical RNG call order**, extended to also return their note lists
    (MIDI pitch, onset incl. jitter/strum offsets, duration) as GT.
@@ -1427,10 +1427,10 @@ checkpoint loaded from the local path with `weights_only=True`).
    τ = 80 ms (attack instantaneous); gain applied to the signal delayed by the look-ahead, delay then trimmed so
    output is time-aligned with input; (3) re-measure and repeat (1)–(2) at most 3 times until within ±0.2 LU;
    (4) final sample-domain clip at the ceiling as a safety net. Returns float32.
-5. `gtab/analysis/stereo.py`: `window_features(stereo, sr) -> dict` = exact port of `router_exp.features`
+5. `bandscribe/analysis/stereo.py`: `window_features(stereo, sr) -> dict` = exact port of `router_exp.features`
    (keys `SM, r0, xcoff, lag, coh, cen, hard, fcoh, ildcoh`); `coherence_ild_maps(stereo, sr, n_fft=4096,
    hop=1024, tau_s=0.15) -> (coh, ild_db, weight)`.
-6. **GT tools** (`gtab/eval/{refscore,gp_import,render_ref,align,taps}.py`, `gtab/commands/gt.py`):
+6. **GT tools** (`bandscribe/eval/{refscore,gp_import,render_ref,align,taps}.py`, `bandscribe/commands/gt.py`):
    - Neutral `RefScore` JSON (tracks, tuning, capo, masterbars with time signature, repeat open/close counts,
      alternate endings, notes with string/fret/duration in ticks@960 per quarter, ties, tuplets). **RefScore fixes
      the §6 conventions:** string 1 = highest-pitched string, `tuning[i]` = open pitch of string `i+1`, `pitch =
@@ -1439,28 +1439,28 @@ checkpoint loaded from the local path with `weights_only=True`).
        capo, so the importer adds `Track.offset`**; `guitarpro.parse` decodes strings as cp1252 by default, which
        garbles Korean track names → use `reference.encoding` from gt.yaml if set, else try `cp949` (strict), then
        `cp1252`, and record the encoding used in `refscore.json` (names only; notes are unaffected).
-     - Node for `.gp/.gpx` (and any format as a cross-check): `node/gtab_score.mjs import <in> <out.json>` using
+     - Node for `.gp/.gpx` (and any format as a cross-check): `node/bandscribe_score.mjs import <in> <out.json>` using
        `@coderline/alphatab` 1.8.4 (`importer.ScoreLoader.loadScoreFromBytes`), run via `winjob.run_captured`.
        alphaTab numbers string 1 = **lowest** string → the script converts (`n_strings − s + 1`) and reverses the
        tuning list; alphaTab's own pitch (tuning + capo + fret) is emitted and used as the **reference** for capo
        handling.
      `node/package.json` pins `@coderline/alphatab` 1.8.4; install via `node.exe <nodejs>\node_modules\npm\bin\
      npm-cli.js ci` with `npm_config_cache=paths.NPM_CACHE` and notifier/fund/audit off (§0), through
-     `run_captured`; `gtab/eval/node.py` is the one place that locates node/npm-cli and builds this env.
+     `run_captured`; `bandscribe/eval/node.py` is the one place that locates node/npm-cli and builds this env.
    - Expansion in Python (one implementation for both importers): repeats, alternate endings, or `bar_order` from
      gt.yaml; → expanded bars (1-based, pickup 0) and `GtNotes` at `tpb` 48 per beat unit; pitch from RefScore;
      tied notes merged; `shared` flags for unison notes across lines.
    - `gt import` writes `gt.yaml` skeleton (tracks from the file, one line per guitar/bass track,
      `families_present` guessed from track instruments, Korean comments telling the user to fill `sections`
-     (half-open bar ranges), `families_present`, doubles, roles), ingests `--audio` with `gtab.ingest.ingest` to get
+     (half-open bar ranges), `families_present`, doubles, roles), ingests `--audio` with `bandscribe.ingest.ingest` to get
      the `song_key`.
    - `render_ref`: internal deterministic numpy synth (harmonic tones per line, `tempo_map` if present else nominal
-     tempo) → `render.wav` (default). `--engine alphatab`: `gtab_score.mjs render <in> <out.wav>` headless in Node:
+     tempo) → `render.wav` (default). `--engine alphatab`: `bandscribe_score.mjs render <in> <out.wav>` headless in Node:
      `MidiFileGenerator` builds the MIDI, then `new AlphaSynth(<dummy output>, <ms>).exportAudio(options, midi, [],
      transpositions)` returns the exporter synchronously; the soundfont is `node_modules/@coderline/alphatab/dist/
      soundfont/sonivox.sf2` (path resolved at run time; missing → Korean message). Float samples are written as a
      float32 WAV by the script; `render_ref` rewrites it with `write_f32`.
-   - `align` (independent of Beat This!, DESIGN 8.3; `align.py` must not import `gtab.analysis.grid` or any beat
+   - `align` (independent of Beat This!, DESIGN 8.3; `align.py` must not import `bandscribe.analysis.grid` or any beat
      worker — test; synctoolbox/libfmp imported inside functions): audio: `audio_to_pitch_features` +
      `audio_to_pitch_onset_features` of the mix (mono 22050 Hz, feature rate 50); score: `df_to_pitch_features` +
      `df_to_pitch_onset_features` from the GT notes at nominal tempo; chroma → `quantize_chroma` / CENS, onsets →
@@ -1475,10 +1475,10 @@ checkpoint loaded from the local path with `weights_only=True`).
    - `taps`: Audacity label file (`start\tend\tlabel`, UTF-8 or cp949 tolerated); label `b17`/`17` = expanded bar
      number, else sequential assignment to the nearest GT downbeat → `taps.json`, then re-align.
    - `approve`: sets `alignment.approved = true`, `approved_utc`, asks for minutes spent (optional flag).
-7. `gtab/eval/external.py` + `import-external`: MIDI (per track) / GP (via RefScore) → `Prediction` stored in
+7. `bandscribe/eval/external.py` + `import-external`: MIDI (per track) / GP (via RefScore) → `Prediction` stored in
    `data/eval/external/<slug(system)>/<slug(item)>.json`; `--system` ∈ `songsterr_ai|klangio|mvsep101|other`;
    `--map` maps source tracks to line ids.
-8. `gtab/eval/suites.py`, `runs.py`, `report.py`, `experiments.py`, `gtab/commands/eval.py`:
+8. `bandscribe/eval/suites.py`, `runs.py`, `report.py`, `experiments.py`, `bandscribe/commands/eval.py`:
    `runs.slug(s) -> str` (§0: lower-case, `[a-z0-9_-]` kept, `:` → `-`, anything else → `_`, collapse repeats,
    empty → ValueError) is used for every generated path. Systems: `oracle` (GT as prediction, sanity = 1.0),
    `oracle-noisy` (seeded deletions/octave/jitter/label swaps for harness checks), `job:<stage>` (NoteSets from a
@@ -1486,13 +1486,13 @@ checkpoint loaded from the local path with `weights_only=True`).
    `no_split`, `majority`. Suites: `quick` (synthetic scenes + `oracle-noisy`, runs in < 60 s, the pre-merge gate of
    DESIGN 9.7), `synth` (all scenes), `bp-smoke` (GuitarSet: 20 tracks drawn with `seed`, Basic Pitch via AMT's
    worker, onset-only F1 at 50 ms; flagged "학습 데이터 포함(Basic Pitch 학습에 GuitarSet 사용), 판정용 아님"),
-   `tierA`, `tierB`, `components` (runs registered experiments). `gtab eval exp <id>` imports
-   `gtab.sep.experiments` / `gtab.amt.experiments` `EXPERIMENTS[id](out_dir: Path, cfg, args: dict) -> list[dict]`
+   `tierA`, `tierB`, `components` (runs registered experiments). `bandscribe eval exp <id>` imports
+   `bandscribe.sep.experiments` / `bandscribe.amt.experiments` `EXPERIMENTS[id](out_dir: Path, cfg, args: dict) -> list[dict]`
    (metrics.csv rows, `rung` filled) and writes a run dir with the decision computed by `stats.decide` against the
    pre-registration in `docs/decisions.md`. **Runner states:** runs entries marked `사전 등록` (then flips the entry
    to `실행 중`) or `실행 중` (reruns allowed while undecided); refuses missing entries and `결정: …` entries (Korean
-   message: a decided experiment needs a new pre-registered id to be re-examined). `gtab eval reftx <dataset>` wraps
-   `gtab.amt.reftx.reference_transcribe` for every track.
+   message: a decided experiment needs a new pre-registered id to be re-examined). `bandscribe eval reftx <dataset>` wraps
+   `bandscribe.amt.reftx.reference_transcribe` for every track.
 9. `docs/decisions.md` — template + pre-registered entries whose `## <id>` headings are **exactly** the CLI ids:
    `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`, `gate-m2`, `latency`, `stereo-preservation` (the last two are
    descriptive: 결정 규칙 "서술(판정 없음)"; `latency` still pre-registers its dev/test split, §9.2 item 8). The
@@ -1511,7 +1511,7 @@ deletion → recall 0.80 ± 0.02 (seeded, ≥ 2,000 notes); +12 semitones → pi
 before Hungarian, 1.0 after; adding Unassigned never raises macro accuracy (property test); all notes in one line =
 majority baseline; **tempo-warped synthetic performance: predictions at true times, system grid shifted by half a
 beat and one downbeat → tick F1 unchanged (= 1.0)**. `test_eval_stats.py` (bootstrap deterministic with seed; CI
-covers known mean in a simulation; `decide` truth table), `test_eval_determinism.py` (`gtab eval run --suite quick
+covers known mean in a simulation; `decide` truth table), `test_eval_determinism.py` (`bandscribe eval run --suite quick
 --system oracle-noisy` twice → identical `metrics.csv`/`summary.json` sha256), `test_eval_remix_parity.py` (runs
 the original `router_exp.py` generators in a **subprocess** with the core python — `synth_exp.py` rewraps stdout
 at import — printing raw feature floats as JSON; compares with `window_features(parity_scenes())`: every feature
@@ -1533,17 +1533,17 @@ parsing), `test_eval_runs.py` (`slug`: `job:amt_gtr` → `job-amt_gtr`, `guitars
 
 ### 9.5 DATA — dataset registry, fetchers, loaders (M1a)
 
-1. `gtab/datasets/registry.toml` (committed; the source of truth for URLs, sizes, checksums, licenses):
+1. `bandscribe/datasets/registry.toml` (committed; the source of truth for URLs, sizes, checksums, licenses):
    | name | tier | access | files (required) | license | notes |
    |---|---|---|---|---|---|
    | `guitarset` | C | zenodo 3371780 | `annotation.zip`, `audio_mono-mic.zip` (optional: `audio_mono-pickup_mix.zip`, hex zips) | CC BY 4.0 | sizes/md5 in §"facts"; used for structure, string GT, BP smoke, latency (players 00–02 dev / 03–05 test) — not transcription judgment (in Basic Pitch's training data) |
    | `idmt_bass_st` | C | zenodo 7544099 | `IDMT-SMT-BASS-SINGLE-TRACKS.zip` (20.5 MB) | CC BY-NC-ND 4.0 | string/fret GT (M5) |
-   | `egdb` | C | automatic (public Google Drive folder listing, resumable; ~9.1 GB) — updated 2026-10-03 | – | 불명 (not stated) | `gtab data fetch egdb`; E23 dev set + distortion gate |
+   | `egdb` | C | automatic (public Google Drive folder listing, resumable; ~9.1 GB) — updated 2026-10-03 | – | 불명 (not stated) | `bandscribe data fetch egdb`; E23 dev set + distortion gate |
    | `filobass` | C | zenodo 10069709 | `FiloBass_v1.0.0.zip` (434 MB) | CC BY 4.0 | M5; jazz upright |
-   | `cambridge_mt` | B | automatic (plain-HTTP MTK archive host; the www site's 403 is avoided, no bot circumvention) — updated 2026-10-03; `import-local --song` still works | – | Cambridge-MT terms (educational) | `gtab data fetch cambridge_mt`; `lines.yaml` by ear **[사용자]**; 2+ rock songs for M1a, 4–6 by M6 |
+   | `cambridge_mt` | B | automatic (plain-HTTP MTK archive host; the www site's 403 is avoided, no bot circumvention) — updated 2026-10-03; `import-local --song` still works | – | Cambridge-MT terms (educational) | `bandscribe data fetch cambridge_mt`; `lines.yaml` by ear **[사용자]**; 2+ rock songs for M1a, 4–6 by M6 |
    | `medleydb` | B | manual (Zenodo access request) **[사용자]** | – | CC BY-NC-SA 4.0 **[검증 필요]** | loader for a local copy only; MedleyDB-Pitch is in Basic Pitch's training data → flag in contamination |
    md5 from the Zenodo API is verified at download; sha256 is computed and stored in `datasets.lock.json`.
-2. `gtab/datasets/fetch.py`: public `download_file(url, dest, *, expected_bytes=None, md5=None, progress=True) ->
+2. `bandscribe/datasets/fetch.py`: public `download_file(url, dest, *, expected_bytes=None, md5=None, progress=True) ->
    dict` (stdlib `urllib` to `<dest>.part` with HTTP Range resume, progress to stderr, size/md5 verification, sha256
    computed while streaming, then rename; returns `{"url","bytes","sha256","md5"}`) — reused by model fetch (item 7).
    Dataset fetch: `data/datasets/<name>/raw/<file>`; one plain attempt per URL (403/429/Cloudflare challenge →
@@ -1551,12 +1551,12 @@ parsing), `test_eval_runs.py` (`slug`: `job:amt_gtr` → `job-amt_gtr`, `guitars
    `import-local` command); extraction (`zipfile` / `tarfile` with `filter="data"`) into
    `data/datasets/<name>/extracted/` via temp dir + rename; lock update under filelock. Confirmation prompt shows
    URL, size, license and destination (`--yes` skips).
-3. `gtab/datasets/store.py`: lock file I/O, `status(name)`, `verify(name)` (sha256 recomputation), `import_local`
+3. `bandscribe/datasets/store.py`: lock file I/O, `status(name)`, `verify(name)` (sha256 recomputation), `import_local`
    (copy or hardlink into `data/datasets/<name>/local/`, record sha256; for `cambridge_mt` `--song` writes
    `lines.yaml` skeleton listing every WAV with a guessed kind from filename keywords — gtr/guitar, bass, vox, kick,
    snare, keys, synth, … — plus a `families_present:` list guessed from the same keywords; the user edits kinds,
    lines, takes, roles and families).
-4. Loaders (`gtab/datasets/loaders/*.py`, each `iter_tracks(root, *, split=None) -> Iterator[DatasetTrack]`,
+4. Loaders (`bandscribe/datasets/loaders/*.py`, each `iter_tracks(root, *, split=None) -> Iterator[DatasetTrack]`,
    `load_track(root, track_id)`); formats verified against the real files **[검증 필요]** except GuitarSet. Every
    loader fills `families_present` and converts string indices to §6's convention (1 = highest-pitched string):
    - GuitarSet: JAMS JSON parsed directly (no `jams` dependency): `note_midi` annotations per string (6; JAMS
@@ -1571,19 +1571,19 @@ parsing), `test_eval_runs.py` (`slug`: `job:amt_gtr` → `job-amt_gtr`, `guitars
      (or the provided mix if present).
    - MedleyDB: metadata YAML instrument labels (distorted/clean electric, acoustic guitar, electric bass), stems,
      melody f0 annotations (meta).
-5. `gtab/datasets/__init__.py` public API: `list_datasets()`, `dataset_root(name)`, `is_available(name)`,
+5. `bandscribe/datasets/__init__.py` public API: `list_datasets()`, `dataset_root(name)`, `is_available(name)`,
    `iter_tracks(name, split=None)`, `load_track(name, track_id)`.
-6. `gtab/commands/data.py` (§5). `data list` columns: 이름, 계층, 라이선스, 크기, 상태(없음/받음/검증됨/수동 필요),
+6. `bandscribe/commands/data.py` (§5). `data list` columns: 이름, 계층, 라이선스, 크기, 상태(없음/받음/검증됨/수동 필요),
    위치.
-7. **Model fetch** (DESIGN §9.4 `gtab models fetch|verify`): `gtab/model_sources.toml` (committed; name, url,
-   dest relative to `GTAB_ROOT`, expected sha256 or empty, license, notes) with at least
+7. **Model fetch** (DESIGN §9.4 `bandscribe models fetch|verify`): `bandscribe/model_sources.toml` (committed; name, url,
+   dest relative to `BANDSCRIBE_ROOT`, expected sha256 or empty, license, notes) with at least
    `beat_this.final0` = `https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt` →
    `data/models/beat_this/final0.ckpt`, license: Beat This! code MIT, checkpoint licence **[검증 필요 — record as
-   found]**. `gtab/model_fetch.py`: `fetch(name, *, yes) -> ModelEntry` (prompt shows URL, size (HEAD), license,
+   found]**. `bandscribe/model_fetch.py`: `fetch(name, *, yes) -> ModelEntry` (prompt shows URL, size (HEAD), license,
    destination; `download_file`; if the source lists a sha256 it must match; else trust-on-first-use and the
-   recorded sha becomes the pin) → `gtab.models.record(...)`; `verify(name|None)` → `gtab.models.verify`; `list()`
+   recorded sha becomes the pin) → `bandscribe.models.record(...)`; `verify(name|None)` → `bandscribe.models.verify`; `list()`
    merges `model_sources.toml` with `models.lock.json` (entries seeded by P0 show as `로컬 전용`, no URL).
-   `gtab/commands/models.py` (§5) replaces P0's stub. Never called by `gtab run` or any worker.
+   `bandscribe/commands/models.py` (§5) replaces P0's stub. Never called by `bandscribe run` or any worker.
 
 Tests: `test_datasets_registry.py` (TOML schema, every entry has license/size/access), `test_datasets_fetch.py`
 (local `http.server` in a thread: resume after a cut, md5 mismatch → error and no extracted dir, 403 →
@@ -1603,12 +1603,12 @@ Template per entry: `## E# 제목` / 상태 (`사전 등록` → `실행 중` �
 결정 규칙 / 비용 / 실행 명령 / 결과(run dir, 날짜). Metrics may not be changed after the first run.
 
 Every experiment passes `force_rung` for each GPU backend it measures (top rung unless the experiment is about
-rungs) and writes `rung` into its metric rows (§6.10); it never reuses `gtab run` stage caches for the measured
-backend. The ids below are the `## <id>` headings in `docs/decisions.md` and the `gtab eval exp` ids, exactly.
+rungs) and writes `rung` into its metric rows (§6.10); it never reuses `bandscribe run` stage caches for the measured
+backend. The ids below are the `## <id>` headings in `docs/decisions.md` and the `bandscribe eval exp` ids, exactly.
 
 | id | Choice | Primary metric | MDE | Data | Rule / notes | Runner |
 |---|---|---|---|---|---|---|
-| **E1** | SW input: original vs −14 vs −16 LUFS (`sep.input_lufs`; gain before SW, inverse after) | onset F1 (50 ms) of MuScriptor on the SW guitar and bass stems vs the **reference transcription of the true tracks** (reftx) | +1.0 | Tier B songs remixed to a commercial master (`tierb_mix(master_lufs=-8)`, deterministic limiter §9.4); Tier A GP songs descriptive | DESIGN 8.1 adopt rule; SDR diagnostic only | AMT `E1` (calls `gtab.sep.run.separate`) |
+| **E1** | SW input: original vs −14 vs −16 LUFS (`sep.input_lufs`; gain before SW, inverse after) | onset F1 (50 ms) of MuScriptor on the SW guitar and bass stems vs the **reference transcription of the true tracks** (reftx) | +1.0 | Tier B songs remixed to a commercial master (`tierb_mix(master_lufs=-8)`, deterministic limiter §9.4); Tier A GP songs descriptive | DESIGN 8.1 adopt rule; SDR diagnostic only | AMT `E1` (calls `bandscribe.sep.run.separate`) |
 | **E2** | MuScriptor input (`amt.guitar_view`): mix / guitar stem / nonvox / guitar+other | guitar note F1 (50 ms onset) vs reftx (Tier B) and vs GT (Tier A, descriptive) | +1.0 (+1.5 if the option adds a pass) | Tier B, Tier A 2–3 | reftx is MuScriptor-derived: valid for comparing inputs, not for absolute claims | AMT `E2` |
 | **E3** | `instruments` mask (`amt.guitar_mask`): guitar-only / +present keys-synth / all; S3.5 threshold | guitar-class F1 on keys-containing items; constraint: guitar-class omission = 0; b13 table: estimated families vs `families_present` | +1.0 | Tier B with keys, synthetic keys-bleed scenes, Tier A | pick the threshold maximizing F1 under the constraint on dev, confirm on test | AMT `E3` (decided 2026-10-04; presence from the mix pass = the M2 estimator) |
 | **E3b** | as E3 on the **production** presence source (sampled piano+other windows, no mix pass) + `guitar+present+strings` | as E3, b13 table with keys/synth/strings | +1.0 | as E3 (add Tier B songs where keys are actually detected) | as E3 | AMT `E3b` (pre-registered 2026-10-04, not run) |
@@ -1635,33 +1635,33 @@ backend. The ids below are the `## <id>` headings in `docs/decisions.md` and the
 | a6 | 모든 음을 한 Line에 넣으면 다수 클래스 기준선과 같다 | `... -k majority` |
 | a7 | 템포를 흔든 합성 연주에서 격자 오류가 음표 지표에 새지 않는다 | `... -k grid_leak` |
 | a8 | 정렬 도구: 템포를 알려진 방식으로 흔든 합성 렌더에서 DTW가 다운비트의 95 % 이상을 ±70 ms 안으로 복원 | `pytest -m slow tests/test_eval_align.py -q` (prints ratio) |
-| a9 | 부트스트랩 CI가 나오고, CPU 단계를 두 번 실행한 결과가 byte 단위로 같다 | `gtab eval run --suite quick --system oracle-noisy` ×2 → `ci_low/ci_high` filled; `Get-FileHash metrics.csv` equal (and `tests/test_eval_determinism.py`); pipeline CPU stages: `tests/test_pipeline_run.py -k determinism` and `tests/test_sections_synth.py -k determinism` (data outputs only, §0) |
+| a9 | 부트스트랩 CI가 나오고, CPU 단계를 두 번 실행한 결과가 byte 단위로 같다 | `bandscribe eval run --suite quick --system oracle-noisy` ×2 → `ci_low/ci_high` filled; `Get-FileHash metrics.csv` equal (and `tests/test_eval_determinism.py`); pipeline CPU stages: `tests/test_pipeline_run.py -k determinism` and `tests/test_sections_synth.py -k determinism` (data outputs only, §0) |
 | a10 | 리믹스가 router_exp 특징을 ±0.02 안에서 재현한다 | `pytest tests/test_eval_remix_parity.py -q` |
-| a11 | Basic Pitch 스모크: GuitarSet 임의 20트랙에서 onset-only F1 > 0.6 (판정용 아님) | `gtab data fetch guitarset` → `gtab eval run --suite bp-smoke` → `summary.json` value (flagged: GuitarSet is in Basic Pitch's training data) |
+| a11 | Basic Pitch 스모크: GuitarSet 임의 20트랙에서 onset-only F1 > 0.6 (판정용 아님) | `bandscribe data fetch guitarset` → `bandscribe eval run --suite bp-smoke` → `summary.json` value (flagged: GuitarSet is in Basic Pitch's training data) |
 | a12 | contamination 표에 MuScriptor·Basic Pitch·SW의 학습 목록을 모델 카드와 논문에서 채운다(모르면 '불명') | `docs/eval/contamination.md` reviewed, sources linked |
-| a13 | 산출물: `gtab eval run|compare|import-external`, `gtab gt import|render|align|taps`, `eval/remix.py`, Tier B 로더(Cambridge-MT 2곡 이상 **[사용자]**, MedleyDB는 승인 시), Tier C 로더, bp310 venv, `decisions.md` | `gtab eval --help`, `gtab gt --help`; `gtab data list` shows guitarset/idmt/filobass fetched and ≥2 `cambridge_mt` songs imported; `pytest -m bp310`; `docs/decisions.md` has `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`, `gate-m2`, `latency`, `stereo-preservation` as `사전 등록` |
+| a13 | 산출물: `bandscribe eval run|compare|import-external`, `bandscribe gt import|render|align|taps`, `eval/remix.py`, Tier B 로더(Cambridge-MT 2곡 이상 **[사용자]**, MedleyDB는 승인 시), Tier C 로더, bp310 venv, `decisions.md` | `bandscribe eval --help`, `bandscribe gt --help`; `bandscribe data list` shows guitarset/idmt/filobass fetched and ≥2 `cambridge_mt` songs imported; `pytest -m bp310`; `docs/decisions.md` has `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`, `gate-m2`, `latency`, `stereo-preservation` as `사전 등록` |
 
 ### M2 (첫 수직 슬라이스)
 
 | # | Criterion (DESIGN) | Command / evidence |
 |---|---|---|
-| b1 | VRAM [판정]: 다른 앱을 닫은 상태에서 SW가 4분 곡을 처리할 때 reserved 피크 4.5 GB 이하, 실행 중 Shared Usage가 늘지 않는다(잠정) **[사용자: 앱 닫기]** | `gtab bench gpu --clip <4분 곡> --backend sep --rungs all --fallback off` → bench.json: rung 0 `max_reserved_mb ≤ 4608` (expected ≈ 1.8 GB), `pdh_self_shared_growth_mb ≤ 64`, `shared_growth=false`; bench.json's start process list documents what could not be closed (the Claude app itself) |
-| b2 | 평소 앱을 켠 상태에서는 사전 점검이 예산에 맞는 칸을 고르거나, 이유를 밝히고 기다린다 | normal desktop: `gtab run <곡> --until notes` → log shows chosen rung + budget, or the Korean wait message; `tests/test_vram.py` covers the logic |
-| b3 | Sysmem Fallback을 끈 상태와 켠 상태 둘 다에서 사다리 시험; 켠 상태에서 Shared Usage가 늘거나 실시간 배수가 끈 상태의 50 % 미만이면 실패로 보고 사다리를 내려간다 **[사용자: NVIDIA 설정 전환]** | **no `--cap-mb`** (the allocator cap raises OOM before the driver can fall back, so on/off would look identical): `gtab bench gpu --backend sep --rungs auto --ballast-mb auto --fallback off`, then the user flips the setting and runs the same with `--fallback on`. Pass: *off* → rung 0 `oom`, a lower rung `ok`; *on* → rung 0 `shared_growth` (this pid's shared growth after model load > threshold) → lower rung `ok`, and rung 0's `rtf` / `slow` flag reported against the off run's rung 0 (slowness alone warns; with PDH unavailable it counts as failure, §8.2) |
-| b4 | `set_per_process_memory_fraction`으로 OOM 사다리를 검증한다 | `gtab bench gpu --backend sep --cap-mb 2500` → attempts `oom` then `ok` on a lower rung; `tests/test_gpu_common.py` |
+| b1 | VRAM [판정]: 다른 앱을 닫은 상태에서 SW가 4분 곡을 처리할 때 reserved 피크 4.5 GB 이하, 실행 중 Shared Usage가 늘지 않는다(잠정) **[사용자: 앱 닫기]** | `bandscribe bench gpu --clip <4분 곡> --backend sep --rungs all --fallback off` → bench.json: rung 0 `max_reserved_mb ≤ 4608` (expected ≈ 1.8 GB), `pdh_self_shared_growth_mb ≤ 64`, `shared_growth=false`; bench.json's start process list documents what could not be closed (the Claude app itself) |
+| b2 | 평소 앱을 켠 상태에서는 사전 점검이 예산에 맞는 칸을 고르거나, 이유를 밝히고 기다린다 | normal desktop: `bandscribe run <곡> --until notes` → log shows chosen rung + budget, or the Korean wait message; `tests/test_vram.py` covers the logic |
+| b3 | Sysmem Fallback을 끈 상태와 켠 상태 둘 다에서 사다리 시험; 켠 상태에서 Shared Usage가 늘거나 실시간 배수가 끈 상태의 50 % 미만이면 실패로 보고 사다리를 내려간다 **[사용자: NVIDIA 설정 전환]** | **no `--cap-mb`** (the allocator cap raises OOM before the driver can fall back, so on/off would look identical): `bandscribe bench gpu --backend sep --rungs auto --ballast-mb auto --fallback off`, then the user flips the setting and runs the same with `--fallback on`. Pass: *off* → rung 0 `oom`, a lower rung `ok`; *on* → rung 0 `shared_growth` (this pid's shared growth after model load > threshold) → lower rung `ok`, and rung 0's `rtf` / `slow` flag reported against the off run's rung 0 (slowness alone warns; with PDH unavailable it counts as failure, §8.2) |
+| b4 | `set_per_process_memory_fraction`으로 OOM 사다리를 검증한다 | `bandscribe bench gpu --backend sep --cap-mb 2500` → attempts `oom` then `ok` on a lower rung; `tests/test_gpu_common.py` |
 | b5 | 실행한 칸마다 reserved·NVML 피크와 실시간 배수를 기록한다 | `data/bench/*/bench.csv` columns; `vram_table.json` |
-| b6 | 스템 점검: leftover RMS가 믹스 대비 −20 dB 미만(넘으면 곡과 구간 기록) | `stems/stem_stats.json` per song; `gtab run` warning lists windows |
-| b7 | float 스템 24-bit FLAC 보관 후 복원 오차 −100 dB 미만(게인 되돌린 뒤) | error measured **relative to the mix RMS** (stems < −60 dB rel. mix reported `skipped_sparse`): `pytest tests/test_sep_archive.py` (incl. a sparse stem); `gtab eval exp stereo-preservation` also reports it for real stems |
-| b8 | 합성 A 믹스를 SW에 통과시켜 bin별 coherence·ILD 보존 편차 보고(M6 조기판) | `gtab eval exp stereo-preservation` → run dir with Δcoh/ΔILD per scene |
-| b9 | MuScriptor-medium 전곡 reserved 피크 4.5 GB 이하, 실시간 배수와 모델 로드 시간 기록 | `gtab bench gpu --backend amt --clip <4분 곡>` → `max_reserved_mb` (expected ≈ 2.4 GB with the upstream loader), `rtf`, `load_s`, loader recorded; start process list as in b1 |
-| b10 | 지연 보정 후 onset 잔차 중앙값이 10 ms 미만 | `gtab eval exp latency` → constant estimated on the dev split (GuitarSet players 00–02), `summary.json` `median_abs_residual_ms < 10` measured on **held-out** players 03–05 (with CI); `amt.latency_s` updated |
-| b11 | E23 [판정]: Basic Pitch 최소 음 길이·문턱을 학습 밖 dev 세트에서 튜닝하고 manifest에 남긴다 | `gtab eval exp E23` → decisions.md 결정; `amt_bp` manifest params show the tuned values |
-| b12 | 게이트 [판정]: 디스토션 부분집합에서 MuScriptor가 Basic Pitch보다 onset F1이 5점 이상 높지 않으면 재검토 | `gtab eval exp gate-m2` → decisions.md entry; if MuScriptor × EGDB is `학습 포함`/`불명` in contamination.md the recorded status is `판단 보류 (오염 불명)` — never a pass (pre-registered, §10) |
-| b13 | S3.5 [판정/서술]: 편성 추정이 Tier B·Tier A 곡의 실제 편성(건반·신스 유무)을 맞히는지 곡별 보고; 기타 클래스를 마스크에서 빠뜨린 경우 0건 | `gtab eval exp E3` report table per song: estimated `families` vs ground-truth `families_present` (gt.yaml / DatasetTrack / lines.yaml); since 2026-10-04 `gtab run` estimates from the sampled presence pass, so the table that describes production is **E3b**'s (keys/synth/strings rows; E3's is the M2 estimator); brass/winds are reportable only through `families` p (never "present" from stems alone); `tests/test_amt_instrumentation.py` property tests |
-| b14 | 캐시로 재실행하면 2분 안에 끝난다 | models fetched beforehand (`gtab models fetch beat_this.final0`), then the second `gtab run <곡> --until notes` → all stages `캐시` (no key changed: nothing downloads during a run), wall time < 120 s (`Measure-Command`) |
-| b15 | 산출물: `sep_msst`, `amt_muscriptor`; S3.5 v0(편성, 원시 전사, 보컬 활동, 반복 잔차 1차, B0 = `--profile eval` 에서만); `gtab run --until notes` → 6 스템, nonvox, leftover, instrumentation.json, guitar_all.mid, bass_raw.mid; 연습용 반주; `gtab bench gpu`, VRAM 사전 점검·대기, Shared Usage 감시; Tier B 참조 전사; 지연 상수; E1–E3, E23, E24 결정 (E24 = `E24-sep` + `E24-amt`) | `gtab run <곡> --until notes` on a real song → `export/` listing (incl. `practice/bass_stem.wav` from `sep`); B0 evidence: `gtab run <곡> --profile eval --until notes` → `midi/b0_guitar.mid`; decisions for `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`; `gtab eval reftx cambridge_mt`; decisions.md entries (E1/E2/E3 need Tier B data **[사용자]**; otherwise `판단 보류 (데이터 대기)` is the honest status) |
+| b6 | 스템 점검: leftover RMS가 믹스 대비 −20 dB 미만(넘으면 곡과 구간 기록) | `stems/stem_stats.json` per song; `bandscribe run` warning lists windows |
+| b7 | float 스템 24-bit FLAC 보관 후 복원 오차 −100 dB 미만(게인 되돌린 뒤) | error measured **relative to the mix RMS** (stems < −60 dB rel. mix reported `skipped_sparse`): `pytest tests/test_sep_archive.py` (incl. a sparse stem); `bandscribe eval exp stereo-preservation` also reports it for real stems |
+| b8 | 합성 A 믹스를 SW에 통과시켜 bin별 coherence·ILD 보존 편차 보고(M6 조기판) | `bandscribe eval exp stereo-preservation` → run dir with Δcoh/ΔILD per scene |
+| b9 | MuScriptor-medium 전곡 reserved 피크 4.5 GB 이하, 실시간 배수와 모델 로드 시간 기록 | `bandscribe bench gpu --backend amt --clip <4분 곡>` → `max_reserved_mb` (expected ≈ 2.4 GB with the upstream loader), `rtf`, `load_s`, loader recorded; start process list as in b1 |
+| b10 | 지연 보정 후 onset 잔차 중앙값이 10 ms 미만 | `bandscribe eval exp latency` → constant estimated on the dev split (GuitarSet players 00–02), `summary.json` `median_abs_residual_ms < 10` measured on **held-out** players 03–05 (with CI); `amt.latency_s` updated |
+| b11 | E23 [판정]: Basic Pitch 최소 음 길이·문턱을 학습 밖 dev 세트에서 튜닝하고 manifest에 남긴다 | `bandscribe eval exp E23` → decisions.md 결정; `amt_bp` manifest params show the tuned values |
+| b12 | 게이트 [판정]: 디스토션 부분집합에서 MuScriptor가 Basic Pitch보다 onset F1이 5점 이상 높지 않으면 재검토 | `bandscribe eval exp gate-m2` → decisions.md entry; if MuScriptor × EGDB is `학습 포함`/`불명` in contamination.md the recorded status is `판단 보류 (오염 불명)` — never a pass (pre-registered, §10) |
+| b13 | S3.5 [판정/서술]: 편성 추정이 Tier B·Tier A 곡의 실제 편성(건반·신스 유무)을 맞히는지 곡별 보고; 기타 클래스를 마스크에서 빠뜨린 경우 0건 | `bandscribe eval exp E3` report table per song: estimated `families` vs ground-truth `families_present` (gt.yaml / DatasetTrack / lines.yaml); since 2026-10-04 `bandscribe run` estimates from the sampled presence pass, so the table that describes production is **E3b**'s (keys/synth/strings rows; E3's is the M2 estimator); brass/winds are reportable only through `families` p (never "present" from stems alone); `tests/test_amt_instrumentation.py` property tests |
+| b14 | 캐시로 재실행하면 2분 안에 끝난다 | models fetched beforehand (`bandscribe models fetch beat_this.final0`), then the second `bandscribe run <곡> --until notes` → all stages `캐시` (no key changed: nothing downloads during a run), wall time < 120 s (`Measure-Command`) |
+| b15 | 산출물: `sep_msst`, `amt_muscriptor`; S3.5 v0(편성, 원시 전사, 보컬 활동, 반복 잔차 1차, B0 = `--profile eval` 에서만); `bandscribe run --until notes` → 6 스템, nonvox, leftover, instrumentation.json, guitar_all.mid, bass_raw.mid; 연습용 반주; `bandscribe bench gpu`, VRAM 사전 점검·대기, Shared Usage 감시; Tier B 참조 전사; 지연 상수; E1–E3, E23, E24 결정 (E24 = `E24-sep` + `E24-amt`) | `bandscribe run <곡> --until notes` on a real song → `export/` listing (incl. `practice/bass_stem.wav` from `sep`); B0 evidence: `bandscribe run <곡> --profile eval --until notes` → `midi/b0_guitar.mid`; decisions for `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`; `bandscribe eval reftx cambridge_mt`; decisions.md entries (E1/E2/E3 need Tier B data **[사용자]**; otherwise `판단 보류 (데이터 대기)` is the honest status) |
 
-Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `gtab doctor` still passes.
+Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `bandscribe doctor` still passes.
 
 ---
 
@@ -1669,7 +1669,7 @@ Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `gtab docto
 
 - **A1 Phase P0.** DESIGN has no notion of parallel owners; shared files (deps, config, CLI, schemas) get one
   writer up front so owners never touch the same file.
-- **A2 MSST vendoring location** `gtab/third_party/msst/` (task allowed this or `gtab/workers/_msst`); the torch
+- **A2 MSST vendoring location** `bandscribe/third_party/msst/` (task allowed this or `bandscribe/workers/_msst`); the torch
   boundary rule is extended to it.
 - **A3 Own demix loop keeps overlap-add buffers on CPU**, unlike MSST HEAD (GPU buffers) — VRAM is the scarce
   resource on this PC; RAM cost ≈ 0.6 GB for a 4-min song.
@@ -1701,7 +1701,7 @@ Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `gtab docto
   worker passes `min_note_len = frames − 1` to `model_output_to_notes`. DESIGN's "30–58 ms (3–5 frames)" start
   range is read as kept lengths of 3–5 frames. The old "46.4 ms" value actually kept ≥ 58 ms.
 - **A12 Deterministic WAV writer** (§1.4) because libsndfile's float WAVs are timestamped.
-- **A13 Workers never import `gtab.schema`**, so the Python-3.10 bp310 worker cannot break on 3.11+ syntax in
+- **A13 Workers never import `bandscribe.schema`**, so the Python-3.10 bp310 worker cannot break on 3.11+ syntax in
   schema modules; validation happens core-side.
 - **A14 `eval/contamination.md`** lives at `docs/eval/contamination.md` next to `docs/decisions.md`.
 - **A15 `vocal`/`resid1` are pulled into `--until notes`** through the `s35` bundle stage.
@@ -1713,7 +1713,7 @@ Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `gtab docto
   ladder (it is usually contention, not a memory spill).
 - **A18 Two VRAM measurements, two checks.** Orchestrator: reserved + context + margin vs NVML free. Worker:
   reserved + 256 MB vs `mem_get_info` free. The context is no longer hidden in the margin or double-counted.
-- **A19 Models are fetched explicitly** (`gtab models fetch`, DATA) — never inside `gtab run` or under the GPU lock.
+- **A19 Models are fetched explicitly** (`bandscribe models fetch`, DATA) — never inside `bandscribe run` or under the GPU lock.
   Keeps stage keys stable (b14) and keeps unsafe hub loading out.
 - **A20 Transcription-scored experiments belong to AMT** (E1, E24-sep included); SEP exposes `separate()` and keeps
   only `stereo-preservation`. Experiment ids are the `decisions.md` headings (`E24-sep`, `E24-amt`, `gate-m2`).
@@ -1724,17 +1724,17 @@ Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `gtab docto
 
 ## 13. Open questions and user actions
 
-1. ~~[사용자] Cambridge-MT manual download~~ — **resolved 2026-10-03 (DATA)**: `gtab data fetch cambridge_mt`
+1. ~~[사용자] Cambridge-MT manual download~~ — **resolved 2026-10-03 (DATA)**: `bandscribe data fetch cambridge_mt`
    downloads from the plain-HTTP MTK archive host (6 songs on disk). **[사용자]** remains: check the
    filename-guessed `lines.yaml` drafts (`reviewed: false`, incl. `families_present`) by ear. M2 E1/E2/E3 use them.
-2. ~~[사용자] EGDB manual download~~ — **resolved 2026-10-03 (DATA)**: `gtab data fetch egdb --yes` downloads the
+2. ~~[사용자] EGDB manual download~~ — **resolved 2026-10-03 (DATA)**: `bandscribe data fetch egdb --yes` downloads the
    public Drive folder (resumable, ~9.1 GB; license not stated → personal research use only, never redistributed).
 3. **[사용자] MedleyDB** Zenodo access request (optional for M1a). Note: MedleyDB-Pitch is in Basic Pitch's
    training data.
 4. **[사용자] Tier A**: 2–3 songs with a machine-readable GP file for M2 decisions (descriptive only).
 5. **[사용자] VRAM tests**: close apps for b1/b9 (the Claude app itself cannot be closed; bench records what ran);
    toggle the NVIDIA "CUDA - Sysmem Fallback Policy" between the two b3 runs (per program on the base interpreter
-   path shown by `gtab doctor`).
+   path shown by `bandscribe doctor`).
 6. ~~SW checkpoint `weights_only=True`~~ — **resolved**: loads safely and strictly (critique probe).
 7. ~~MuScriptor dtype~~ — **resolved**: fp16 autocast is built in when the model is built on CUDA; conditioners fp32;
    "upstream" = that; E24-amt tests fp16 weights.
@@ -1764,18 +1764,18 @@ point was accepted; none was rejected.
 | 1 | MuScriptor CPU→CUDA load breaks (device fixed at build; autocast only if built on CUDA) | `load_model(<local path>, device="cuda")` default; optional `lean` loader (private API, pinned version, parity-gated); CPU rung builds on CPU; bf16 refused | §7.3, §1.3 `amt.muscriptor_loader`, §9.2 tests | AMT |
 | 2 | `DEFAULT_NEEDS` far too pessimistic | reseeded from measurements as `reserved_peak_mb` (SW 1800/1400/1200, medium 2400 / lean 1800, beats 500) + `ctx_mb` 500; note that b1/b9 pass easily and VRAM rarely binds | §8.1, facts | SEP |
 | 3 | Context double-counted; NVML vs `mem_get_info` mixed | table stores `reserved_peak_mb` and `ctx_mb` separately; orchestrator: reserved+ctx+margin vs NVML free; worker: reserved+256 vs `mem_get_info` free; never cross-compared | §6.11, §7.1, §8.1, §1.3 `[gpu]` | SEP (P0 config keys) |
-| 4 | b3 impossible with `--cap-mb` | `--ballast-mb N` or `auto` via `gtab/workers/vram_ballast.py` in its own Job Object outside the GPU lock; b3 = no cap + ballast, fallback off then on | §5, §9.1 item 10, §11 b3 | SEP |
+| 4 | b3 impossible with `--cap-mb` | `--ballast-mb N` or `auto` via `bandscribe/workers/vram_ballast.py` in its own Job Object outside the GPU lock; b3 = no cap + ballast, fallback off then on | §5, §9.1 item 10, §11 b3 | SEP |
 | 5 | Shared-growth false alarms | decide on this pid's shared growth measured after the `model_loaded` mark only; adapter delta informational; threshold calibrated from fallback-off runs | §7.1, §8.2, §9.1 | SEP |
 | 6 | CPU rung vs "wait"; TooSlow harmful | `sep.allow_cpu` removed; CPU only under policy `cpu` ∧ `gpu.cpu_backends` (default Beat This! only); all GPU rungs failing under `wait` → `insufficient_vram` + bounded wait/retry; slowness warns only (fails only when PDH is unavailable); never steps to CPU | §1.3, §7.1, §8.1–8.2 | SEP, P0 |
 | 7 | Rung not in cache key | `gpu_run.json` per GPU stage + runner warning suggesting `--force`; `rung_label` in AMT cache keys; experiments use `force_rung` and a `rung` column | §3.1, §3.2, §4, §6.10, §10 | SEP (helpers), GRID (runner), AMT, EVAL |
-| 8 | Beat This! download breaks keys / runs under GPU lock / unsafe load | `gtab models fetch/verify/list` (DATA) with the final0 URL; worker gets a local path (`weights_only=True`, `add_safe_globals` if needed); missing model → plan-time Korean error | §0, §1.5, §3.1, §5, §7.5, §9.3, §9.5 item 7 | DATA, GRID, P0 |
+| 8 | Beat This! download breaks keys / runs under GPU lock / unsafe load | `bandscribe models fetch/verify/list` (DATA) with the final0 URL; worker gets a local path (`weights_only=True`, `add_safe_globals` if needed); missing model → plan-time Korean error | §0, §1.5, §3.1, §5, §7.5, §9.3, §9.5 item 7 | DATA, GRID, P0 |
 | 9 | MSST vendoring self-contradictory | exactly three files with a trimmed `__init__.py` patch; strict load; `rotary-embedding-torch==0.9.1`; no omegaconf/ml_collections; CPU `sdp_kernel` patch; `zero_dc` documented; upstream-parity gpu test (SNR > 60 dB) | §1.1, §9.1 items 2–3, tests | SEP, P0 |
 | 10 | `amt_bp` breaks byte-determinism | determinism = data outputs only (excl. `_worker/**`, manifest) via `runner.data_outputs`; ORT threads pinned (`amt.bp_threads`) | §0, §4, §7.4 | GRID, AMT |
 | 11 | mir_eval given MIDI, no counts | `midi_to_hz` before every call; counts from `match_notes`; +1-semitone test | §9.4 item 1, tests | EVAL |
 | 12 | Basic Pitch min length off by one; E23 wasteful | config in kept frames (`bp_min_note_frames = 4`, pass `frames − 1`); E23 grid {3,4,5,6,7,12} frames; worker `sweep` mode: one `run_inference` per track, 72 `model_output_to_notes` passes | §1.3, §7.4, §10 E23, A11, §13 item 12 | AMT |
-| 13 | Missing cross-owner deps / merge order | E1 + E24-sep moved to AMT; SEP exposes `gtab.sep.run.separate`; dependency table; 4-step merge order; P0 stub `STAGES` modules + lazy graph imports | §2, §1.7, §9.1 item 6 | all |
+| 13 | Missing cross-owner deps / merge order | E1 + E24-sep moved to AMT; SEP exposes `bandscribe.sep.run.separate`; dependency table; 4-step merge order; P0 stub `STAGES` modules + lazy graph imports | §2, §1.7, §9.1 item 6 | all |
 | 14 | Residual mask ≠ validated repet3 mask | exact repet3 mask (`W=min(median,V)`, `Mb=W²/(W²+max(V−W,0)²)`, fg = X·(1−Mb)) as pure `background_mask`; subprocess parity test ±0.5 dB SIR | §9.3 item 6, tests | GRID |
-| 15 | Illegal / non-ASCII generated names | `gtab.eval.runs.slug()` for every generated path; `--system other` | §0, §5, §6.10, §9.4 items 7–8 | EVAL |
+| 15 | Illegal / non-ASCII generated names | `bandscribe.eval.runs.slug()` for every generated path; `--system other` | §0, §5, §6.10, §9.4 items 7–8 | EVAL |
 | 16 | npm.cmd and matplotlib on Windows | `node.exe …\npm-cli.js ci` with `npm_config_cache=paths.NPM_CACHE`; `MPLBACKEND=Agg` in the managed env | §0, §1.2, §9.4 item 6 | P0, EVAL |
 | 17 | GP import details | alphaTab `AlphaSynth` render route; one string convention (1 = highest); capo added to PyGuitarPro `realValue`, checked against alphaTab; cp949/cp1252 + `reference.encoding` | §6 conventions, §6.7, §9.4 item 6, tests | EVAL, P0 (schema) |
 | 18 | Taps: use synctoolbox anchors; heavy imports | `sync_via_mrmsdtw_with_anchors`; lazy imports enforced by `test_import_weight.py` | §0, §9.4 item 6, §1.7 | EVAL, P0 |
@@ -1786,15 +1786,15 @@ point was accepted; none was rejected.
 | 23 | E1/E2/E3 adoption would need P0 edits | knobs added now: `sep.input_lufs`, `amt.guitar_view`, `amt.guitar_mask` (+ `guitar_other` view); deterministic `master()` limiter specified | §1.3, §3.2, §7.2, §9.4 item 4 | P0, SEP, AMT, EVAL |
 | 24 | `small` fallback offline; instrument order | `try_to_load_from_cache` path or `unavailable`, never size keywords; `sort_mt3` before request and key | §3.2, §7.3, §9.2 item 4 | AMT |
 | 25 | `sections` not byte-deterministic | `threadpool_limits(1)`, sign-normalised eigenvectors, seeded KMeans, rounded outputs, determinism test | §9.3 item 4, tests | GRID |
-| 26 | Hardlinked export problems | small files copied, WAVs hardlinked read-only; locked old export renamed aside for `gtab gc`, clean failure otherwise | §3.3, tests | GRID |
+| 26 | Hardlinked export problems | small files copied, WAVs hardlinked read-only; locked old export renamed aside for `bandscribe gc`, clean failure otherwise | §3.3, tests | GRID |
 | 27 | Latency criterion grades itself | estimate on GuitarSet players 00–02 (+ EGDB dev), report on held-out 03–05 | §9.2 item 8, §10, §11 b10, A10 | AMT |
 | 28 | Gate may compare a contaminated model | pre-registered: MuScriptor × EGDB `학습 포함`/`불명` → `판단 보류 (오염 불명)`; Basic Pitch training sets recorded (EGDB clean for BP; MedleyDB not) | §10 gate-m2, §9.4 item 9, §11 b12, facts | EVAL, AMT |
 | 29 | Minor inconsistencies | bass stem from `sep`; half-open bar ranges everywhere; `amt_gtr` mask via dep key; ids aligned (`E24-sep`/`E24-amt`/`gate-m2`); runner accepts `실행 중`; `grid.dbn=true` rejected; grid step 3.1 reduced to a check, refinement kept (20 ms quantisation) | §3.2, §3.3, §6, §9.3, §9.4 items 8–9, §1.3 | GRID, P0, EVAL |
 | 30 | Env/test notes | muscriptor deps completed; bp310 3.10 resolution noted; `amt_bp` optional; `test_py310_compat.py`; `sha_cache.json` under filelock; b1/b9 record other GPU processes (Claude app) | facts, §1.5, §1.7, §3.2 row 9, §7.4, §9.1 item 10 | P0, AMT, SEP |
 
 **New or re-assigned files** (all included in §2): P0 — `tests/test_py310_compat.py`, `tests/test_import_weight.py`,
-initial stubs `gtab/commands/models.py` and `gtab/{analysis,sep,amt}/stage.py`; SEP — `gtab/workers/vram_ballast.py`,
-`gtab/sep/run.py` (SEP's `experiments.py` shrinks to `stereo-preservation`); AMT — E1 and E24-sep runners; DATA —
-`gtab/model_fetch.py`, `gtab/model_sources.toml`, `gtab/commands/models.py`, `tests/test_model_fetch.py`;
-EVAL — `gtab/eval/node.py` (inside `gtab/eval/**`). No file gained a second owner; M0's `gtab/workers/selftest.py`
+initial stubs `bandscribe/commands/models.py` and `bandscribe/{analysis,sep,amt}/stage.py`; SEP — `bandscribe/workers/vram_ballast.py`,
+`bandscribe/sep/run.py` (SEP's `experiments.py` shrinks to `stereo-preservation`); AMT — E1 and E24-sep runners; DATA —
+`bandscribe/model_fetch.py`, `bandscribe/model_sources.toml`, `bandscribe/commands/models.py`, `tests/test_model_fetch.py`;
+EVAL — `bandscribe/eval/node.py` (inside `bandscribe/eval/**`). No file gained a second owner; M0's `bandscribe/workers/selftest.py`
 is **not** edited (the ballast is its own worker).

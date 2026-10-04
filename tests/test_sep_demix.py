@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import paths
-from gtab.gpu import run_worker
+from bandscribe import paths
+from bandscribe.gpu import run_worker
 
 pytestmark = pytest.mark.gpuenv
 

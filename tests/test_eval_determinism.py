@@ -1,4 +1,4 @@
-"""a9: `gtab eval run --suite quick --system oracle-noisy` twice -> byte-identical metrics.csv / summary.json,
+"""a9: `bandscribe eval run --suite quick --system oracle-noisy` twice -> byte-identical metrics.csv / summary.json,
 with bootstrap CIs filled on the aggregate rows."""
 
 from __future__ import annotations
@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from gtab import atomic, config
-from gtab.eval import runs, suites
+from bandscribe import atomic, config
+from bandscribe.eval import runs, suites
 
 pytest.importorskip("mir_eval")
 

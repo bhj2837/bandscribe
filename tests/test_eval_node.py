@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from gtab import paths
-from gtab.eval import node
+from bandscribe import paths
+from bandscribe.eval import node
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH")
 
@@ -25,7 +25,7 @@ def test_npm_ci_command_uses_node_and_npm_cli():
 def test_npm_env_keeps_cache_off_appdata():
     env = node.npm_env()
     assert env["npm_config_cache"] == str(paths.NPM_CACHE)
-    assert Path(env["npm_config_cache"]).resolve().is_relative_to(paths.GTAB_ROOT.resolve())
+    assert Path(env["npm_config_cache"]).resolve().is_relative_to(paths.ROOT.resolve())
     assert env["npm_config_update_notifier"] == "false"
     assert env["npm_config_fund"] == "false" and env["npm_config_audit"] == "false"
     assert env["PYTHONUTF8"] == "1"  # the managed env is the base
@@ -48,9 +48,9 @@ def test_npm_ci_runs_through_run_captured(monkeypatch):
 
 
 def test_package_json_pins_alphatab():
-    pkg = json.loads((paths.GTAB_ROOT / "node" / "package.json").read_text(encoding="utf-8"))
+    pkg = json.loads((paths.ROOT / "node" / "package.json").read_text(encoding="utf-8"))
     assert pkg["dependencies"]["@coderline/alphatab"] == node.ALPHATAB_VERSION
-    lock = json.loads((paths.GTAB_ROOT / "node" / "package-lock.json").read_text(encoding="utf-8"))
+    lock = json.loads((paths.ROOT / "node" / "package-lock.json").read_text(encoding="utf-8"))
     assert lock["packages"]["node_modules/@coderline/alphatab"]["version"] == node.ALPHATAB_VERSION
 
 

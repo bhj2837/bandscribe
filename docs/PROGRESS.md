@@ -1,6 +1,7 @@
-# gtab progress / handoff
+# bandscribe progress / handoff
 
-Last updated: 2026-10-04 (speed fix + review fixes measured; see "Speed and presence fix" below).
+Last updated: 2026-10-04 (renamed gtab → bandscribe, see `docs/RENAME.md`; speed fix + review fixes measured, see
+"Speed and presence fix" below).
 
 ## Where things stand
 
@@ -10,6 +11,7 @@ Last updated: 2026-10-04 (speed fix + review fixes measured; see "Speed and pres
 | M1a+M2 spec (`docs/M1_M2_SPEC.md`) | ✅ done (30-point critique applied) |
 | P0 contracts + 5 owners (SEP, AMT, GRID, EVAL, DATA) | ✅ implemented |
 | Integration | ✅ 1174 tests passed (1 skipped) after the 2026-10-04 speed/presence fix; all 5 `D:\backing` songs + 1 Cambridge-MT mix run end to end |
+| Rename gtab → bandscribe | ✅ done in place (`docs/RENAME.md`): 0 stage keys changed, old files load as is. Folder move `D:\gtab` → new folder: not done |
 | Experiments | 🟡 mostly done (see table below) |
 | Review → Fix → Acceptance | ⬜ not started |
 
@@ -38,9 +40,9 @@ Evidence: `data/scratch/speed/` (first fix) and `data/scratch/speed2/` (review f
 ### Speed (done)
 
 - `quality` (default) and `fast` no longer run the full-mix B0 pass. The full-length piano+other pass is replaced by a
-  **sampled presence pass** (`gtab/amt/presence.py`): up to 6 × 10 s windows starting on bars, at most 60 s and 20 %
+  **sampled presence pass** (`bandscribe/amt/presence.py`): up to 6 × 10 s windows starting on bars, at most 60 s and 20 %
   of the song (`fast`: half). `eval` adds the B0 mix pass and the full-length piano+other pass **as extra outputs
-  only** (`gtab run <곡> --profile eval`); `--system b0` and the Tier A baselines plan with `eval`.
+  only** (`bandscribe run <곡> --profile eval`); `--system b0` and the Tier A baselines plan with `eval`.
 - Measured on the RTX 2060 (quality, sep cached; "before" = the 2026-10-03 integration run):
 
   | Song | amt_ms1 before → after | amt_gtr after | whole run, from scratch (sum of stages) |
@@ -122,7 +124,7 @@ mask the backing used:
 
 ## Next steps (in order)
 
-1. `git checkout wip/m1a-m2`. Quick check: `D:\gtab\gtab.cmd doctor` and `D:\gtab\.venv\Scripts\python.exe -m pytest -q`.
+1. `git checkout wip/m1a-m2`. Quick check: `D:\gtab\bandscribe.cmd doctor` and `D:\gtab\.venv\Scripts\python.exe -m pytest -q`.
 2. ~~Speed work~~ done 2026-10-04 (profiles + presence windows, reviewed and fixed, above). Optional: time `--profile fast` on SC.mp3.
 3. Review (correctness + GPU/Windows), fix, then check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on the user.
 4. Merge `wip/m1a-m2` into `main` and commit the milestone.
@@ -153,7 +155,7 @@ mask the backing used:
       - consider a backing-difference check in eval.
 - **Separation check** (Cambridge-MT Secretariat vs true tracks): guitar 7.6 dB, bass 10.0, drums 7.9, vocals 9.0.
 - **Known issue b13:** Hammond organ → SW `other` → MuScriptor calls it distorted guitar, so keys go undetected.
-- **EGDB** is only partly downloaded (~5.3 GB left). `gtab data fetch egdb --yes` resumes it.
+- **EGDB** is only partly downloaded (~5.3 GB left). `bandscribe data fetch egdb --yes` resumes it.
 - At the pause, `data/gpu.lock.pids` was left by a hard-killed run. That is expected: the next GPU run waits on the listed (dead) pids and removes the file.
 - **Evidence:** `data/scratch/{integ,exp,amt}` hold copyrighted-audio analysis. Never commit them (`data/` is gitignored).
 

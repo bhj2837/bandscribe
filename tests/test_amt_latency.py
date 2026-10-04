@@ -1,10 +1,10 @@
-"""Latency constant estimation and its pre-registered dev/test split (gtab.amt.latency)."""
+"""Latency constant estimation and its pre-registered dev/test split (bandscribe.amt.latency)."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from gtab.amt import latency as L
+from bandscribe.amt import latency as L
 
 
 def _notes(times, pitches):
@@ -47,7 +47,7 @@ def test_dev_test_split_never_overlaps():
 
 def test_split_matches_the_guitarset_loader():
     try:
-        from gtab.datasets.loaders import guitarset
+        from bandscribe.datasets.loaders import guitarset
     except ImportError:
         pytest.skip("DATA loader not present")
     assert tuple(guitarset.DEV_PLAYERS) == L.DEV_PLAYERS and tuple(guitarset.TEST_PLAYERS) == L.TEST_PLAYERS

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy import signal
 
-from gtab.eval import remix
+from bandscribe.eval import remix
 
 
 def _music(seconds: float = 12.0, sr: int = 44100, seed: int = 0) -> np.ndarray:
@@ -73,14 +73,14 @@ def test_forward_min_window_and_release():
 def test_tierb_mix_sums_parts_and_masters(tmp_path):
     import soundfile as sf
 
-    from gtab.schema.dataset import DatasetTrack, Part
+    from bandscribe.schema.dataset import DatasetTrack, Part
 
     sr = 44100
     n = sr * 6
     t = np.arange(n) / sr
     sf.write(str(tmp_path / "gtr.wav"), (0.1 * np.sin(2 * np.pi * 196 * t)).astype(np.float32), sr)
     sf.write(str(tmp_path / "bass.wav"), np.stack([0.2 * np.sin(2 * np.pi * 55 * t)] * 2, 1).astype(np.float32), sr)
-    tr = DatasetTrack(format="gtab.dataset_track/1", dataset="cambridge_mt", track_id="song", split=None, group="song",
+    tr = DatasetTrack(format="bandscribe.dataset_track/1", dataset="cambridge_mt", track_id="song", split=None, group="song",
                       tier="B", license="x", mix=None,
                       parts=[Part(id="g", kind="guitar", audio="gtr.wav", channels=1),
                              Part(id="b", kind="bass", audio="bass.wav", channels=2)],

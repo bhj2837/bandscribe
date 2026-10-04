@@ -9,8 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-from gtab import atomic
-from gtab.pipeline import graph
+from bandscribe import atomic
+from bandscribe.pipeline import graph
 
 SR = 22050
 FPS_ENV = 22050 / 256
@@ -82,7 +82,7 @@ def make_grid(n_bars: int, bpm: float = 120.0, lead_s: float = 1.0, beats_per_ba
             beats.append({"t_s": t, "t_raw_s": t, "bar": b + 1, "beat": k + 1, "is_downbeat": k == 0,
                           "shift_ms": 0.0, "activation": None})
     dur = lead_s + n_bars * bar_s + 1.0
-    return {"format": "gtab.grid/1", "tpb": 48, "duration_s": round(dur, 6), "beats": beats, "bars": bars,
+    return {"format": "bandscribe.grid/1", "tpb": 48, "duration_s": round(dur, 6), "beats": beats, "bars": bars,
             "tempo": [{"start_bar": 1, "end_bar": n_bars + 1, "bpm": bpm}],
             "meter": [{"start_bar": 1, "end_bar": n_bars + 1, "numerator": beats_per_bar, "denominator": 4,
                        "beat_unit": "quarter"}],
@@ -118,7 +118,7 @@ def synth_song(form: str = "ABABCA", n_bars: int = 8, bpm: float = 120.0, lead_s
 
 
 def onsets_from(times, strengths=None, duration: float | None = None) -> dict:
-    """An onsets dict (as gtab.analysis.onsets.compute returns) with spikes at the given times."""
+    """An onsets dict (as bandscribe.analysis.onsets.compute returns) with spikes at the given times."""
     times = np.asarray(times, dtype=float)
     strengths = np.ones(times.size) if strengths is None else np.asarray(strengths, dtype=float)
     duration = duration if duration is not None else (float(times.max()) + 2.0 if times.size else 10.0)
@@ -190,8 +190,8 @@ def riff_song(n_occ: int = 3, lead_in=(1, 2), n_bars: int = 4, bpm: float = 120.
     secs = [{"id": f"S{i + 1}", "label": "A", "start_bar": 1 + i * n_bars, "end_bar": 1 + (i + 1) * n_bars,
              "start_s": lead_s + i * n_bars * bar_s, "end_s": lead_s + (i + 1) * n_bars * bar_s, "confidence": 1.0}
             for i in range(n_occ)]
-    sections_doc = {"format": "gtab.sections/1", "method": "synthetic", "sections": secs, "params": {}}
-    repeat_doc = {"format": "gtab.repeat_map/1", "params": {}, "bars": [],
+    sections_doc = {"format": "bandscribe.sections/1", "method": "synthetic", "sections": secs, "params": {}}
+    repeat_doc = {"format": "bandscribe.repeat_map/1", "params": {}, "bars": [],
                   "groups": [{"label": "A", "reference": "S1",
                               "occurrences": [{"section": s["id"], "start_bar": s["start_bar"], "n_bars": n_bars,
                                                "offset_s": 0.0} for s in secs]}]}
@@ -204,14 +204,14 @@ GPU = {"beats", "sep", "amt_ms1", "amt_gtr"}
 
 
 def model_missing(name: str) -> BaseException:
-    """The registry's own ``ModelMissing`` for ``name`` (Korean hint naming ``gtab models fetch``)."""
-    from gtab.models import ModelMissing
+    """The registry's own ``ModelMissing`` for ``name`` (Korean hint naming ``bandscribe models fetch``)."""
+    from bandscribe.models import ModelMissing
 
-    return ModelMissing(name, f"{name} 이(가) 없습니다. 먼저 `gtab models fetch {name}` 를 실행하세요.")
+    return ModelMissing(name, f"{name} 이(가) 없습니다. 먼저 `bandscribe models fetch {name}` 를 실행하세요.")
 
 
 def write_gpu_run(out: Path, label: str, degraded: bool) -> None:
-    atomic.write_json(out / "gpu_run.json", {"format": "gtab.gpu_run/1", "backend": "fake", "ladder": ["top"],
+    atomic.write_json(out / "gpu_run.json", {"format": "bandscribe.gpu_run/1", "backend": "fake", "ladder": ["top"],
                                              "rung": {"index": 1 if degraded else 0, "label": label,
                                                       "device": "cuda"},
                                              "degraded": degraded, "waited_s": 0.0})
@@ -247,7 +247,7 @@ class Fakes:
                                                                          "worst_windows": [{"start_s": 10.0,
                                                                                             "rel_db": -12.0}]}})
             if name == "instr":
-                atomic.write_json(out / "instrumentation.json", {"format": "gtab.instrumentation/1"})
+                atomic.write_json(out / "instrumentation.json", {"format": "bandscribe.instrumentation/1"})
             if name == "notes":
                 (out / "midi").mkdir()
                 (out / "midi" / "guitar_all.mid").write_bytes(b"MThd-guitar-" + self.variant.encode())

@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-from gtab.jobs.dag import topo_order
-from gtab.pipeline import graph
+from bandscribe.jobs.dag import topo_order
+from bandscribe.pipeline import graph
 
-# M1_M2_SPEC 3.2 table (+ vocal -> sep: vocal reads the sep stage's vocals stem, see gtab.pipeline.graph)
+# M1_M2_SPEC 3.2 table (+ vocal -> sep: vocal reads the sep stage's vocals stem, see bandscribe.pipeline.graph)
 EXPECTED = {
     "beats": set(),
     "grid": {"beats"},
@@ -39,9 +39,9 @@ def fake_impls(monkeypatch, missing_module: str | None = None):
 def test_names_and_deps_match_spec():
     assert list(graph.NAMES) == list(EXPECTED)
     assert {n: set(d) for n, d in graph.DEPS.items()} == EXPECTED
-    assert graph.PROVIDER["beats"] == "gtab.analysis.stage"
-    assert graph.PROVIDER["sep"] == "gtab.sep.stage"
-    assert graph.PROVIDER["notes"] == "gtab.amt.stage"
+    assert graph.PROVIDER["beats"] == "bandscribe.analysis.stage"
+    assert graph.PROVIDER["sep"] == "bandscribe.sep.stage"
+    assert graph.PROVIDER["notes"] == "bandscribe.amt.stage"
 
 
 def test_acyclic_and_gpu_order(monkeypatch):
@@ -65,11 +65,11 @@ def test_until_notes_includes_s35_parts():
 
 
 def test_missing_stage_module_korean_error(monkeypatch):
-    fake_impls(monkeypatch, missing_module="gtab.sep.stage")
+    fake_impls(monkeypatch, missing_module="bandscribe.sep.stage")
     with pytest.raises(graph.StageNotImplemented) as ei:
         graph.build_stages(None, "notes")
     msg = str(ei.value)
-    assert "단계 'sep' 가 아직 구현되지 않았습니다 (gtab.sep.stage)" in msg
+    assert "단계 'sep' 가 아직 구현되지 않았습니다 (bandscribe.sep.stage)" in msg
     assert "단계 'stems' 가 아직 구현되지 않았습니다" in msg
     # stages that do not need the missing provider still build
     assert [s.name for s in graph.build_stages(None, "sections")] == ["beats", "grid", "sections"]
@@ -81,7 +81,7 @@ def test_unknown_stage_name():
 
 
 def test_grid_stages_are_registered():
-    from gtab.analysis import stage
+    from bandscribe.analysis import stage
 
     assert set(stage.STAGES) == {"beats", "grid", "sections", "vocal", "resid1"}
     assert stage.STAGES["beats"]["device"] == "gpu"
@@ -100,10 +100,10 @@ def test_grid_stages_are_registered():
 
 def test_grid_params_come_from_the_validated_config():
     """No private copy of the defaults: params equal the Config sections, and a misspelled key fails."""
-    from gtab.analysis import grid as gridmod
-    from gtab.analysis import sections as secmod
-    from gtab.analysis import stage
-    from gtab.config import Config
+    from bandscribe.analysis import grid as gridmod
+    from bandscribe.analysis import sections as secmod
+    from bandscribe.analysis import stage
+    from bandscribe.config import Config
 
     cfg = Config()
     assert stage.grid_params(cfg) == cfg.grid.model_dump(mode="json")
@@ -118,7 +118,7 @@ def test_grid_params_come_from_the_validated_config():
 
 
 def test_only_the_eval_profile_runs_the_mix_view():
-    amt = pytest.importorskip("gtab.amt.stage")
+    amt = pytest.importorskip("bandscribe.amt.stage")
     impl = getattr(amt, "STAGES", {}).get("amt_ms1")
     if impl is None:
         pytest.skip("amt_ms1 not implemented yet")

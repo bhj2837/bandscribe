@@ -1,4 +1,4 @@
-"""S3.5 v0 instrumentation estimator on synthetic evidence (gtab.amt.instrumentation)."""
+"""S3.5 v0 instrumentation estimator on synthetic evidence (bandscribe.amt.instrumentation)."""
 from __future__ import annotations
 
 import json
@@ -7,8 +7,8 @@ import random
 import numpy as np
 import pytest
 
-from gtab.amt import instrumentation as S
-from gtab.amt import instruments as I
+from bandscribe.amt import instrumentation as S
+from bandscribe.amt import instruments as I
 
 N_BARS = 20
 BAR_S = 2.0
@@ -158,7 +158,7 @@ def test_deterministic_and_schema_valid():
     assert list(doc["classes"]) == list(I.MT3_GROUPS)
     assert list(doc["families"]) == list(I.FAMILIES)
     try:
-        from gtab.schema.instrumentation import Instrumentation
+        from bandscribe.schema.instrumentation import Instrumentation
     except ImportError:
         pytest.skip("P0 schema not present yet")
     Instrumentation.model_validate(doc)
@@ -438,6 +438,6 @@ def test_guards_never_drop_a_guitar_class_randomized():
                   presence={"mode": "sampled", "notes": notes, "spans": spans, "window_sections": secs},
                   guitar_mask=rng.choice(I.GUITAR_MASK_POLICIES))
         assert S.guitar_class_omissions(doc) == 0
-        from gtab.schema.instrumentation import Instrumentation
+        from bandscribe.schema.instrumentation import Instrumentation
 
         Instrumentation.model_validate(doc)

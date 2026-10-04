@@ -1,4 +1,4 @@
-"""AMT pipeline stages end to end with fake workers (gtab.amt.stage, M1_M2_SPEC 3.2 rows 8-13).
+"""AMT pipeline stages end to end with fake workers (bandscribe.amt.stage, M1_M2_SPEC 3.2 rows 8-13).
 
 amt_ms1 -> instr -> amt_gtr -> amt_bp (skipped and faked) -> s35 -> notes on a tiny synthetic job: outputs exist,
 validate against the P0 schemas, the latency constant is applied, CPU stage data outputs are byte-identical across
@@ -16,12 +16,12 @@ import mido
 import numpy as np
 import pytest
 
-from gtab import atomic, models, paths, vram
-from gtab.amt import instruments as I
-from gtab.amt import stage as S
-from gtab.config import Config
-from gtab.schema.instrumentation import Instrumentation
-from gtab.schema.notes import NoteSet
+from bandscribe import atomic, models, paths, vram
+from bandscribe.amt import instruments as I
+from bandscribe.amt import stage as S
+from bandscribe.config import Config
+from bandscribe.schema.instrumentation import Instrumentation
+from bandscribe.schema.notes import NoteSet
 
 SONG = "song0"
 LAT = 0.02
@@ -50,7 +50,7 @@ def _grid() -> dict:
         for k in range(4):
             beats.append({"t_s": start + k * BEAT, "t_raw_s": start + k * BEAT, "bar": b + 1, "beat": k + 1,
                           "is_downbeat": k == 0, "shift_ms": 0.0, "activation": None})
-    return {"format": "gtab.grid/1", "tpb": 48, "duration_s": T0 + N_BARS * 4 * BEAT, "beats": beats, "bars": bars,
+    return {"format": "bandscribe.grid/1", "tpb": 48, "duration_s": T0 + N_BARS * 4 * BEAT, "beats": beats, "bars": bars,
             "tempo": [{"start_bar": 1, "end_bar": N_BARS + 1, "bpm": 120.0}], "meter": [], "beat_unit": "quarter",
             "pickup": {"present": False, "beats": 0}, "hypotheses": {}, "confidence": {}, "params": {}}
 
@@ -77,7 +77,7 @@ def job(tmp_path, monkeypatch):
         p.parent.mkdir(exist_ok=True)
         p.write_bytes(b"RIFF")  # never read: the worker is faked
         views[vid] = {"path": f"views/{vid}.wav", "pcm_sha256": f"{i:x}" * 64, "source": "x", "mono": "(L+R)/2"}
-    atomic.write_json(deps["stems"] / "views.json", {"format": "gtab.views/1", "views": views})
+    atomic.write_json(deps["stems"] / "views.json", {"format": "bandscribe.views/1", "views": views})
     n_fr = int((T0 + N_BARS * 2.0) * 10) + 1
     energy = {"mix": np.full(n_fr, -20.0, np.float32)}
     for stem, rel in (("guitar", -6.0), ("bass", -6.0), ("piano", -10.0), ("other", -60.0), ("vocals", -60.0),
@@ -87,13 +87,13 @@ def job(tmp_path, monkeypatch):
     np.savez(deps["stems"] / "energy.npz", **energy)
     atomic.write_json(deps["grid"] / "grid.json", _grid())
     atomic.write_json(deps["sections"] / "sections.json", {
-        "format": "gtab.sections/1", "method": "test", "params": {},
+        "format": "bandscribe.sections/1", "method": "test", "params": {},
         "sections": [{"id": "S1", "label": "A", "start_bar": 1, "end_bar": 5, "start_s": T0, "end_s": T0 + 8.0,
                       "confidence": 1.0},
                      {"id": "S2", "label": "B", "start_bar": 5, "end_bar": 9, "start_s": T0 + 8.0,
                       "end_s": T0 + 16.0, "confidence": 1.0}]})
-    atomic.write_json(deps["vocal"] / "vocal_activity.json", {"format": "gtab.vocal/1"})
-    atomic.write_json(deps["resid1"] / "resid1.json", {"format": "gtab.resid1/1"})
+    atomic.write_json(deps["vocal"] / "vocal_activity.json", {"format": "bandscribe.vocal/1"})
+    atomic.write_json(deps["resid1"] / "resid1.json", {"format": "bandscribe.resid1/1"})
     (deps["resid1"] / "repeat_resid_pass1.wav").write_bytes(b"RIFF")
 
     w = tmp_path / "hf" / "model.safetensors"
@@ -112,7 +112,7 @@ def _sorted(notes: list[dict]) -> list[dict]:
 
 
 class FakeMs:
-    """gtab.vram.run_gpu_stage stand-in: writes raw NoteSets for the requested views like amt_muscriptor.
+    """bandscribe.vram.run_gpu_stage stand-in: writes raw NoteSets for the requested views like amt_muscriptor.
 
     piano+other (full or presence segments): ``po_class`` notes (default synth_pad) inside the first segment.
     Guitar view: distorted guitar notes; with ``gtr_bleed`` also ``po_class`` notes when the mask allows that
@@ -143,7 +143,7 @@ class FakeMs:
                 notes = _notes("distorted_electric_guitar", 52, 20)
                 if self.gtr_bleed and self.po_class in classes:
                     notes = _sorted(notes + _notes(self.po_class, 72, 6))
-            doc = {"format": "gtab.notes/1", "view": v["id"], "view_sha256": v["view_sha256"],
+            doc = {"format": "bandscribe.notes/1", "view": v["id"], "view_sha256": v["view_sha256"],
                    "backend": {"name": "muscriptor", "version": "0.3.0", "model": "muscriptor-medium",
                                "model_sha256": "m" * 64, "params": {}, "instruments": mask, "device": "cuda",
                                "dtype": "fp32+autocast-fp16"},
@@ -362,7 +362,7 @@ def test_presence_windows_follow_the_profile_budget(job, monkeypatch):
     secs = [{"id": f"S{i + 1}", "label": "ABC"[i % 3], "start_bar": 1 + 10 * i, "end_bar": 11 + 10 * i,
              "start_s": T0 + 20.0 * i, "end_s": T0 + 20.0 * (i + 1), "confidence": 1.0} for i in range(12)]
     atomic.write_json(job.deps["sections"] / "sections.json",
-                      {"format": "gtab.sections/1", "method": "test", "params": {}, "sections": secs})
+                      {"format": "bandscribe.sections/1", "method": "test", "params": {}, "sections": secs})
     n_fr = int(grid["duration_s"] * 10) + 1
     e = {k: np.full(n_fr, -20.0 + rel, np.float32) for k, rel in (("mix", 0.0), ("guitar", -6.0), ("bass", -6.0),
                                                                   ("piano", -10.0), ("other", -60.0))}
@@ -407,7 +407,7 @@ def test_basic_pitch_stage_with_a_fake_worker(job, monkeypatch):
         calls.append((name, req, python, use_lock))
         for v in req["views"]:
             atomic.write_json(Path(v["out"]), {
-                "format": "gtab.notes/1", "view": v["id"], "view_sha256": v["view_sha256"],
+                "format": "bandscribe.notes/1", "view": v["id"], "view_sha256": v["view_sha256"],
                 "backend": {"name": "basicpitch", "version": "0.4.0", "model": "icassp_2022/nmp.onnx",
                             "model_sha256": "o" * 64, "params": req["params"], "instruments": None,
                             "device": "cpu", "dtype": "fp32"},
@@ -416,9 +416,9 @@ def test_basic_pitch_stage_with_a_fake_worker(job, monkeypatch):
                            "bend": {"t_s": [1.0, 1.0116], "cents": [0.0, 33.3333]}}]})
         return SimpleNamespace(ok=True, output={"status": "ok"}, error=None, stderr_path=Path(work_dir) / "e.log")
 
-    import gtab.gpu
+    import bandscribe.gpu
 
-    monkeypatch.setattr(gtab.gpu, "run_worker", fake_run_worker)
+    monkeypatch.setattr(bandscribe.gpu, "run_worker", fake_run_worker)
     out = _run_chain(job, _cfg(), "p")
     name, req, python, use_lock = calls[0]
     assert name == "amt_basicpitch" and python == py and use_lock is False
@@ -445,7 +445,7 @@ def test_ms_models_missing_weights_is_model_missing(monkeypatch):
     monkeypatch.setattr(S, "muscriptor_weights", lambda size="medium", revision=None: None)
     with pytest.raises(models.ModelMissing) as ei:
         S.ms_models({})
-    assert ei.value.name == "muscriptor-medium" and "gtab run 중에는 내려받지 않습니다" in ei.value.hint_ko
+    assert ei.value.name == "muscriptor-medium" and "bandscribe run 중에는 내려받지 않습니다" in ei.value.hint_ko
 
 
 # ------------------------------------------------------------------------------------------- config reads
@@ -498,7 +498,7 @@ def test_profiles_change_the_amt_ms1_key_params_and_fast_halves_the_budget():
     assert q != f != e != q
     assert (f["presence"]["max_windows"], f["presence"]["max_total_s"]) == (3, 30.0)
     assert S.amt_ms1_params({"amt": {"presence_window_s": 12.0}}) != q  # a budget knob changes the stage key
-    from gtab.config import ConfigError
+    from bandscribe.config import ConfigError
 
     with pytest.raises(ConfigError):
         S.amt_ms1_params({"run": {"profile": "max"}})
@@ -515,7 +515,7 @@ def test_load_presence_falls_back_to_an_m2_full_pass(tmp_path):
     """A pre-presence amt_ms1 dir (raw/piano_other_mono, no presence.json) still feeds instr as a full pass."""
     d = tmp_path / "ms1"
     atomic.write_json(d / "raw" / "piano_other_mono__muscriptor.json", {
-        "format": "gtab.notes/1", "view": "piano_other_mono", "view_sha256": None,
+        "format": "bandscribe.notes/1", "view": "piano_other_mono", "view_sha256": None,
         "backend": {"name": "muscriptor"}, "time_offset_applied_s": 0.0, "audio_duration_s": 9.0,
         "notes": _notes("organ", 60, 9)})
     pres = S.load_presence(d)
@@ -527,12 +527,12 @@ def test_load_presence_reads_an_empty_segment_list_as_a_sampled_pass(tmp_path):
     """Review 2026-10-04: ``segments: []`` (every window clipped away) used to read as a full pass with the
     song-wide saturation."""
     d = tmp_path / "ms1"
-    atomic.write_json(d / "presence.json", {"format": "gtab.presence/1", "mode": "sampled",
+    atomic.write_json(d / "presence.json", {"format": "bandscribe.presence/1", "mode": "sampled",
                                             "view": "piano_other_presence", "skipped": None,
                                             "file": "raw/piano_other_presence__muscriptor.json",
                                             "selection": {"windows": [], "transcribed_s": 0.0}})
     atomic.write_json(d / "raw" / "piano_other_presence__muscriptor.json", {
-        "format": "gtab.notes/1", "view": "piano_other_presence", "view_sha256": None, "segments": [],
+        "format": "bandscribe.notes/1", "view": "piano_other_presence", "view_sha256": None, "segments": [],
         "backend": {"name": "muscriptor"}, "time_offset_applied_s": 0.0, "audio_duration_s": 9.0, "notes": []})
     pres = S.load_presence(d)
     assert pres["mode"] == "sampled" and pres["spans"] == []
@@ -563,7 +563,7 @@ def test_notes_warns_when_many_guitar_pass_notes_are_dropped(job, monkeypatch):
 
 
 def test_unknown_hint_family_fails_at_plan_time():
-    from gtab.config import ConfigError
+    from bandscribe.config import ConfigError
 
     with pytest.raises(ConfigError):
         S.instr_params({"hints": {"instruments": "guitar,kazoo"}})
@@ -581,7 +581,7 @@ def test_record_bp_model_is_idempotent(tmp_path, monkeypatch):
     onnx.write_bytes(b"onnx-model")
     py.parent.mkdir(parents=True)
     py.write_bytes(b"")
-    monkeypatch.setattr(paths, "GTAB_ROOT", root)
+    monkeypatch.setattr(paths, "ROOT", root)
     monkeypatch.setattr(paths, "BP310_PYTHON", py)
     monkeypatch.setattr(paths, "MODELS", root / "data" / "models")
     monkeypatch.setattr(paths, "MODELS_LOCK", root / "data" / "models" / "models.lock.json")

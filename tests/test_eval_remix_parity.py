@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from gtab import paths
+from bandscribe import paths
 
-EXPERIMENTS = paths.GTAB_ROOT / "docs" / "research" / "experiments"
+EXPERIMENTS = paths.ROOT / "docs" / "research" / "experiments"
 
 HARNESS = r'''
 import contextlib, io, json, sys
@@ -39,14 +39,14 @@ sys.stdout.flush()
 def test_router_features_parity():
     if not (EXPERIMENTS / "router_exp.py").exists():
         pytest.skip("research scripts not present")
-    from gtab.winjob import run_captured
+    from bandscribe.winjob import run_captured
 
     r = run_captured([sys.executable, "-c", HARNESS, str(EXPERIMENTS)], timeout_s=600, env=paths.child_env())
     assert r.returncode == 0, r.stderr[-2000:]
     ref = json.loads(r.stdout)
 
-    from gtab.analysis.stereo import window_features
-    from gtab.eval.remix import SR, parity_scenes
+    from bandscribe.analysis.stereo import window_features
+    from bandscribe.eval.remix import SR, parity_scenes
 
     scenes = parity_scenes()
     assert len(scenes) == len(ref) == 14

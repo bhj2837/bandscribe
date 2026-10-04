@@ -1,4 +1,4 @@
-"""Real SW separation through ``gtab.sep.run.separate`` (gpu, slow): 20 s clip -> 6 stems, every M1_M2_SPEC 7.1
+"""Real SW separation through ``bandscribe.sep.run.separate`` (gpu, slow): 20 s clip -> 6 stems, every M1_M2_SPEC 7.1
 field present, gpu_run.json written. Prints the measured VRAM / speed for the M2 report."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import paths
+from bandscribe import paths
 
 MODEL_DIR = Path(__file__).resolve().parents[1] / "data" / "models" / "bs_roformer_sw"
 
@@ -18,11 +18,11 @@ pytestmark = [pytest.mark.gpu, pytest.mark.slow]
 
 
 def test_separate_20s_clip(tmp_path: Path) -> None:
-    audio = pytest.importorskip("gtab.audio")
+    audio = pytest.importorskip("bandscribe.audio")
     if not (MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt").is_file():
         pytest.skip("SW checkpoint not on disk")
-    from gtab.bench import synth_clip
-    from gtab.sep import run as seprun
+    from bandscribe.bench import synth_clip
+    from bandscribe.sep import run as seprun
 
     clip = synth_clip(20.0)
     mix = tmp_path / "mix.wav"
@@ -64,7 +64,7 @@ def test_separate_20s_clip(tmp_path: Path) -> None:
         assert k in sm, k
     assert "model_loaded" in sm["marks"]
     gpu_run = json.loads((tmp_path / "out" / "gpu_run.json").read_text(encoding="utf-8"))
-    assert gpu_run["format"] == "gtab.gpu_run/1" and gpu_run["rung"]["label"] == v["rung_label"]
+    assert gpu_run["format"] == "bandscribe.gpu_run/1" and gpu_run["rung"]["label"] == v["rung_label"]
     sep_json = json.loads((tmp_path / "out" / "sep.json").read_text(encoding="utf-8"))
     assert sep_json["chunk_size"] == int(v["rung_label"].split("=")[1].split("@")[0])
     print(json.dumps({"rung": v["rung_label"], "ctx_mb": v["ctx_mb"], "start_free_mb": v["start_free_mb"],

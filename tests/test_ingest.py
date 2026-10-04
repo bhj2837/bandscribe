@@ -1,4 +1,4 @@
-"""gtab.ingest: decode, loudness, flags and the cached, atomic ingest of local files (M0_SPEC 12, 15).
+"""bandscribe.ingest: decode, loudness, flags and the cached, atomic ingest of local files (M0_SPEC 12, 15).
 
 Audio fixtures are synthesised and encoded with ffmpeg at test time (tests/fixtures/synth_audio.py).
 Every test uses its own JobStore under tmp_path; nothing touches D:\\gtab\\data.
@@ -19,10 +19,10 @@ import pytest
 import soundfile as sf
 
 from fixtures import synth_audio
-from gtab import atomic, paths
-from gtab.config import DEFAULTS_PATH, Config
-from gtab.ingest import IngestError, IngestResult, content_key, decode, flags, ingest, ingest_params, loudness
-from gtab.jobs.store import JobStore
+from bandscribe import atomic, paths
+from bandscribe.config import DEFAULTS_PATH, Config
+from bandscribe.ingest import IngestError, IngestResult, content_key, decode, flags, ingest, ingest_params, loudness
+from bandscribe.jobs.store import JobStore
 
 LOSSY = ("mp3", "m4a", "opus")
 ALL_FORMATS = ("wav", "flac", *LOSSY)
@@ -277,7 +277,7 @@ def test_ingest_file_builds_complete_input(audio: dict[str, Path], store: JobSto
 
     meta = atomic.read_json(inp / "meta.json")
     assert meta == r.meta
-    assert meta["song_key"] == r.song_key and meta["gtab_version"]
+    assert meta["song_key"] == r.song_key and meta["bandscribe_version"]
     assert meta["source"]["kind"] == "file" and meta["source"]["filename"] == "normal.flac"
     assert meta["source"]["sha256"] == atomic.sha256_file(src)
     assert meta["source"]["probe"]["codec_name"] == "flac"
@@ -370,7 +370,7 @@ def test_input_from_before_params_were_recorded_is_rebuilt(audio: dict[str, Path
 
 
 def test_content_key_covers_every_byte(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from gtab.ingest import filekey
+    from bandscribe.ingest import filekey
 
     monkeypatch.setattr(filekey, "CHUNK", 1 << 16)  # many chunks, so the thread pool path runs
     data = bytearray(os.urandom(5 * (1 << 16) + 123))
@@ -423,12 +423,12 @@ def test_cli_cache_hit_on_a_large_wav_is_under_1s(tmp_path: Path) -> None:
         {"song_key": song_key, "params": ingest_params(Config()), "source": {"kind": "file", "filename": big.name}},
     )
 
-    gtab_cmd = Path(__file__).resolve().parents[1] / "gtab.cmd"
-    env = dict(os.environ, GTAB_ROOT=str(root))
+    bandscribe_cmd = Path(__file__).resolve().parents[1] / "bandscribe.cmd"
+    env = dict(os.environ, BANDSCRIBE_ROOT=str(root))
     times = []
     for _ in range(3):
         t0 = time.perf_counter()
-        out = subprocess.run([str(gtab_cmd), "ingest", str(copy)], env=env, capture_output=True,
+        out = subprocess.run([str(bandscribe_cmd), "ingest", str(copy)], env=env, capture_output=True,
                              encoding="utf-8", errors="replace", timeout=60)
         times.append(time.perf_counter() - t0)
         assert out.returncode == 0, out.stderr
@@ -438,10 +438,10 @@ def test_cli_cache_hit_on_a_large_wav_is_under_1s(tmp_path: Path) -> None:
 
 def test_cli_import_path_stays_light() -> None:
     # The in-process timing above cannot see import cost. scipy.signal (pulled in by flags' welch and by
-    # pyloudnorm) takes ~0.9 s to import, which made a real cache-hit `gtab ingest` take 1.6 s; both are
+    # pyloudnorm) takes ~0.9 s to import, which made a real cache-hit `bandscribe ingest` take 1.6 s; both are
     # imported lazily so only a fresh ingest pays for them.
     code = (
-        "import sys, gtab.cli, gtab.ingest, gtab.jobs.store;"
+        "import sys, bandscribe.cli, bandscribe.ingest, bandscribe.jobs.store;"
         "print(sorted(m for m in sys.modules if m.split('.')[0] in ('scipy', 'pyloudnorm')))"
     )
     out = subprocess.run(
@@ -508,9 +508,9 @@ def test_failure_mid_ingest_leaves_no_complete_input(
 _KILL_CHILD = r"""
 import sys, time
 from pathlib import Path
-from gtab.config import Config
-from gtab.ingest import ingest, loudness
-from gtab.jobs.store import JobStore
+from bandscribe.config import Config
+from bandscribe.ingest import ingest, loudness
+from bandscribe.jobs.store import JobStore
 
 src, root, marker = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 real = loudness.apply_ceiling
@@ -531,7 +531,7 @@ ingest(src, store=JobStore(root), cfg=Config())
 def test_killed_ingest_leaves_no_complete_input(audio: dict[str, Path], tmp_path: Path, cfg: Config) -> None:
     root = tmp_path / "jobs"
     marker = tmp_path / "marker.txt"
-    env = paths.child_env({"PYTHONPATH": str(paths.GTAB_ROOT)})
+    env = paths.child_env({"PYTHONPATH": str(paths.ROOT)})
     proc = subprocess.Popen(
         [sys.executable, "-c", _KILL_CHILD, str(audio["normal.wav"]), str(root), str(marker)],
         env=env, cwd=str(tmp_path), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,

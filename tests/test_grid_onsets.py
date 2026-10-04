@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab.analysis import onsets
+from bandscribe.analysis import onsets
 
 
 @pytest.fixture(scope="module")

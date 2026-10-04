@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from pydantic import BaseModel, ValidationError
 
-import gtab.schema as S
-from gtab.schema import (
+import bandscribe.schema as S
+from bandscribe.schema import (
     FAMILIES,
     MT3_GROUPS,
     BackendInfo,
@@ -62,7 +62,7 @@ def noteset(**kw) -> NoteSet:
 def test_noteset_roundtrip_and_defaults() -> None:
     ns = noteset()
     roundtrip(ns)
-    assert ns.format == "gtab.notes/1" and ns.time_offset_applied_s == 0.0
+    assert ns.format == "bandscribe.notes/1" and ns.time_offset_applied_s == 0.0
     assert NoteSet.model_validate({"view": "x", "backend": {"name": "gt"}, "notes": []}).backend.params == {}
 
 
@@ -117,7 +117,7 @@ def grid_doc() -> dict:
     bars = [{"bar": bar, "start_s": 0.37 + 0.5 * i, "end_s": 0.37 + 0.5 * (i + n), "n_beats": n, "numerator": 4,
              "denominator": 4, "beat_unit": "quarter", "pickup": bar == 0}
             for bar, n, i in [(0, 2, 0), (1, 4, 2), (2, 4, 6), (3, 4, 10)]]
-    return {"format": "gtab.grid/1", "tpb": 48, "duration_s": 8.0, "beats": beats, "bars": bars,
+    return {"format": "bandscribe.grid/1", "tpb": 48, "duration_s": 8.0, "beats": beats, "bars": bars,
             "tempo": [{"start_bar": 0, "end_bar": 4, "bpm": 120.0}],
             "meter": [{"start_bar": 0, "end_bar": 4, "numerator": 4, "denominator": 4, "beat_unit": "quarter"}],
             "beat_unit": "quarter", "pickup": {"present": True, "beats": 2},
@@ -128,10 +128,10 @@ def grid_doc() -> dict:
 def test_grid_and_beats_roundtrip() -> None:
     g = Grid.model_validate(grid_doc())
     roundtrip(g)
-    roundtrip(BeatsRaw(format="gtab.beats/1", tracker="beat_this/final0", checkpoint_sha256=None, dbn=False, fps=50.0,
+    roundtrip(BeatsRaw(format="bandscribe.beats/1", tracker="beat_this/final0", checkpoint_sha256=None, dbn=False, fps=50.0,
                        beats_s=[0.5, 1.0], downbeats_s=[0.5], duration_s=2.0))
     with pytest.raises(ValidationError):
-        Grid.model_validate({**grid_doc(), "format": "gtab.grid/2"})
+        Grid.model_validate({**grid_doc(), "format": "bandscribe.grid/2"})
     bad = grid_doc()
     bad["beats"][3]["t_s"] = bad["beats"][2]["t_s"]
     with pytest.raises(ValidationError, match="strictly increasing"):
@@ -196,7 +196,7 @@ def test_tempomap_grid_starting_mid_bar() -> None:
 
 
 def test_tempomap_from_file_and_dict(tmp_path: Path) -> None:
-    doc = {"format": "gtab.tempomap/1", "source": "dtw", "tpb": 48,
+    doc = {"format": "bandscribe.tempomap/1", "source": "dtw", "tpb": 48,
            "beats": [{"t_s": 0.0, "bar": 1, "beat": 1}, {"t_s": 0.5, "bar": 1, "beat": 2},
                      {"t_s": 1.0, "bar": 2, "beat": 1}],
            "beats_per_bar": {"1": 2, "2": 2}}
@@ -223,15 +223,15 @@ def test_tempomap_rejects_bad_input() -> None:
 
 
 def test_sections_and_repeat_map_roundtrip() -> None:
-    sec = Sections.model_validate({"format": "gtab.sections/1", "method": "laplacian", "params": {}, "sections": [
+    sec = Sections.model_validate({"format": "bandscribe.sections/1", "method": "laplacian", "params": {}, "sections": [
         {"id": "s1", "label": "A", "start_bar": 1, "end_bar": 9, "start_s": 0.0, "end_s": 16.0, "confidence": 0.8}]})
     roundtrip(sec)
-    rm = RepeatMap.model_validate({"format": "gtab.repeat_map/1", "params": {}, "groups": [
+    rm = RepeatMap.model_validate({"format": "bandscribe.repeat_map/1", "params": {}, "groups": [
         {"label": "A", "reference": "s1", "occurrences": [{"section": "s1", "start_bar": 1, "n_bars": 8, "offset_s": 0.0}]}],
         "bars": [{"bar": 1, "matches": [{"bar": 17, "score": 0.9, "offset_s": 0.01}]}]})
     roundtrip(rm)
     with pytest.raises(ValidationError, match="half-open"):
-        Sections.model_validate({"format": "gtab.sections/1", "method": "x", "params": {}, "sections": [
+        Sections.model_validate({"format": "bandscribe.sections/1", "method": "x", "params": {}, "sections": [
             {"id": "s", "label": "A", "start_bar": 5, "end_bar": 5, "start_s": 0, "end_s": 1, "confidence": 1}]})
 
 
@@ -250,7 +250,7 @@ def test_mt3_groups_and_families() -> None:
 def instrumentation_doc() -> dict:
     classes = {c: {"p": 0.9 if c in S.GUITAR_CLASSES else 0.01, "present": c in S.GUITAR_CLASSES,
                    "sources": {"stem_energy": {"ratio": 0.5}}} for c in MT3_GROUPS}
-    return {"format": "gtab.instrumentation/1", "profile": "quality", "classes": classes,
+    return {"format": "bandscribe.instrumentation/1", "profile": "quality", "classes": classes,
             "families": {f: 0.5 for f in FAMILIES},
             "masks": {"guitar_mono": list(S.GUITAR_CLASSES), "mix_mono": None},
             "per_section": [{"section": "s1", "family_active": {"guitar": 1.0}}],
@@ -282,7 +282,7 @@ def test_instrumentation_roundtrip_and_checks() -> None:
 
 def gt_spec_doc() -> dict:
     return {
-        "format": "gtab.gt/1", "song_id": "sc_test-01", "title": "青春コンプレックス", "artist": "結束バンド",
+        "format": "bandscribe.gt/1", "song_id": "sc_test-01", "title": "青春コンプレックス", "artist": "結束バンド",
         "audio": {"song_key": "f-0123", "note": ""}, "version_flags": {"version": "album", "trimmed": False, "note": ""},
         "reference": {"file": "ref.gp5", "format": "gp5", "expanded_bars": 80, "bar_order": None, "encoding": None},
         "families_present": ["guitar", "bass", "vocals", "drums"],
@@ -320,7 +320,7 @@ def test_gt_spec_roundtrip_and_checks() -> None:
 
 
 def test_gt_notes_roundtrip() -> None:
-    gn = GtNotes(format="gtab.gtnotes/1", song_id="x", tpb=48,
+    gn = GtNotes(format="bandscribe.gtnotes/1", song_id="x", tpb=48,
                  bars=[{"bar": 1, "numerator": 4, "denominator": 4, "beat_unit": "quarter", "nominal_bpm": 120.0}],
                  notes=[GtNote(line="L1", ref_track=1, bar=1, tick=24.0, dur_ticks=48.0, pitch=64, string=1, fret=0,
                                shared=True),
@@ -338,7 +338,7 @@ def test_gt_notes_roundtrip() -> None:
 
 def dataset_doc() -> dict:
     ns = noteset(notes=[NoteEvent(onset_s=0.1, offset_s=0.4, pitch=40), NoteEvent(onset_s=0.5, offset_s=0.9, pitch=45)])
-    return {"format": "gtab.dataset_track/1", "dataset": "guitarset", "track_id": "00_BN1-129-Eb_comp", "split": None,
+    return {"format": "bandscribe.dataset_track/1", "dataset": "guitarset", "track_id": "00_BN1-129-Eb_comp", "split": None,
             "group": "00", "tier": "C", "license": "CC BY 4.0", "mix": "audio_mono-mic/00_BN1-129-Eb_comp_mic.wav",
             "parts": [{"id": "gtr", "kind": "guitar", "audio": "audio_mono-mic/x.wav", "channels": 1, "line": "L1"}],
             "lines": [GtLine(id="L1", name="Guitar", kind="guitar", takes=[1]).model_dump()],
@@ -370,7 +370,7 @@ def test_dataset_track_roundtrip_and_checks() -> None:
 
 
 def test_prediction_roundtrip() -> None:
-    p = Prediction(format="gtab.prediction/1", system="job:amt_gtr", item="guitarset:00_BN1-129-Eb_comp",
+    p = Prediction(format="bandscribe.prediction/1", system="job:amt_gtr", item="guitarset:00_BN1-129-Eb_comp",
                    lines=[{"id": "L1"}],
                    notes=[PredNote(onset_s=0.1, offset_s=0.2, pitch=40, line="L1", posterior=0.7),
                           PredNote(onset_s=0.3, offset_s=0.4, pitch=41, line="unassigned", bar=1, tick=12.0)])

@@ -72,7 +72,7 @@ PLAY_ORDER = [1, 2, 3, 2, 4, 5, 6]
 def build_song(track1_name: str = TRACK1_NAME):
     import guitarpro as gp
 
-    song = gp.Song(title="gtab fixture", artist="gtab", tempo=TEMPO)
+    song = gp.Song(title="bandscribe fixture", artist="bandscribe", tempo=TEMPO)
     song.measureHeaders = []
     for i, (num, den, ropen, rclose, alt) in enumerate(HEADERS, 1):
         h = gp.MeasureHeader(number=i, timeSignature=gp.TimeSignature(num, gp.Duration(den)),

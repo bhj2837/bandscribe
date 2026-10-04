@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from gtab import atomic
-from gtab.amt import cache as C
-from gtab.amt import stage as S
+from bandscribe import atomic
+from bandscribe.amt import cache as C
+from bandscribe.amt import stage as S
 
 BASE = dict(backend="muscriptor", backend_version="0.3.0", model_sha256="m" * 64, view_pcm_sha256="v" * 64,
             instruments=["acoustic_guitar", "clean_electric_guitar"], params={"dtype": "upstream", "beam": 1},
@@ -53,7 +53,7 @@ def test_cache_roundtrip_and_corrupt_entry_is_a_miss(tmp_path):
     c = C.AmtCache(tmp_path)
     k = key()
     assert c.get(k) is None
-    doc = {"format": "gtab.notes/1", "view": "v", "notes": []}
+    doc = {"format": "bandscribe.notes/1", "view": "v", "notes": []}
     p = c.put(k, doc)
     assert p == tmp_path / k[:2] / f"{k}.json"
     assert c.get(k) == doc
@@ -82,7 +82,7 @@ def fake_weights(monkeypatch, tmp_path):
 
 
 class FakeRunner:
-    """Stands in for gtab.vram.run_gpu_stage: records requests, writes raw NoteSets like the worker."""
+    """Stands in for bandscribe.vram.run_gpu_stage: records requests, writes raw NoteSets like the worker."""
 
     def __init__(self, rung="medium"):
         self.calls = []
@@ -92,7 +92,7 @@ class FakeRunner:
         self.calls.append((backend, list(labels), json.loads(json.dumps(req, default=str))))
         for v in req["views"]:
             atomic.write_json(Path(v["out"]), {
-                "format": "gtab.notes/1", "view": v["id"], "view_sha256": v["view_sha256"],
+                "format": "bandscribe.notes/1", "view": v["id"], "view_sha256": v["view_sha256"],
                 "backend": {"name": "muscriptor", "instruments": v["instruments"]},
                 "time_offset_applied_s": 0.0, "audio_duration_s": 2.0,
                 "notes": [{"onset_s": 0.5, "offset_s": 1.0, "pitch": 60, "instrument": "acoustic_guitar"}]})
@@ -157,7 +157,7 @@ def test_force_rung_is_the_lookup_label_and_reaches_the_request(tmp_path, fake_w
 
 
 def test_apply_latency_clamps_and_records_offset():
-    doc = {"format": "gtab.notes/1", "time_offset_applied_s": 0.0, "notes": [
+    doc = {"format": "bandscribe.notes/1", "time_offset_applied_s": 0.0, "notes": [
         {"onset_s": 0.01, "offset_s": 0.02, "pitch": 60, "instrument": "organ"},
         {"onset_s": 1.0, "offset_s": 1.5, "pitch": 62, "instrument": "organ"}]}
     out = S.apply_latency(doc, 0.025)

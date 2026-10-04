@@ -1,7 +1,7 @@
 """Real download of the smallest registered dataset (IDMT-SMT-Bass-Single-Track, 20 MB) into a temp root.
 
 Marked ``network`` and ``slow``; it only runs when slow tests are selected explicitly
-(``pytest -m slow tests/test_datasets_network.py`` or GTAB_RUN_SLOW=1), so the default ``pytest -q`` never
+(``pytest -m slow tests/test_datasets_network.py`` or BANDSCRIBE_RUN_SLOW=1), so the default ``pytest -q`` never
 downloads 20 MB on every run.
 """
 
@@ -11,15 +11,15 @@ import os
 
 import pytest
 
-from gtab.datasets import fetch, store
+from bandscribe.datasets import fetch, store
 
 pytestmark = [pytest.mark.network, pytest.mark.slow]
 
 
 @pytest.fixture(autouse=True)
 def _only_when_selected(request):
-    if "slow" not in (request.config.getoption("-m") or "") and not os.environ.get("GTAB_RUN_SLOW"):
-        pytest.skip("slow network test: run with -m slow or GTAB_RUN_SLOW=1")
+    if "slow" not in (request.config.getoption("-m") or "") and not os.environ.get("BANDSCRIBE_RUN_SLOW"):
+        pytest.skip("slow network test: run with -m slow or BANDSCRIBE_RUN_SLOW=1")
 
 
 def test_fetch_idmt_and_verify(tmp_path):

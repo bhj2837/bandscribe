@@ -1,7 +1,7 @@
 """MuScriptor worker checks that need the gpu env but no CUDA and no weights (marker ``gpuenv``).
 
 ``probe`` reports the installed API without loading weights (M1_M2_SPEC 9.2 item 1): the MT3 group table must equal
-``gtab.schema.instrumentation.MT3_GROUPS``, ``ProgressEvent`` comes from ``muscriptor.events`` and ``transcribe``
+``bandscribe.schema.instrumentation.MT3_GROUPS``, ``ProgressEvent`` comes from ``muscriptor.events`` and ``transcribe``
 takes the keywords the worker passes. A bf16 request is refused before any model or CUDA work (sm_75).
 """
 from __future__ import annotations
@@ -10,9 +10,9 @@ import inspect
 
 import pytest
 
-from gtab import gpu
-from gtab.amt import instruments as I
-from gtab.workers import amt_muscriptor as W
+from bandscribe import gpu
+from bandscribe.amt import instruments as I
+from bandscribe.workers import amt_muscriptor as W
 
 pytestmark = [pytest.mark.gpuenv]
 
@@ -27,7 +27,7 @@ def test_probe_reports_installed_api(tmp_path):
     assert res.ok, res.error
     out = res.output
     assert out["muscriptor_version"] == W.PINNED_VERSION
-    assert out["n_groups"] == 35 and out["groups_match_gtab"] is True
+    assert out["n_groups"] == 35 and out["groups_match_bandscribe"] is True
     assert dict(out["groups"]) == dict(I.MT3_GROUPS)
     assert out["progress_event_module"] == "muscriptor.events"
     assert out["hf_hub_offline"] == "1"
@@ -40,7 +40,7 @@ def test_probe_reports_installed_api(tmp_path):
 
 @pytest.mark.parametrize("field", ["dtype", "autocast_dtype"])
 def test_bf16_request_refused_before_any_work(tmp_path, field):
-    req = {"format": "gtab.worker/1", "job": None, "out_dir": str(tmp_path), "device": "cpu",
+    req = {"format": "bandscribe.worker/1", "job": None, "out_dir": str(tmp_path), "device": "cpu",
            "model": {"size": "medium", "weights_path": str(tmp_path / "absent.safetensors"), "loader": "upstream"},
            "decode": {}, "dtype": "upstream",
            "views": [{"id": "v", "wav": str(tmp_path / "absent.wav"), "instruments": None,

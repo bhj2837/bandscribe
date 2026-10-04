@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab.datasets import tiera
+from bandscribe.datasets import tiera
 
 SR = tiera.SR
 
@@ -131,7 +131,7 @@ def test_registry_roundtrip_and_end_to_end(tmp_path):
     chk = tiera.load_songs(reg)["song_a"].extra["backing_check"]
     assert chk["removed_part_likely"] is True and chk["report"] == "song_a/backing/align.json"
     first = res_wav.read_bytes()
-    assert b"PEAK" not in first[:200]  # gtab.audio.write_f32: no timestamped PEAK chunk
+    assert b"PEAK" not in first[:200]  # bandscribe.audio.write_f32: no timestamped PEAK chunk
     rep2 = tiera.align_backing("song_a", registry_path=reg, out_dir=out, max_offset_s=2.0, codec_floor=False)
     assert res_wav.read_bytes() == first and rep2["offset_samples"] == rep["offset_samples"]  # deterministic
     assert rep["original"]["lossless"] is True

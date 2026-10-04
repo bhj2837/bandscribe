@@ -2,7 +2,7 @@
 
 Needs the upstream files at ``data/scratch/msst_ref/`` (at least ``utils/model_utils.py``; skipped if absent) and
 the SW checkpoint. Both loops run in the ``sep_msst`` worker's test-only ``parity_upstream`` mode, started through
-``gtab.gpu.run_worker`` (GPU lock + Job Object, like every gtab GPU job), on a 20 s clip at the top rung.
+``bandscribe.gpu.run_worker`` (GPU lock + Job Object, like every bandscribe GPU job), on a 20 s clip at the top rung.
 Pass: SNR > 60 dB per stem.
 """
 
@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from gtab import paths
+from bandscribe import paths
 
-GTAB_ROOT = Path(__file__).resolve().parents[1]
-REF = GTAB_ROOT / "data" / "scratch" / "msst_ref"
-MODEL_DIR = GTAB_ROOT / "data" / "models" / "bs_roformer_sw"
+BANDSCRIBE_ROOT = Path(__file__).resolve().parents[1]
+REF = BANDSCRIBE_ROOT / "data" / "scratch" / "msst_ref"
+MODEL_DIR = BANDSCRIBE_ROOT / "data" / "models" / "bs_roformer_sw"
 
 pytestmark = [pytest.mark.gpu, pytest.mark.slow]
 
@@ -26,9 +26,9 @@ def test_demix_matches_upstream(tmp_path: Path) -> None:
         pytest.skip(f"pristine MSST checkout not found at {REF}")
     if not (MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt").is_file():
         pytest.skip("SW checkpoint not on disk")
-    from gtab.audio import write_f32
-    from gtab.bench import synth_clip
-    from gtab.gpu import run_worker
+    from bandscribe.audio import write_f32
+    from bandscribe.bench import synth_clip
+    from bandscribe.gpu import run_worker
 
     wav = tmp_path / "clip.wav"
     write_f32(wav, synth_clip(20.0), 44100)

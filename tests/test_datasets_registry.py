@@ -1,4 +1,4 @@
-"""Dataset registry (gtab/datasets/registry.toml) and model sources (gtab/model_sources.toml): schema checks."""
+"""Dataset registry (bandscribe/datasets/registry.toml) and model sources (bandscribe/model_sources.toml): schema checks."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import tomllib
 
 import pytest
 
-from gtab import model_fetch
-from gtab.datasets import registry
+from bandscribe import model_fetch
+from bandscribe.datasets import registry
 
 
 def test_registry_loads_and_every_entry_is_complete():
@@ -19,7 +19,7 @@ def test_registry_loads_and_every_entry_is_complete():
         assert spec.tier in ("B", "C"), name
         assert spec.access in registry.ACCESS_KINDS, name
         assert spec.page.startswith("https://"), name
-        assert spec.loader and importlib.util.find_spec(f"gtab.datasets.loaders.{spec.loader}"), name
+        assert spec.loader and importlib.util.find_spec(f"bandscribe.datasets.loaders.{spec.loader}"), name
         assert spec.families, name
         if spec.access != "manual":
             assert spec.approx_bytes > 0, name
@@ -84,16 +84,16 @@ def _write(tmp_path, text):
     ('[x]\ntitle="t"\ntier="C"\naccess="manual"\nlicense="l"\npage="https://a"\napprox_bytes=0\nloader="guitarset"\nfamilies=[]\ntypo=1\n', "typo"),
 ])
 def test_malformed_registry_rejected(tmp_path, body, msg):
-    p = _write(tmp_path, 'format = "gtab.dataset_registry/1"\n' + body)
+    p = _write(tmp_path, 'format = "bandscribe.dataset_registry/1"\n' + body)
     with pytest.raises(registry.RegistryError, match=msg):
         registry.load_registry(p)
 
 
 def test_family_keys_match_schema_when_available():
     try:
-        from gtab.schema.instrumentation import FAMILIES
+        from bandscribe.schema.instrumentation import FAMILIES
     except ImportError:
-        pytest.skip("P0 schema (gtab.schema.instrumentation) not present yet")
+        pytest.skip("P0 schema (bandscribe.schema.instrumentation) not present yet")
     assert tuple(FAMILIES) == registry.FAMILY_KEYS
 
 

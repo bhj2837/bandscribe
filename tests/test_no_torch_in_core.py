@@ -1,4 +1,4 @@
-"""The torch boundary (M1_M2_SPEC 0): only gtab/workers/* and gtab/third_party/msst/* may import torch & co.
+"""The torch boundary (M1_M2_SPEC 0): only bandscribe/workers/* and bandscribe/third_party/msst/* may import torch & co.
 
 Core modules run in the core env, which never has torch (a CPU torch sneaking in would also change numerics
 silently). The scan is static (AST), so it also catches imports inside functions and literal
@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-GTAB = Path(__file__).resolve().parents[1] / "gtab"
+PKG = Path(__file__).resolve().parents[1] / "bandscribe"
 FORBIDDEN = ("torch", "torchaudio", "beat_this", "muscriptor", "basic_pitch", "onnxruntime")
-ALLOWED_DIRS = (GTAB / "workers", GTAB / "third_party" / "msst")
+ALLOWED_DIRS = (PKG / "workers", PKG / "third_party" / "msst")
 
 
 def _core_files() -> list[Path]:
     out = []
-    for p in sorted(GTAB.rglob("*.py")):
+    for p in sorted(PKG.rglob("*.py")):
         if any(p.is_relative_to(d) for d in ALLOWED_DIRS) or "__pycache__" in p.parts:
             continue
         out.append(p)
@@ -55,7 +55,7 @@ def test_scanner_catches_every_form() -> None:
     assert [m for _, m in violations(src)] == ["torch", "torch.nn", "beat_this.inference", "muscriptor", "onnxruntime"]
 
 
-@pytest.mark.parametrize("path", _core_files(), ids=lambda p: p.relative_to(GTAB).as_posix())
+@pytest.mark.parametrize("path", _core_files(), ids=lambda p: p.relative_to(PKG).as_posix())
 def test_core_module_does_not_import_torch(path: Path) -> None:
     found = violations(path.read_text(encoding="utf-8"))
-    assert not found, f"{path.relative_to(GTAB.parent)} imports GPU-env packages: {found}"
+    assert not found, f"{path.relative_to(PKG.parent)} imports GPU-env packages: {found}"

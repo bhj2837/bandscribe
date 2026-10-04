@@ -1,4 +1,4 @@
-"""gtab.atomic: atomic rewrites, hashing, and the Windows open-reader retry."""
+"""bandscribe.atomic: atomic rewrites, hashing, and the Windows open-reader retry."""
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from gtab import atomic
+from bandscribe import atomic
 
 
 def _temps(d: Path) -> list[Path]:

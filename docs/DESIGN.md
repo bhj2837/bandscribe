@@ -1,4 +1,4 @@
-# gtab 설계서: 곡 하나로 기타 파트별 탭 + 베이스 탭 (v1.2, 2026-09-25)
+# bandscribe 설계서: 곡 하나로 기타 파트별 탭 + 베이스 탭 (v1.2, 2026-09-25)
 
 > **대상:** 이 도구를 Claude와 단계별로 만들 사용자.
 > **환경:** Windows 10, Ryzen 5 3600, RAM 16 GB, RTX 2060 6 GB(sm_75, 드라이버 610.47), ffmpeg 8.0.1, Node 24.
@@ -329,7 +329,7 @@
   - `repeat_resid_pass1`: 반복 잔차 1차.
 - **방법:**
   1. **piano+other 존재 전사 (모든 프로필 같음):** piano+other 합 뷰를 건반·신스·현악(+기타, M1_M2_SPEC A5) 마스크로 MuScriptor 전사하되 **표본 구간**만 돌린다(`amt.presence_pass = "full"` 이면 전곡). `eval`의 전곡 전사는 추가 출력일 뿐 편성 근거가 아니다.
-     - 표본 구간(`gtab.amt.presence`): 마디 시작에서 시작하고 곡 안에 들어가는 10초 창. piano+other가 믹스 대비 −40 dB 위인 프레임이 절반 이상이거나, 창 전체 파워 평균이 −40 dB 위인 창이 후보다(스타카토 파트도 마디 규칙과 같이 활성으로 본다). 창은 자기 구간 안에 있어야 한다(10초보다 짧은 구간은 그 구간에서 시작하는 창). 개수는 최대 6개, 합계는 60초와 곡의 20 % 이하(최소 1개, 창 길이는 60초 상한으로 자름, fast는 절반).
+     - 표본 구간(`bandscribe.amt.presence`): 마디 시작에서 시작하고 곡 안에 들어가는 10초 창. piano+other가 믹스 대비 −40 dB 위인 프레임이 절반 이상이거나, 창 전체 파워 평균이 −40 dB 위인 창이 후보다(스타카토 파트도 마디 규칙과 같이 활성으로 본다). 창은 자기 구간 안에 있어야 한다(10초보다 짧은 구간은 그 구간에서 시작하는 창). 개수는 최대 6개, 합계는 60초와 곡의 20 % 이하(최소 1개, 창 길이는 60초 상한으로 자름, fast는 절반).
      - 고르는 순서(결정적): 아직 안 뽑은 활성 스템(piano, other)을 덮는 창 → 이미 뽑은 창과 중심 간격 `max(창, 곡/(2n))` 이상 → 뚜렷한 레벨(점수 ≥ 0.1) → 새 구간 라벨 → 새 구간 → 더 큰 piano+other 레벨 → 먼 곳. 2026-10-04 리뷰: 간격 규칙이 없을 때 青と夏의 창 5개 중 4개가 152–253초에 몰렸다(둘은 붙어 있음).
      - 창마다 따로 디코드하고 시간은 곡 시간으로 되돌린다. 후보가 없으면(조용함) 전사를 건너뛴다. 건너뛴 패스도 "덮었고 아무것도 못 찾음"으로 센다(가중치 재정규화 없음).
   2. **베이스 전사(모든 프로필):** 아래 5번의 베이스 전사가 베이스 클래스의 존재 근거도 된다(전곡, 포화 0.1).
@@ -949,7 +949,7 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 | (선택) PDF, MusicXML | MuseScore 4 CLI(`MuseScore4.exe -o`). MusicXML `<technical>`에는 팜뮤트가 없어 `<mute>palm</mute>`와 텍스트로만 표현. MuseScore는 GP를 **쓰지 못하므로** 최종 다듬기는 TuxGuitar(무료)나 Guitar Pro 8 |
 | 연습 오디오 | 기타 뺀 믹스, 베이스 뺀 믹스, 베이스 스템, (M10) Line별 대략 오디오, 비트 격자 클릭, (선택) A440 보정판 |
 
-### 7.2 로컬 웹 앱 (`gtab ui`: FastAPI를 127.0.0.1에만 바인딩, Vite+TypeScript+@coderline/alphatab 1.8.4, MPL-2.0)
+### 7.2 로컬 웹 앱 (`bandscribe ui`: FastAPI를 127.0.0.1에만 바인딩, Vite+TypeScript+@coderline/alphatab 1.8.4, MPL-2.0)
 
 만드는 순서: M4a(뷰어, sync, 기본 편집) → M4b(A/B 믹서, CQT 롤, 검토 큐, 감속; M7a 뒤) → M7c(K 전환, Line 재배정 UI).
 
@@ -1087,7 +1087,7 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 15. **베이스:** tick F1, 옥타브 오류율, 줄/프렛, 데드 노트 재현율.
 16. **사람 지표 (가장 중요):**
     - 파트별로 "칠 수 있음"까지 걸린 편집 시간(분).
-    - **헤드라인 기준선은 세 조건이다:** ① 도구 없이 처음부터 채보 ② 외부 AI 초안(Songsterr AI·Klangio)에서 수정 ③ gtab 초안에서 수정. 도구 버전끼리의 비교는 그 다음이다. 같은 구간을 여러 조건으로 치면 학습 효과가 생기므로, 곡을 구간으로 나눠 조건마다 다른 구간을 맡기고 순서를 돌린다.
+    - **헤드라인 기준선은 세 조건이다:** ① 도구 없이 처음부터 채보 ② 외부 AI 초안(Songsterr AI·Klangio)에서 수정 ③ bandscribe 초안에서 수정. 도구 버전끼리의 비교는 그 다음이다. 같은 구간을 여러 조건으로 치면 학습 효과가 생기므로, 곡을 구간으로 나눠 조건마다 다른 구간을 맡기고 순서를 돌린다.
     - 마디당 편집 수와 **편집 종류 분포**. 종류마다 원인 단계를 귀속해 다음 개선 대상을 정한다.
       - 파트 재배정 → S8
       - 옥타브 수정 → S6/S7/베이스 앵커
@@ -1102,14 +1102,14 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 
 ### 8.5 기준선 (모든 리포트에 포함)
 
-- **B0:** 전체 믹스에 MuScriptor를 돌려 기타를 한 트랙으로 합친 것. 바닥선이다. S3.5의 믹스 전사를 그대로 쓴다. 믹스 전사는 `eval` 프로필에서만 돌므로 B0를 보는 평가는 `gtab run <곡> --profile eval` 결과를 쓴다(2026-10-04).
+- **B0:** 전체 믹스에 MuScriptor를 돌려 기타를 한 트랙으로 합친 것. 바닥선이다. S3.5의 믹스 전사를 그대로 쓴다. 믹스 전사는 `eval` 프로필에서만 돌므로 B0를 보는 평가는 `bandscribe run <곡> --profile eval` 결과를 쓴다(2026-10-04).
 - **분할 없음:** 기타 스템 전체를 한 트랙으로 전사한 것.
 - **다수 클래스 할당:** 모든 기타 음을 가장 큰 Line에 넣은 것. macro 할당 정확도의 바닥선이다.
 - **기호 분할만:** TabForge `split_lead_rhythm` 방식.
 - **외부 (사용자가 직접 돌릴 때만):**
   - Songsterr AI(리듬·리드·베이스 트랙, Plus 월 50건)
   - Klangio Guitar2Tabs(20 s 데모 또는 한 달 유료; 기타나 베이스 한 파트만)
-  - MVSEP 101 스템을 우리 전사로 처리한 결과(`gtab import-stems`)
+  - MVSEP 101 스템을 우리 전사로 처리한 결과(`bandscribe import-stems`)
 - **사람:** 처음부터 채보한 시간(8.4 16번).
 - Moises와 RipX는 탭 기준선이 아니다.
 
@@ -1162,9 +1162,9 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 ```
 D:\gtab\
   src\                          git 저장소
-    gtab.toml                   기본 설정 + 프로필(fast/quality/max/eval)
+    bandscribe.toml                   기본 설정 + 프로필(fast/quality/max/eval)
     envs\{core,gpu,bp310,ymt3,clap}\   uv 프로젝트 + lockfile
-    gtab\                       core 패키지(torch import 금지)
+    bandscribe\                       core 패키지(torch import 금지)
       cli.py  config.py(TOML→pydantic: 기본→data\config.toml→작업 hints.toml→--set)
       schema\   Song, Grid, Section, Instrumentation, View, CandidateNote, Observation, Layer, Tracklet, Line, Track,
                 Note{string,fret,techniques,confidence{pitch,onset,part,fret},sources[],part_posterior{},
@@ -1223,23 +1223,23 @@ D:\gtab\
 - S3.5와 S6, S3.5와 S11처럼 입력이 같은 전사는 캐시를 공유한다.
 - 클라우드 결과는 (백엔드, 입력 해시, 옵션)으로 캐시하므로 업로드는 곡당 1회다.
 - 배치 모드: 여러 곡에 한 단계씩 돌려 모델 로드를 한 번으로 줄인다.
-- `gtab gc`로 정리하고, `gtab clean --archive`로 float 스템을 24-bit FLAC으로 바꾸고 게인을 저장한다. 작업 하나가 float 상태에서 1–1.5 GB, 보관 후 약 0.3 GB다. 보관 후 복원 오차는 M2에서 검증한다.
+- `bandscribe gc`로 정리하고, `bandscribe clean --archive`로 float 스템을 24-bit FLAC으로 바꾸고 게인을 저장한다. 작업 하나가 float 상태에서 1–1.5 GB, 보관 후 약 0.3 GB다. 보관 후 복원 오차는 M2에서 검증한다.
 
 ### 9.4 CLI와 설정
 
 ```
-gtab doctor | gtab ingest <file|url> | gtab status <job>
-gtab run <file|url|job> [--profile fast|quality|max] [--parts auto|N] [--players N] [--idle rest|double]
+bandscribe doctor | bandscribe ingest <file|url> | bandscribe status <job>
+bandscribe run <file|url|job> [--profile fast|quality|max] [--parts auto|N] [--players N] [--idle rest|double]
          [--tuning "Eb std"] [--capo N] [--instruments auto|"guitar,keys"] [--from/--until <stage>]
          [--cloud mvsep,musicai --allow-upload] [--set k=v]
-gtab stage <name> <job> [--force] | gtab queue add|run [--overnight]
-gtab export <job> --view part|role|player [--players 2] --formats gp5,gp,alphatex,mid,pdf
-gtab ui [job] | gtab gt import|render|align|taps <song> | gtab import-stems <job> <dir> --as mvsep101
-gtab eval run --suite quick|components|tierA|tierB [--system ...] [--ablate E#] | gtab eval compare A B | gtab eval import-external
-gtab learn attribution|calibrate|fit | gtab bench gpu | gtab models fetch|verify | gtab gc | gtab clean --archive
+bandscribe stage <name> <job> [--force] | bandscribe queue add|run [--overnight]
+bandscribe export <job> --view part|role|player [--players 2] --formats gp5,gp,alphatex,mid,pdf
+bandscribe ui [job] | bandscribe gt import|render|align|taps <song> | bandscribe import-stems <job> <dir> --as mvsep101
+bandscribe eval run --suite quick|components|tierA|tierB [--system ...] [--ablate E#] | bandscribe eval compare A B | bandscribe eval import-external
+bandscribe learn attribution|calibrate|fit | bandscribe bench gpu | bandscribe models fetch|verify | bandscribe gc | bandscribe clean --archive
 ```
 
-- **YouTube:** 2026-09-30 사용자 결정으로 `youtube.enabled=true`가 기본이다. 사용자가 위험 고지(S0)를 받고 기본 켜기를 요청했고, 그 동의 문구를 `gtab`이 처음 실행될 때 `data/config.toml` `[consent] youtube`에 적는다. URL 입력은 이 설정이 켜져 있을 때만 받는다. 끄려면 `data/config.toml`에 `[youtube] enabled = false`(한 번만이면 `--set youtube.enabled=false`). 쿠키·PO 토큰(`youtube.cookies`/`po_token`)은 따로 꺼 두며, 켜려면 각각 `[consent]` 동의 문구가 있어야 한다(M0 코드는 켜져 있어도 쓰지 않고 거부한다). `--set`의 섹션 이름 오타는 오류로 거부한다(오타로 끄기가 무시되지 않게).
+- **YouTube:** 2026-09-30 사용자 결정으로 `youtube.enabled=true`가 기본이다. 사용자가 위험 고지(S0)를 받고 기본 켜기를 요청했고, 그 동의 문구를 `bandscribe`가 처음 실행될 때 `data/config.toml` `[consent] youtube`에 적는다. URL 입력은 이 설정이 켜져 있을 때만 받는다. 끄려면 `data/config.toml`에 `[youtube] enabled = false`(한 번만이면 `--set youtube.enabled=false`). 쿠키·PO 토큰(`youtube.cookies`/`po_token`)은 따로 꺼 두며, 켜려면 각각 `[consent]` 동의 문구가 있어야 한다(M0 코드는 켜져 있어도 쓰지 않고 거부한다). `--set`의 섹션 이름 오타는 오류로 거부한다(오타로 끄기가 무시되지 않게).
 - **클라우드 토큰:** Windows 자격 증명 관리자(keyring)에 두고 환경 변수를 폴백으로 쓴다. 로그에는 남기지 않는다.
 - **업로드 조건:** `cloud.enabled=true`와 작업별 `--allow-upload`가 **둘 다** 있어야 한다. 업로드는 모두 기록한다.
 - `models fetch`는 URL·크기·라이선스·저장 위치를 보여 주고 y/N을 받는다.
@@ -1247,7 +1247,7 @@ gtab learn attribution|calibrate|fit | gtab bench gpu | gtab models fetch|verify
 ### 9.5 GPU 메모리 (엄격한 순차 실행)
 
 - core 오케스트레이터는 torch를 불러오지 않는다.
-- GPU 단계는 모두 자식 프로세스로 돈다: `<gpu venv>\Scripts\python.exe -m gtab.workers.<name> request.json`.
+- GPU 단계는 모두 자식 프로세스로 돈다: `<gpu venv>\Scripts\python.exe -m bandscribe.workers.<name> request.json`.
 - **venv의 python.exe는 런처다.** 이 PC의 CPython 3.10 venv에서 `Scripts\python.exe`가 기본 인터프리터 `Python310\python.exe`를 자식 프로세스로 띄우는 것을 확인했다. 그 안의 `sys._base_executable`은 기본 인터프리터 경로를 가리켰다 [재확인 2026-09-25]. 실제로 CUDA를 쓰는 것은 이 자식이다. uv venv도 같은지는 M0 doctor에서 확인한다(미검증).
   - 워커는 Windows **Job Object**(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`)에 넣어 띄운다. 런처가 띄운 자식도 같은 Job에 속하므로, 취소나 타임아웃 때 함께 끝난다.
   - `data\gpu.lock`(filelock)은 **Job 안의 모든 프로세스가 끝날 때까지** 쥔다. 부모만 죽고 자식이 VRAM을 쥔 채 남으면 '모델 하나' 보장이 깨지고 다음 워커가 Sysmem Fallback에 빠지기 때문이다.
@@ -1266,7 +1266,7 @@ gtab learn attribution|calibrate|fit | gtab bench gpu | gtab models fetch|verify
   - 안2 작성 시점 점검에서 LoL·Discord·Slack·Steam·Claude 앱·셸이 6.14 GB 중 3.39 GB를 쓰고 있었다(재측정하지 않음). 이 상태면 위 예산은 약 2 GB다.
   - 워커는 시작할 때 `torch.cuda.mem_get_info()`와 NVML로 여유를 재고, 백엔드별 설정 사다리에서 예산에 들어가는 가장 큰 칸을 고른다. 예: SW 청크 588,800 → 352,256 → 262,144, MuScriptor medium → small.
   - 안 들어가면 설정에 따라 **대기(기본, 백오프)**, 명확한 오류, 작은 모델만 CPU 중 하나를 한다.
-  - `gtab queue run --overnight`로 PC를 쓰지 않는 시간에 몰아 돌린다.
+  - `bandscribe queue run --overnight`로 PC를 쓰지 않는 시간에 몰아 돌린다.
   - doctor는 GPU를 쓰는 다른 프로세스와 측정해 둔 단계별 필요량을 보여 준다.
 - **max 프로필 순서:** Beat This! → SW → (SCNet XL) → **MuScriptor 패스 1**(S3.5: (eval) 믹스 전체 편성, 베이스, piano+other 표본 구간 또는 전곡) → (MERT, E9 통과 시) → CenterWide → (커뮤니티 lead/rhythm) → **MuScriptor 패스 2**(S6: 모든 뷰) → (large, 리드 뷰) → f0 워커(torchcrepe: 보컬·리드 뷰·베이스, PESTO: 베이스; + CPU pyin) → (YourMT3+) → CPU S7 → S11 → S8 이후 → (정제 루프). Basic Pitch(bp310)는 CPU/ONNX라 S5 뒤 아무 때나 돈다.
 - **워커 안 규칙:**
@@ -1317,7 +1317,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 - **Basic Pitch `minimum_note_length`가 기본값(127.7 ms)이 아닌지.**
 - **베이스 투표자 2개일 때 AND 정책이 쓰이지 않는지.**
 - 20초 골든 클립 스모크 테스트.
-- 병합 전 `gtab eval run --suite quick`(dev 3곡 또는 합성 세트).
+- 병합 전 `bandscribe eval run --suite quick`(dev 3곡 또는 합성 세트).
 
 ### 9.8 Windows 함정
 
@@ -1347,7 +1347,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 
 - **목표·산출물:**
   - 저장소, uv, core·gpu venv
-  - `gtab doctor`, `gtab ingest <file|url>` (URL은 YouTube 경로가 켜져 있을 때, 2026-09-30 사용자 결정으로 기본 켜짐)
+  - `bandscribe doctor`, `bandscribe ingest <file|url>` (URL은 YouTube 경로가 켜져 있을 때, 2026-09-30 사용자 결정으로 기본 켜짐)
   - `score.json` 스키마 v0, 콘텐츠 주소 캐시, DAG 실행기(순환 검사), Job Object 워커 실행기
   - README: 로컬 파일 우선, YouTube 기본 켜짐(2026-09-30 사용자 결정)과 위험 고지·끄는 법, MuScriptor 권리 보증, 가중치·스템 재배포 금지
   - pytest
@@ -1377,8 +1377,8 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 ### M1a 측정 도구 (Tier A 없이 끝낸다)
 
 - **산출물:**
-  - `gtab eval run|compare|import-external`. 지표(정답 격자 tick F1, 기보 일치, macro 할당 정확도, coverage–accuracy, shared 정밀도·재현율), 곡 블록 부트스트랩.
-  - `gtab gt import|render|align|taps`: GP 가져오기, 참조 오디오 렌더, synctoolbox DTW 정렬, 외부 라벨 도구의 다운비트 탭 가져오기, `align_check.wav`.
+  - `bandscribe eval run|compare|import-external`. 지표(정답 격자 tick F1, 기보 일치, macro 할당 정확도, coverage–accuracy, shared 정밀도·재현율), 곡 블록 부트스트랩.
+  - `bandscribe gt import|render|align|taps`: GP 가져오기, 참조 오디오 렌더, synctoolbox DTW 정렬, 외부 라벨 도구의 다운비트 탭 가져오기, `align_check.wav`.
   - `eval/remix.py`: A, A 리듬만, B, F, ADT, 쿼드, P, 트윈, 트윈+더블, 같은 파트 두 테이크 더블, 센터 유니즌.
   - Tier B 로더(Cambridge-MT 2곡 이상, MedleyDB는 승인 시), Tier C 로더.
   - `eval/contamination.md`: 세트 × 모델 학습 포함 여부 표.
@@ -1413,9 +1413,9 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 - **산출물:**
   - 워커 `sep_msst`(벤더링 모델 + 자체 루프, +`sep_audiosep`), `amt_muscriptor`.
   - **S3.5 v0:** 편성 추정, 원시 전사(기타 스템 모노, 베이스, piano+other), 보컬 활동, 반복 잔차 1차. B0를 저장한다(eval 프로필).
-  - `gtab run --until notes`: 6 스템, nonvox, leftover, `instrumentation.json`, `guitar_all.mid`, `bass_raw.mid`. DAW에서 쓸 수 있는 첫 MIDI다.
+  - `bandscribe run --until notes`: 6 스템, nonvox, leftover, `instrumentation.json`, `guitar_all.mid`, `bass_raw.mid`. DAW에서 쓸 수 있는 첫 MIDI다.
   - **연습용 반주**(기타 뺀 믹스, 베이스 뺀 믹스) [안2].
-  - `gtab bench gpu`, VRAM 사전 점검·대기 모드, Shared Usage 감시.
+  - `bandscribe bench gpu`, VRAM 사전 점검·대기 모드, Shared Usage 감시.
   - Tier B 참 단독 트랙의 MuScriptor 참조 전사.
   - MuScriptor 지연 상수. E1–E3, E23, E24(SW·MuScriptor) 결정. **데이터는 Tier B/C와 GP가 있는 Tier A 2–3곡이다.**
 - **완료 기준:**
@@ -1445,7 +1445,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 
 - **산출물:**
   - 단계: grid(반/배 검사, onset 미세 보정, 복합 박자 판정), 양자화(E14), A4 varispeed(E16), 튜닝 1차(합친 기타에 튜닝 하나 가정), Viterbi 운지, 내보내기.
-  - `gtab run song.flac`이 `.gp5`, `.alphatex`, MIDI 2종을 만든다.
+  - `bandscribe run song.flac`이 `.gp5`, `.alphatex`, MIDI 2종을 만든다.
     - `Guitar (all parts)`: **MIDI와 오선보 전용**(운지 없음, GP5에는 없음). 기타 1대 곡이거나 `--parts 1`이면 그대로 운지해 탭으로 낸다.
     - `Bass (raw)`: 탭.
   - 원곡에 싱크된 정적 alphaTab 뷰어. 정답 격자 tick F1을 켠다.
@@ -1462,13 +1462,13 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 
 ### M4a 뷰어와 기본 편집
 
-- **산출물:** `gtab ui`. 다중 트랙 탭, 외부 미디어 sync, 키보드 편집, 다운비트 탭 입력, `edits.jsonl`, 재내보내기.
+- **산출물:** `bandscribe ui`. 다중 트랙 탭, 외부 미디어 sync, 키보드 편집, 다운비트 탭 입력, `edits.jsonl`, 재내보내기.
 - **완료 기준:**
   - 4분 곡 어디서나 드리프트 50 ms 이하.
   - 모든 편집이 저장 → 다시 불러오기 → GP5까지 왕복되고, 로그 재생 해시가 같다.
   - 재배정, 옥타브, 줄, 삭제, 다운비트 이동이 각각 2타 이하다.
   - 서버가 127.0.0.1에만 바인딩되고(netstat 확인), 오프라인에서 동작한다.
-  - **사람 기준선 (세 조건):** 곡 2개를 구간으로 나눠 조건마다 다른 구간을 맡기고 순서를 돌린다. ① 처음부터 채보 ② 외부 AI 초안에서 수정(사용자가 Songsterr Plus나 Klangio를 산 경우만) ③ gtab 초안에서 수정. "칠 수 있음"까지 걸린 시간과 편집 종류 분포를 기록한다. 이것이 헤드라인 기준선이다.
+  - **사람 기준선 (세 조건):** 곡 2개를 구간으로 나눠 조건마다 다른 구간을 맡기고 순서를 돌린다. ① 처음부터 채보 ② 외부 AI 초안에서 수정(사용자가 Songsterr Plus나 Klangio를 산 경우만) ③ bandscribe 초안에서 수정. "칠 수 있음"까지 걸린 시간과 편집 종류 분포를 기록한다. 이것이 헤드라인 기준선이다.
 - **설치:** 소규모 npm 패키지, alphaTab 내장 SoundFont.
 
 ### M4b A/B 믹서와 검토 도구 (M7a 뒤)
@@ -1671,7 +1671,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 | 단계 간 순환 의존 | DAG 구현 불가 | 2패스 구조(S3.5 신설), 실행기 순환 검사 |
 | 범위 확장(마일스톤 17개, 백엔드 다수) | 완주 실패 | M2 반주·M3 탭으로 가치를 일찍 냄, M7a가 첫 파트 분리, M4b·M7b 이후는 게이트 |
 | 재실행 시 편집 손실 | 사용자 작업 손실 | 앵커, 매칭 실패 목록, UI는 GPU 단계를 재실행하지 않음, M4b에서 재적용률 측정 |
-| 디스크(작업당 1–1.5 GB) | C: 압박 | 전부 D:, `gtab gc`, FLAC 보관(복원 오차 검증) |
+| 디스크(작업당 1–1.5 GB) | C: 압박 | 전부 D:, `bandscribe gc`, FLAC 보관(복원 오차 검증) |
 
 ---
 
@@ -1763,7 +1763,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 | 24 | minor | 6/8·12/8과 4/4+셋잇단을 구별 못 하고, 960 tick 변환이 비트 단위를 전제 | S2에 복합 박자 판정, `grid.json`에 비트 단위 기록, 6.2 변환을 비트 단위 기준(20 또는 30 GP tick/tick)으로, UI 토글, E14에 추가 | Beat This!의 6/8 비트 단위 동작은 [리뷰, 미검증] |
 | 25 | minor | KV 재녹음 스템은 원곡 정답이 아님 | Tier B'(자체 리믹스 전용)로 재분류, 원곡 평가 금지. 12장 5번 문구 수정 | 한·일 곡 보유는 여전히 미검증 |
 | 26 | minor | 오픈 튜닝이 가설에 없음 | {Open G, Open D, DADGAD} × 카포 추가, 운지 비용이 높으면 "튜닝 불명" 질문. 12장 7번에 오픈 튜닝 추가 | 리뷰가 언급한 "Klangio 리뷰에서 실패한 영역"은 확인하지 못해 본문에 넣지 않음. 문턱은 잠정 |
-| 27 | minor | 편집 시간을 도구 버전끼리만 비교 | M4a에서 세 조건(처음부터 / 외부 초안 / gtab 초안)을 헤드라인 기준선으로. 학습 효과를 피하려고 구간별로 조건을 돌림. 8.4·8.5·M10·12장 14번 반영 | 외부 초안 조건은 사용자 구입에 달림 |
+| 27 | minor | 편집 시간을 도구 버전끼리만 비교 | M4a에서 세 조건(처음부터 / 외부 초안 / bandscribe 초안)을 헤드라인 기준선으로. 학습 효과를 피하려고 구간별로 조건을 돌림. 8.4·8.5·M10·12장 14번 반영 | 외부 초안 조건은 사용자 구입에 달림 |
 
 **그 밖의 정리:** 12장의 "MuScore 4" 오타를 MuseScore 4로 고쳤다. 마일스톤이 13개에서 17개(M1a/b, M4a/b, M7a/b/c)로 늘어 11장 범위 위험 문구를 고쳤다. 리뷰가 원문에서 확인했다고 보고했지만 이 통합에서 다시 확인하지 못한 사실에는 `[리뷰]` 표기를 새로 두었다.
 

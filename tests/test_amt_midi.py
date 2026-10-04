@@ -1,4 +1,4 @@
-"""Performance MIDI: tempo map from the grid, lead-in, pickup, 6/8, determinism (gtab.amt.midi)."""
+"""Performance MIDI: tempo map from the grid, lead-in, pickup, 6/8, determinism (bandscribe.amt.midi)."""
 from __future__ import annotations
 
 import math
@@ -6,7 +6,7 @@ import math
 import mido
 import pytest
 
-from gtab.amt import midi as M
+from bandscribe.amt import midi as M
 
 
 def grid(beat_times, beats_per_bar, *, pickup=0, unit="quarter", den=4):
@@ -26,7 +26,7 @@ def grid(beat_times, beats_per_bar, *, pickup=0, unit="quarter", den=4):
                      "denominator": den, "beat_unit": unit, "pickup": bar == 0})
         i += n
         bar += 1
-    return {"format": "gtab.grid/1", "tpb": 48, "duration_s": beat_times[-1] + 1, "beats": beats, "bars": bars,
+    return {"format": "bandscribe.grid/1", "tpb": 48, "duration_s": beat_times[-1] + 1, "beats": beats, "bars": bars,
             "tempo": [], "meter": [], "beat_unit": unit, "pickup": {"present": bool(pickup), "beats": pickup},
             "hypotheses": {}, "confidence": {}, "params": {}}
 

@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from gtab import atomic
-from gtab.jobs import store as store_mod
-from gtab.jobs.store import JobStore, StoreError, make_temp_dir, process_start_time
+from bandscribe import atomic
+from bandscribe.jobs import store as store_mod
+from bandscribe.jobs.store import JobStore, StoreError, make_temp_dir, process_start_time
 
 SONG = "f-0123456789abcdef"
 KEY = JobStore.stage_key("sep", "1", {"model": "x"}, {"input": "a" * 64})
@@ -243,7 +243,7 @@ _RACE_CHILD = textwrap.dedent(
     """
     import logging, os, sys, time
     from pathlib import Path
-    from gtab.jobs.store import JobStore
+    from bandscribe.jobs.store import JobStore
 
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     root, sync, n, i, key = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
@@ -301,7 +301,7 @@ def test_concurrent_processes_single_final_dir(tmp_path: Path):
 
 
 def test_concurrent_threads_single_final_dir(store: JobStore, caplog):
-    caplog.set_level(logging.INFO, logger="gtab.jobs.store")
+    caplog.set_level(logging.INFO, logger="bandscribe.jobs.store")
     n = 8
     barrier = threading.Barrier(n, timeout=30)
     errors: list[BaseException] = []
@@ -332,7 +332,7 @@ _CRASH_CHILD = textwrap.dedent(
     """
     import os, sys, time
     from pathlib import Path
-    from gtab.jobs.store import JobStore
+    from bandscribe.jobs.store import JobStore
 
     root, ready, key = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
     with JobStore(root).stage_writer("f-crash", "sep", key, {}) as tmp:
@@ -474,7 +474,7 @@ _INDEX_CHILD = textwrap.dedent(
     """
     import sys, time
     from pathlib import Path
-    from gtab.jobs.store import JobStore
+    from bandscribe.jobs.store import JobStore
 
     root, go, i, n = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
     while not go.exists():

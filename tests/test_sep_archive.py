@@ -1,4 +1,4 @@
-"""gtab.sep.archive: 24-bit FLAC archive of float stems, restore, and the b7 error measure (relative to the mix)."""
+"""bandscribe.sep.archive: 24-bit FLAC archive of float stems, restore, and the b7 error measure (relative to the mix)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab.sep import archive
+from bandscribe.sep import archive
 
 SR = 44100
 

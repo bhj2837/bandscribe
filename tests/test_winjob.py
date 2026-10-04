@@ -11,9 +11,9 @@ import pytest
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Objects")
 
-from gtab import paths  # noqa: E402
-from gtab import winjob  # noqa: E402
-from gtab.winjob import JobObject, pid_alive, spawn_in_job  # noqa: E402
+from bandscribe import paths  # noqa: E402
+from bandscribe import winjob  # noqa: E402
+from bandscribe.winjob import JobObject, pid_alive, spawn_in_job  # noqa: E402
 
 PY = str(paths.CORE_PYTHON)
 REPORT_AND_SLEEP = "import os, time; print(os.getpid(), os.getppid(), flush=True); time.sleep(120)"

@@ -1,4 +1,4 @@
-"""gtab.sep.derive (the ``stems`` stage): exact identities, mono views, stats, streaming, byte determinism."""
+"""bandscribe.sep.derive (the ``stems`` stage): exact identities, mono views, stats, streaming, byte determinism."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab.sep import derive
+from bandscribe.sep import derive
 
-audio = pytest.importorskip("gtab.audio")  # P0's deterministic float WAV writer
+audio = pytest.importorskip("bandscribe.audio")  # P0's deterministic float WAV writer
 
 STEMS = derive.STEMS
 
@@ -64,7 +64,7 @@ def test_identities_views_and_streaming(tmp_path: Path) -> None:
     assert _read(out / "nonvox.wav")[5, 0] > 1.0
 
     views = json.loads((out / "views.json").read_text(encoding="utf-8"))
-    assert views["format"] == "gtab.views/1"
+    assert views["format"] == "bandscribe.views/1"
     expect = {"mix": m, "guitar": x["guitar"], "bass": x["bass"], "piano_other": x["piano"] + x["other"],
               "nonvox": m - x["vocals"] - x["drums"] - x["bass"], "guitar_other": x["guitar"] + x["other"]}
     assert set(views["views"]) == {f"{v}_mono" for v in expect}
@@ -83,7 +83,7 @@ def test_stats_energy_and_flag(tmp_path: Path) -> None:
     mix_wav, stems_dir, x = _make(tmp_path, n, leftover_db=-15.0)
     stats = derive.derive(mix_wav, stems_dir, tmp_path / "out", leftover_warn_db=-20.0)
     doc = json.loads((tmp_path / "out" / "stem_stats.json").read_text(encoding="utf-8"))
-    assert doc == stats and doc["format"] == "gtab.stem_stats/1"
+    assert doc == stats and doc["format"] == "bandscribe.stem_stats/1"
     mix_db = 10 * np.log10(np.mean(x["mix"].astype(np.float64) ** 2))
     assert abs(doc["mix_rms_db"] - mix_db) < 1e-3
     g_db = 10 * np.log10(np.mean(x["guitar"].astype(np.float64) ** 2))
@@ -144,7 +144,7 @@ def test_mismatched_lengths_rejected(tmp_path: Path) -> None:
 def test_stems_stage_run(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from gtab.sep import stage
+    from bandscribe.sep import stage
 
     input_dir = tmp_path / "job" / "input"
     input_dir.mkdir(parents=True)

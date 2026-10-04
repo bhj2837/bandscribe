@@ -1,6 +1,6 @@
 """beats_beatthis worker (M1_M2_SPEC 7.5, 9.3; model beat_this.final0).
 
-- ``gpu`` + ``slow``: the real CUDA rung through ``gtab.vram.run_gpu_stage`` (GPU lock, VRAM pre-check).
+- ``gpu`` + ``slow``: the real CUDA rung through ``bandscribe.vram.run_gpu_stage`` (GPU lock, VRAM pre-check).
 - ``gpuenv`` + ``slow``: the same synthetic song on the CPU rung (``final0@cpu``) — exercises the whole worker
   (local checkpoint, ``weights_only=True`` loads, in-memory audio, postprocessing, output files) while the GPU is
   busy; CPU torch is enough and no GPU lock is taken.
@@ -15,14 +15,14 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import atomic
+from bandscribe import atomic
 
 pytestmark = [pytest.mark.model("beat_this.final0")]
 
 
 @pytest.fixture(scope="module")
 def ckpt() -> tuple[Path, str]:
-    from gtab import models
+    from bandscribe import models
 
     p = models.local_path("beat_this.final0")
     return p, hashlib.sha256(p.read_bytes()).hexdigest()
@@ -66,7 +66,7 @@ def _song(path: Path, bpm: float = 120.0, dur: float = 30.0, t0: float = 0.5, sr
 
 
 def _request(wav: Path, out_dir: Path, ckpt: tuple[Path, str], **extra) -> dict:
-    return {"format": "gtab.worker/1", "job": None, "out_dir": str(out_dir), "device": "auto", "determinism": True,
+    return {"format": "bandscribe.worker/1", "job": None, "out_dir": str(out_dir), "device": "auto", "determinism": True,
             "wav": str(wav), "checkpoint": "final0", "checkpoint_path": str(ckpt[0]), "checkpoint_sha256": ckpt[1],
             "dbn": False, "float16": False, "out_beats": "beats.json", "out_activations": "activations.npz",
             **extra}
@@ -78,10 +78,10 @@ def _check_outputs(out: dict, out_dir: Path, ckpt: tuple[Path, str], beats, down
     assert out["checkpoint_loads"][0]["path"] == str(ckpt[0])
     assert out["checkpoint_sha256"] == ckpt[1] and out["backend"]["model_sha256"] == ckpt[1]
     doc = atomic.read_json(out_dir / "beats.json")
-    from gtab.schema.grid import BeatsRaw
+    from bandscribe.schema.grid import BeatsRaw
 
     BeatsRaw.model_validate(doc)
-    assert doc["format"] == "gtab.beats/1" and doc["tracker"] == "beat_this/final0" and doc["fps"] == 50.0
+    assert doc["format"] == "bandscribe.beats/1" and doc["tracker"] == "beat_this/final0" and doc["fps"] == 50.0
     assert out["n_beats"] == len(doc["beats_s"]) and out["n_downbeats"] == len(doc["downbeats_s"])
     got = np.asarray(doc["beats_s"])
     err = np.array([np.min(np.abs(got - b)) for b in beats[1:-1]])
@@ -98,7 +98,7 @@ def _check_outputs(out: dict, out_dir: Path, ckpt: tuple[Path, str], beats, down
 @pytest.mark.gpu
 @pytest.mark.slow
 def test_worker_tracks_beats_and_downbeats(tmp_path, ckpt):
-    from gtab import vram
+    from bandscribe import vram
 
     wav = tmp_path / "mix.wav"
     beats, downs = _song(wav)
@@ -126,7 +126,7 @@ def test_worker_tracks_beats_and_downbeats(tmp_path, ckpt):
 @pytest.mark.gpuenv
 @pytest.mark.slow
 def test_worker_cpu_rung(tmp_path, ckpt):
-    from gtab import gpu, vram
+    from bandscribe import gpu, vram
 
     wav = tmp_path / "mix.wav"
     beats, downs = _song(wav)
@@ -149,7 +149,7 @@ def test_worker_cpu_rung(tmp_path, ckpt):
 
 @pytest.mark.gpuenv
 def test_worker_refuses_hub_names_and_bad_sha(tmp_path, ckpt):
-    from gtab import gpu
+    from bandscribe import gpu
 
     for bad, why in (({"checkpoint_path": "final0", "checkpoint_sha256": "0" * 64}, "never a hub name"),
                      ({"checkpoint_path": str(ckpt[0]), "checkpoint_sha256": "0" * 64}, "sha256 mismatch"),

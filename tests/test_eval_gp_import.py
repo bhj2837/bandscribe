@@ -12,7 +12,7 @@ pytest.importorskip("guitarpro")
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 import gp_make  # noqa: E402
 
-from gtab.eval import gp_import, gtstore, refscore  # noqa: E402
+from bandscribe.eval import gp_import, gtstore, refscore  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -85,7 +85,7 @@ def test_nominal_tempo_map_and_fill_times(gp5):
 def test_skeleton_yaml_is_valid_and_rebuilds(tmp_path, gp5):
     import yaml
 
-    from gtab.schema.gt import GtSpec
+    from bandscribe.schema.gt import GtSpec
 
     rs = gp_import.read_gp345(gp5)
     order = refscore.play_order(rs.masterbars)

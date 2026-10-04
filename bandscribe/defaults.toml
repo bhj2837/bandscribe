@@ -1,0 +1,150 @@
+# bandscribe package defaults (lowest layer).
+# Layers, later wins: this file -> data/config.toml (user) -> job hints.toml -> --set key=value.
+# bandscribe/config.py mirrors these values in its pydantic models; tests/test_config.py keeps them in sync.
+
+[youtube]
+# User request 2026-09-30: YouTube link input is ON by default. The risk notice (YouTube ToS forbids
+# downloading; solving the JS challenge may count as circumventing a technical protection measure,
+# per foreign case law, Korean law unverified) was acknowledged; see [consent] in data/config.toml.
+enabled = true
+# Best audio, never the DRC stream, Opus preferred. The original container is kept, never re-encoded.
+format = "ba[format_id!*=drc][acodec=opus]/ba[format_id!*=drc]/ba"
+# Cookies and PO tokens are extra risk (account suspension, further circumvention). Kept off separately,
+# even with YouTube on; turning either on also needs an explicit [consent] entry.
+cookies = false
+po_token = false
+timeout_s = 600
+
+[ingest]
+# Fixed at 44100 (other values are rejected): the mix is mix_44k_f32.wav and the f-<PCM sha256> job key
+# is defined on a 44.1 kHz decode, so the same audio always lands in the same job.
+sample_rate = 44100
+# Float gain so the true peak ends at or below this ceiling (loud masters decode above 0 dBFS).
+true_peak_ceiling_dbfs = -1.0
+# 10*log10(E_side / E_mid) below this => quasi-mono (routes to the R0 path).
+quasi_mono_side_mid_db = -30.0
+# Spectral cutoff near this frequency => double lossy compression suspected.
+lowpass_detect_hz = 16000
+
+[gpu]
+lock_timeout_s = 7200
+worker_timeout_s = 7200
+# Headroom for other apps' fluctuation and fragmentation only. Since M2 the CUDA context is counted
+# separately (ctx_mb_default below, then the bench's measured ctx_mb; M1_M2_SPEC 8.1).
+vram_margin_gb = 0.7
+# Target peak reserved VRAM per worker with other apps closed (provisional).
+target_reserved_gb = 4.5
+# What to do when the VRAM budget does not fit: wait (back off) | error | cpu (small models only).
+insufficient_vram_policy = "wait"
+# M2 (M1_M2_SPEC 1.3, 8). All [gpu] keys are non-semantic: never in a stage key (the rung used is
+# recorded per stage in gpu_run.json instead).
+wait_poll_s = 30
+wait_max_s = 3600
+max_worker_retries = 3         # worker answered insufficient_vram / every GPU rung failed -> wait and retry
+worker_headroom_mb = 256       # worker-side check: reserved peak + this <= mem_get_info free
+ctx_mb_default = 150           # CUDA context estimate until `bandscribe bench gpu` measures it (measured 79-91 MB)
+shared_growth_fail_mb = 64     # this pid's Shared Usage growth after model load = Sysmem Fallback [잠정]
+rtf_fail_ratio = 0.5           # slower than this x the benched realtime factor -> "slow" warning
+cpu_backends = ["beats_beatthis"]   # backends that may use a CPU rung, only under policy "cpu"
+
+[doctor]
+min_free_disk_gb = 60
+min_node_major = 22
+
+# ----------------------------------------------------------------------------------------- M1a / M2
+# docs/M1_M2_SPEC.md 1.3. Values marked [잠정] there are starting values, to be replaced by measured or
+# decided ones (docs/decisions.md). Everything that changes a stage's output is in that stage's params
+# (cache key); [gpu] keys never are.
+
+[run]
+profile = "quality"            # fast | quality | eval   (max = later milestones)
+                               # fast/quality: no full-mix B0 pass; piano+other presence pass on sampled windows
+                               # (fast: half the windows). eval: + B0 mix pass + full-length piano+other pass as
+                               # extra outputs (instrumentation and guitar pass equal quality's).
+
+[hints]                        # user hints; CLI flags write these via --set
+instruments = "auto"           # "auto" or comma list of families: guitar,keys,synth,bass,strings,brass,winds,vocals
+parts = "auto"                 # used from M6 on; stored now
+
+[sep]
+backend = "sw_msst"
+model_dir = "data/models/bs_roformer_sw"          # relative to BANDSCRIBE_ROOT
+ckpt = "BS-Rofo-SW-Fixed.ckpt"
+config = "BS-Rofo-SW-Fixed.yaml"
+ckpt_sha256 = "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
+msst_commit = "84b1eac0887756b4f1a9d7a1ff49105939749ed2"
+chunk_ladder = [588800, 352256, 262144]           # multiples of stft_hop_length 512, largest first (DESIGN S3)
+num_overlap = 2
+batch_size = 1
+dtype = "upstream"                                 # upstream (fp32 weights + AMP) | fp16 (E24-sep only)
+input_lufs = "off"                                 # E1: "off" | -14.0 | -16.0 (gain before SW, inverse gain after)
+leftover_warn_db = -20.0                           # used by the `stems` stage only
+# (no allow_cpu here: CPU rungs are governed by gpu.insufficient_vram_policy + gpu.cpu_backends)
+
+[amt]
+muscriptor_model = "medium"
+muscriptor_revision = "f32236969308476e01fd3aae67357de5feb05a2d"
+muscriptor_fallback = ["small"]                    # used only if model.safetensors is already in the HF cache
+muscriptor_loader = "lean"                         # lean (~1.7 GB reserved; parity-tested 2026-10-03) | upstream (~2.4 GB)
+dtype = "upstream"                                 # upstream (fp32 weights + built-in fp16 autocast) | fp16 (E24-amt); never bf16
+prelude_forcing = true
+beam_size = 1
+cfg_coef = 1.0
+batch_size = 1
+latency_s = -0.003                                 # latency experiment 2026-10-03: MuScriptor onsets ~3 ms early (GuitarSet dev 00-02); subtracted from MuScriptor times
+piano_other_instruments = "keys+guitar"            # keys | keys+guitar  (M1_M2_SPEC A5); keys = keys/synth/strings classes
+presence_pass = "auto"                             # auto (= sampled windows, every profile) | sampled | full
+presence_window_s = 10.0                           # sampled presence pass: window length (s), starts on a bar
+presence_max_windows = 6                           # at most this many windows (fast profile: half)
+presence_max_total_s = 60.0                        # and at most this much audio
+presence_max_fraction = 0.2                        # and at most this share of the song (at least one window)
+presence_min_active = 0.5                          # share of a window's frames with piano+other above instr.active_rel_db (or its power mean above it)
+guitar_view = "guitar_mono"                        # E2: guitar_mono | mix_mono | nonvox_mono | guitar_other_mono
+guitar_mask = "guitar+present"                     # E3: guitar_only | guitar+present (keys/synth) | guitar+present+strings (E3b) | all
+bp_onset_threshold = 0.6                           # E23 (2026-10-03, EGDB dev argmax among frames 3-7) tunes these three
+bp_frame_threshold = 0.4
+bp_min_note_frames = 7                             # shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms);
+                                                   # 7 = 81.3 ms (E23; was 4 = 46.4 ms). The worker passes min_note_len = frames - 1
+                                                   # (Basic Pitch drops len <= it). 12 (= upstream 127.7 ms) is refused.
+bp_min_freq_hz = 0.0                               # 0 = backend default
+bp_max_freq_hz = 0.0
+bp_melodia_trick = true
+bp_threads = 4                                     # onnxruntime intra-op threads (pinned: output must not depend on core count)
+
+[instr]
+threshold = 0.5                                    # E3
+guitar_threshold = 0.15                            # low: omitting a guitar class deletes its notes
+guitar_stem_active_ratio = 0.05                    # guitar stem active in >= 5 % of bars -> all 3 guitar classes
+active_rel_db = -40.0                              # a stem/bar is "active" above this RMS relative to the mix
+mix_class_min_notes = 8
+presence_min_notes = 8                             # notes a class needs in the piano+other presence pass to count
+
+[grid]
+checkpoint = "final0"                              # model "beat_this.final0" in models.lock.json (bandscribe models fetch)
+dbn = false                                        # true is rejected at config load (needs madmom, not installed)
+refine_window_ms = 35.0                            # Beat This! times are quantised to 20 ms, so refinement matters
+half_double_check = true
+compound_triple_ratio = 0.6                        # E14
+compound_margin = 0.1
+downbeat_snap_ms = 70.0
+meter_smooth_bars = 8
+
+[sections]
+min_section_bars = 4
+max_sections = 16
+repeat_min_score = 0.6
+align_max_offset_ms = 50.0
+
+[s35]
+vocal_active_rel_db = -30.0
+resid_min_occurrences = 3
+
+[eval]
+tpb = 48
+onset_tol_s = 0.05
+bootstrap_iterations = 10000
+seed = 20260930
+mde_points = 1.0                                   # default MDE (F1 points); costly elements use 1.5 (DESIGN 8.1)
+
+[datasets]
+root = "data/datasets"

@@ -1,4 +1,4 @@
-"""`gtab data ...` and `gtab models ...` commands (Korean output, exit codes 0/1/2)."""
+"""`bandscribe data ...` and `bandscribe models ...` commands (Korean output, exit codes 0/1/2)."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ import typer
 from typer.testing import CliRunner
 
 from fixtures.datasets_fakes import HttpFixture, models_root, write_wav
-from gtab import model_fetch as MF
-from gtab import paths
-from gtab.commands import data as data_cmd
-from gtab.commands import models as models_cmd
-from gtab.datasets import registry
+from bandscribe import model_fetch as MF
+from bandscribe import paths
+from bandscribe.commands import data as data_cmd
+from bandscribe.commands import models as models_cmd
+from bandscribe.datasets import registry
 
 
 def _app() -> typer.Typer:
@@ -51,7 +51,7 @@ def toy(tmp_path, monkeypatch):
     data = buf.getvalue()
     http.files["/a.zip"] = data
     reg = tmp_path / "registry.toml"
-    reg.write_text(f'''format = "gtab.dataset_registry/1"
+    reg.write_text(f'''format = "bandscribe.dataset_registry/1"
 [toyset]
 title = "Toy"
 tier = "C"
@@ -155,7 +155,7 @@ def test_models_commands(cli, tmp_path, monkeypatch):
     try:
         http.files["/m.ckpt"] = b"x" * 1000
         src = tmp_path / "sources.toml"
-        src.write_text(f'format = "gtab.model_sources/1"\n["toy.model"]\nurl = "{http.url("/m.ckpt")}"\n'
+        src.write_text(f'format = "bandscribe.model_sources/1"\n["toy.model"]\nurl = "{http.url("/m.ckpt")}"\n'
                        'dest = "data/models/toy/m.ckpt"\nbytes = 1000\nsha256 = ""\nlicense = "MIT"\n',
                        encoding="utf-8")
         monkeypatch.setattr(MF, "SOURCES_PATH", src)
@@ -181,8 +181,8 @@ def test_command_modules_import_light():
     import subprocess
     import sys
 
-    code = ("import sys, gtab.commands.data, gtab.commands.models; "
-            "heavy = [m for m in ('torch','librosa','numpy','scipy','gtab.datasets','yaml') if m in sys.modules]; "
+    code = ("import sys, bandscribe.commands.data, bandscribe.commands.models; "
+            "heavy = [m for m in ('torch','librosa','numpy','scipy','bandscribe.datasets','yaml') if m in sys.modules]; "
             "print(','.join(heavy))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr

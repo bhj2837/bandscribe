@@ -1,7 +1,7 @@
-"""gtab models fetch/verify/list against a local http.server (M1_M2_SPEC §9.5 item 7).
+"""bandscribe models fetch/verify/list against a local http.server (M1_M2_SPEC §9.5 item 7).
 
-The real ``gtab.models`` records into a throw-away models.lock.json (``gtab.paths`` repointed at a temp
-GTAB_ROOT); one more test runs the fetch in a subprocess with GTAB_ROOT set, as the CLI would.
+The real ``bandscribe.models`` records into a throw-away models.lock.json (``bandscribe.paths`` repointed at a temp
+BANDSCRIBE_ROOT); one more test runs the fetch in a subprocess with BANDSCRIBE_ROOT set, as the CLI would.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import sys
 import pytest
 
 from fixtures.datasets_fakes import HttpFixture, models_root
-from gtab import models as M
-from gtab import model_fetch as MF
-from gtab.datasets import fetch as F
+from bandscribe import models as M
+from bandscribe import model_fetch as MF
+from bandscribe.datasets import fetch as F
 
 CKPT = b"checkpoint-bytes" * 5000
 
@@ -27,12 +27,12 @@ def env(tmp_path, monkeypatch):
     http = HttpFixture()
     http.files["/final0.ckpt"] = CKPT
     http.mode["/final0.ckpt"] = "sha1"
-    root = tmp_path / "gtab_root"
+    root = tmp_path / "bandscribe_root"
     lock = models_root(monkeypatch, root)
     src = tmp_path / "sources.toml"
 
     def write_sources(sha: str = "") -> None:
-        src.write_text(f'''format = "gtab.model_sources/1"
+        src.write_text(f'''format = "bandscribe.model_sources/1"
 ["beat_this.final0"]
 url = "{http.url('/final0.ckpt')}"
 dest = "data/models/beat_this/final0.ckpt"
@@ -147,10 +147,10 @@ def test_list_merges_sources_and_lock(env):
 
 def test_sources_validation(tmp_path):
     p = tmp_path / "s.toml"
-    p.write_text('format = "gtab.model_sources/1"\n["x"]\nurl = "https://a/b"\ndest = "../outside"\nlicense = "MIT"\n')
+    p.write_text('format = "bandscribe.model_sources/1"\n["x"]\nurl = "https://a/b"\ndest = "../outside"\nlicense = "MIT"\n')
     with pytest.raises(MF.ModelFetchError, match="상대 경로"):
         MF.load_sources(p)
-    p.write_text('format = "gtab.model_sources/1"\n["x"]\nurl = "ftp://a/b"\ndest = "d"\nlicense = "MIT"\n')
+    p.write_text('format = "bandscribe.model_sources/1"\n["x"]\nurl = "ftp://a/b"\ndest = "d"\nlicense = "MIT"\n')
     with pytest.raises(MF.ModelFetchError):
         MF.load_sources(p)
 
@@ -160,14 +160,14 @@ def test_real_models_module_in_subprocess(tmp_path):
     try:
         http.files["/final0.ckpt"] = CKPT
         src = tmp_path / "sources.toml"
-        src.write_text(f'format = "gtab.model_sources/1"\n["beat_this.final0"]\nurl = "{http.url("/final0.ckpt")}"\n'
+        src.write_text(f'format = "bandscribe.model_sources/1"\n["beat_this.final0"]\nurl = "{http.url("/final0.ckpt")}"\n'
                        f'dest = "data/models/beat_this/final0.ckpt"\nbytes = {len(CKPT)}\nsha256 = ""\n'
                        'license = "MIT"\nsource = "s"\nnotes = ""\n', encoding="utf-8")
         root = tmp_path / "root"
-        code = ("import sys; from pathlib import Path; from gtab import model_fetch as MF; "
+        code = ("import sys; from pathlib import Path; from bandscribe import model_fetch as MF; "
                 f"MF.SOURCES_PATH = Path(r'{src}'); e = MF.fetch('beat_this.final0', yes=True, progress=False); "
                 "print(e.sha256); assert MF.verify('beat_this.final0') == [('beat_this.final0', True)]")
-        envv = dict(os.environ, GTAB_ROOT=str(root), PYTHONUTF8="1")
+        envv = dict(os.environ, BANDSCRIBE_ROOT=str(root), PYTHONUTF8="1")
         run = subprocess.run([sys.executable, "-c", code], env=envv, capture_output=True, text=True, timeout=120)
         assert run.returncode == 0, run.stderr
         lock = json.loads((root / "data" / "models" / "models.lock.json").read_text(encoding="utf-8"))

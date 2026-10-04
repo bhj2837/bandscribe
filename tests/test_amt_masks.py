@@ -1,12 +1,12 @@
-"""MT3 masks, hint parsing, sort order and E3 threshold edges (gtab.amt.instruments)."""
+"""MT3 masks, hint parsing, sort order and E3 threshold edges (bandscribe.amt.instruments)."""
 from __future__ import annotations
 
 import random
 
 import pytest
 
-from gtab.amt import instruments as I
-from gtab.config import ConfigError
+from bandscribe.amt import instruments as I
+from bandscribe.config import ConfigError
 
 
 def _inst(present: set[str]) -> dict:

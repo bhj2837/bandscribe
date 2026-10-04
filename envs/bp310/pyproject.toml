@@ -1,14 +1,14 @@
 # Basic Pitch worker environment (docs/DESIGN.md 9.2, docs/M1_M2_SPEC.md §9.2 item 2).
 # Python 3.10 because basic-pitch 0.4.0 on Windows pulls TensorFlow (<2.15.1, no cp312 wheels) for Python >= 3.11,
-# but onnxruntime for Python < 3.11. The worker runs `python -m gtab.workers.amt_basicpitch` with gtab on
-# PYTHONPATH (set by gtab.gpu.run_worker); gtab itself is NOT installed here (it requires Python 3.12).
+# but onnxruntime for Python < 3.11. The worker runs `python -m bandscribe.workers.amt_basicpitch` with bandscribe on
+# PYTHONPATH (set by bandscribe.gpu.run_worker); bandscribe itself is NOT installed here (it requires Python 3.12).
 #
 # 3.10 resolution note: onnxruntime >= 1.24 needs Python >= 3.11, so the lock resolves
 # onnxruntime<=1.23.2, numpy<=2.2.6, scipy<=1.15.3. That is expected and fine for Basic Pitch.
 #
 # Manage with D:\gtab\tools\uvw.cmd lock / sync, run from this directory (keeps python + cache on D:).
 [project]
-name = "gtab-bp310-env"
+name = "bandscribe-bp310-env"
 version = "0.1.0"
 requires-python = ">=3.10,<3.11"
 dependencies = [
@@ -16,7 +16,7 @@ dependencies = [
     "onnxruntime",
     "soundfile",
     "numpy",
-    # gtab.workers.base / gtab.models import these (both are Python-3.10-safe).
+    # bandscribe.workers.base / bandscribe.models import these (both are Python-3.10-safe).
     "filelock",
     "pydantic",
     # basic-pitch pins resampy<0.4.3, whose filters.py does `import pkg_resources` at import time; uv venvs

@@ -1,9 +1,9 @@
-"""AMT experiments with fake backends (gtab.amt.experiments, M1_M2_SPEC 9.2 item 10, §10).
+"""AMT experiments with fake backends (bandscribe.amt.experiments, M1_M2_SPEC 9.2 item 10, §10).
 
 The GPU/worker seams (``_separate``, ``_ms``, ``_reftx``, ``_bp_sweep``) are faked; the data plumbing is real:
-pydantic ``DatasetTrack`` objects with small WAV parts, ``gtab.eval.remix.tierb_mix`` / ``make_scene``,
-``gtab.amt.instrumentation`` and EVAL's metric code. Every experiment's rows are then fed to EVAL's pre-registered
-decision code (``gtab.eval.experiments.evaluate`` with the docs/decisions.md spec) so arm, metric and column
+pydantic ``DatasetTrack`` objects with small WAV parts, ``bandscribe.eval.remix.tierb_mix`` / ``make_scene``,
+``bandscribe.amt.instrumentation`` and EVAL's metric code. Every experiment's rows are then fed to EVAL's pre-registered
+decision code (``bandscribe.eval.experiments.evaluate`` with the docs/decisions.md spec) so arm, metric and column
 names must line up with the registry.
 """
 from __future__ import annotations
@@ -15,15 +15,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from gtab import datasets
-from gtab.amt import experiments as E
-from gtab.amt import instruments as I
-from gtab.audio import write_f32
-from gtab.eval import experiments as EX
-from gtab.eval.runs import METRIC_COLUMNS
-from gtab.schema.dataset import DatasetTrack, Part
-from gtab.schema.gt import GtLine
-from gtab.schema.notes import BackendInfo, NoteEvent, NoteSet
+from bandscribe import datasets
+from bandscribe.amt import experiments as E
+from bandscribe.amt import instruments as I
+from bandscribe.audio import write_f32
+from bandscribe.eval import experiments as EX
+from bandscribe.eval.runs import METRIC_COLUMNS
+from bandscribe.schema.dataset import DatasetTrack, Part
+from bandscribe.schema.gt import GtLine
+from bandscribe.schema.notes import BackendInfo, NoteEvent, NoteSet
 
 SR = 44100
 DUR = 4.0
@@ -55,7 +55,7 @@ def _track(root: Path, dataset: str, tid: str, *, kinds=("guitar", "bass"), fami
         if kind in ("guitar", "bass"):
             lines.append(GtLine(id=lid, name=lid, kind=kind, takes=[i + 1]))
             notes[lid] = _noteset(lid, _gt_notes(52 if kind == "guitar" else 36))
-    return DatasetTrack(format="gtab.dataset_track/1", dataset=dataset, track_id=tid, split=split, group=group or tid,
+    return DatasetTrack(format="bandscribe.dataset_track/1", dataset=dataset, track_id=tid, split=split, group=group or tid,
                         tier="B" if dataset == "cambridge_mt" else "C", license="test", mix=None, parts=parts,
                         lines=lines, families_present=list(families), notes=notes, string_fret=None, beats_s=None,
                         downbeats_s=None, tuning=None, meta=meta or {})
@@ -73,7 +73,7 @@ class Fakes:
 
     def separate(self, mix_wav, out_dir, cfg, *, force_rung, input_lufs=None, dtype=None):
         self.sep_calls.append({"force_rung": force_rung, "input_lufs": input_lufs, "dtype": dtype})
-        from gtab.audio import read_f32
+        from bandscribe.audio import read_f32
 
         x, sr = read_f32(mix_wav)
         stems = {}
@@ -95,7 +95,7 @@ class Fakes:
             classes = v.get("instruments") or list(I.GUITAR_CLASSES)
             cls = classes[-1] if any(c in I.GUITAR_CLASSES for c in classes) else classes[0]
             base = self.gt_by_wav.get(Path(v["wav"]).name, self.default_notes)
-            raws[v["id"]] = {"format": "gtab.notes/1", "view": v["id"], "notes": [
+            raws[v["id"]] = {"format": "bandscribe.notes/1", "view": v["id"], "notes": [
                 {"onset_s": round(n.onset_s + 0.01, 6), "offset_s": round(n.offset_s + 0.01, 6), "pitch": n.pitch,
                  "instrument": cls} for n in base]}
         info = {"rung_label": force_rung, "worker_output": {
@@ -107,7 +107,7 @@ class Fakes:
     def reftx(self, track, out_dir, cfg, *, force_rung):
         out = {}
         for line in track.lines:
-            out[line.id] = {"format": "gtab.notes/1", "view": line.id,
+            out[line.id] = {"format": "bandscribe.notes/1", "view": line.id,
                             "notes": [n.model_dump() for n in track.notes[line.id].notes]}
         return out
 
@@ -119,7 +119,7 @@ class Fakes:
             docs = []
             for s in settings:
                 keep = base if s["min_note_frames"] < 12 else base[::2]  # the 12-frame arm drops short notes
-                docs.append({"format": "gtab.notes/1", "view": v["id"], "notes": [
+                docs.append({"format": "bandscribe.notes/1", "view": v["id"], "notes": [
                     {"onset_s": n.onset_s, "offset_s": n.offset_s, "pitch": n.pitch} for n in keep]})
             out[v["id"]] = docs
         return out
@@ -219,7 +219,7 @@ def test_e3_synthetic_scene_policies_omissions_and_families(env):
 
 
 def test_e3b_uses_the_production_presence_pass_and_the_strings_policy(env):
-    """Review 2026-10-04: E3 estimated presence from the mix pass, which gtab run no longer runs."""
+    """Review 2026-10-04: E3 estimated presence from the mix pass, which bandscribe run no longer runs."""
     rows = E.EXPERIMENTS["E3b"](env.out, {}, {"scenes": ["A"], "seeds": [0], "thresholds": [0.5]})
     assert {r["system"] for r in rows} == {"guitar+present", "guitar_only", "all", "guitar+present+strings"}
     first = env.fakes.ms_calls[0]

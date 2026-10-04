@@ -1,4 +1,4 @@
-"""gtab.audio: deterministic float32 WAV I/O (M1_M2_SPEC 1.4)."""
+"""bandscribe.audio: deterministic float32 WAV I/O (M1_M2_SPEC 1.4)."""
 from __future__ import annotations
 
 import struct
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab import audio
+from bandscribe import audio
 
 
 def _stereo(n: int = 44100, seed: int = 0) -> np.ndarray:
@@ -143,7 +143,7 @@ def test_to_mono() -> None:
 
 
 def test_pcm_sha256_matches_ingest_and_ignores_header(tmp_path: Path) -> None:
-    from gtab.ingest.decode import pcm_sha256 as ingest_sha
+    from bandscribe.ingest.decode import pcm_sha256 as ingest_sha
 
     x = _stereo(70_000)
     a, b = tmp_path / "a.wav", tmp_path / "b.wav"

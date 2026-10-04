@@ -1,4 +1,4 @@
-"""gtab.sep.checks.stereo_preservation and the ``stereo-preservation`` experiment with a fake separator (no GPU)."""
+"""bandscribe.sep.checks.stereo_preservation and the ``stereo-preservation`` experiment with a fake separator (no GPU)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from gtab.sep import checks, experiments
+from bandscribe.sep import checks, experiments
 
 SR = 44100
 
@@ -56,7 +56,7 @@ class FakeSeparate:
         self.calls: list[dict[str, Any]] = []
 
     def __call__(self, mix_wav: Path, out_dir: Path, cfg: Any, *, force_rung: str | None = None) -> Any:
-        from gtab.eval import remix
+        from bandscribe.eval import remix
 
         self.calls.append({"mix": mix_wav, "out": out_dir, "force_rung": force_rung})
         item = json.loads((Path(mix_wav).parent / "truth.json").read_text(encoding="utf-8"))
@@ -68,10 +68,10 @@ class FakeSeparate:
 
 
 def test_synthetic_rows_with_fake_separator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pytest.importorskip("gtab.audio")
-    pytest.importorskip("gtab.schema.gt")  # remix builds GT lines with P0's schema
-    remix = pytest.importorskip("gtab.eval.remix")
-    runs = pytest.importorskip("gtab.eval.runs")
+    pytest.importorskip("bandscribe.audio")
+    pytest.importorskip("bandscribe.schema.gt")  # remix builds GT lines with P0's schema
+    remix = pytest.importorskip("bandscribe.eval.remix")
+    runs = pytest.importorskip("bandscribe.eval.runs")
     fake = FakeSeparate()
     real_make = remix.make_scene
 
@@ -97,7 +97,7 @@ def test_synthetic_rows_with_fake_separator(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_archive_rows_for_a_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from gtab import paths
+    from bandscribe import paths
 
     monkeypatch.setattr(paths, "JOBS", tmp_path / "jobs")
     job = tmp_path / "jobs" / "f-1234"
@@ -108,7 +108,7 @@ def test_archive_rows_for_a_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     sf.write(str(job / "input" / "mix_44k_f32.wav"), x, SR, subtype="FLOAT")
     sf.write(str(sep_dir / "stems" / "guitar.wav"), x * 0.5, SR, subtype="FLOAT")
     sf.write(str(sep_dir / "stems" / "piano.wav"), x * 1e-4, SR, subtype="FLOAT")  # -80 dB: sparse
-    (sep_dir / "gpu_run.json").write_text(json.dumps({"format": "gtab.gpu_run/1", "rung": {
+    (sep_dir / "gpu_run.json").write_text(json.dumps({"format": "bandscribe.gpu_run/1", "rung": {
         "index": 1, "label": "chunk=352256", "device": "cuda"}}), encoding="utf-8")
     (sep_dir / "manifest.json").write_text(json.dumps({"status": "complete", "created_utc": "2026-09-30"}),
                                            encoding="utf-8")
@@ -121,7 +121,7 @@ def test_archive_rows_for_a_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_registry_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from gtab import paths
+    from bandscribe import paths
 
     monkeypatch.setattr(paths, "JOBS", tmp_path / "none")
     assert set(experiments.EXPERIMENTS) == {"stereo-preservation"}

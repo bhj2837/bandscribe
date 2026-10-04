@@ -1,4 +1,4 @@
-"""`gtab eval …` and `gtab gt …` command wiring (Korean output, exit codes, files written)."""
+"""`bandscribe eval …` and `bandscribe gt …` command wiring (Korean output, exit codes, files written)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from gtab import paths
+from bandscribe import paths
 
 pytest.importorskip("mir_eval")
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
 
 @pytest.fixture
 def app():
-    from gtab.commands import eval as eval_cmds
-    from gtab.commands import gt as gt_cmds
+    from bandscribe.commands import eval as eval_cmds
+    from bandscribe.commands import gt as gt_cmds
 
     a = typer.Typer()
     eval_cmds.register(a)
@@ -36,7 +36,7 @@ def runner(monkeypatch):
 
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
-    """Point every data path the commands touch into tmp (works with or without a reload of gtab.paths)."""
+    """Point every data path the commands touch into tmp (works with or without a reload of bandscribe.paths)."""
     for name, sub in (("EVAL", "eval"), ("RUNS", "runs"), ("JOBS", "jobs"), ("DOWNLOADS", "downloads")):
         monkeypatch.setattr(paths, name, tmp_path / "data" / sub)
     return tmp_path
@@ -74,11 +74,11 @@ def test_eval_run_bad_suite_exits_2(app, runner, sandbox):
 
 
 def test_eval_exp_dry_run_and_unknown(app, runner, monkeypatch, tmp_path):
-    from gtab.eval import experiments
+    from bandscribe.eval import experiments
 
-    mod = types.ModuleType("gtab.amt.experiments")
+    mod = types.ModuleType("bandscribe.amt.experiments")
     mod.EXPERIMENTS = {"E1": lambda out, cfg, args: []}
-    monkeypatch.setitem(sys.modules, "gtab.amt.experiments", mod)
+    monkeypatch.setitem(sys.modules, "bandscribe.amt.experiments", mod)
     from tests.fixtures.registry import fresh_registry
 
     reg = fresh_registry(tmp_path / "decisions.md")
@@ -105,7 +105,7 @@ def test_import_external_midi(app, runner, sandbox, tmp_path):
     mid.save(str(f))
     r = runner.invoke(app, ["eval", "import-external", "song_a", str(f), "--system", "klangio", "--map", "1=L1"])
     assert r.exit_code == 0, r.output
-    from gtab.eval.external import load_external
+    from bandscribe.eval.external import load_external
 
     pred = load_external("klangio", "song_a:verse")
     assert pred.item == "song_a:verse" and pred.system == "external:klangio"
@@ -149,8 +149,8 @@ def test_gt_import_render_approve(app, runner, sandbox, tmp_path):
 
 
 def test_eval_reftx_writes_into_the_item_folder(app, runner, sandbox, monkeypatch):
-    from gtab import datasets
-    from gtab.amt import reftx
+    from bandscribe import datasets
+    from bandscribe.amt import reftx
 
     tracks = [types.SimpleNamespace(dataset="cambridge_mt", track_id="Song A", lines=[]),
               types.SimpleNamespace(dataset="cambridge_mt", track_id="song_b", lines=[])]
@@ -174,7 +174,7 @@ def test_eval_reftx_writes_into_the_item_folder(app, runner, sandbox, monkeypatc
 def test_eval_exp_data_missing_suggests_record(app, runner, monkeypatch, tmp_path):
     import shutil
 
-    from gtab.eval import experiments
+    from bandscribe.eval import experiments
 
     class ExperimentDataMissing(RuntimeError):
         pass
@@ -187,9 +187,9 @@ def test_eval_exp_data_missing_suggests_record(app, runner, monkeypatch, tmp_pat
     reg = fresh_registry(tmp_path / "decisions.md")
     monkeypatch.setattr(experiments, "decisions_path", lambda: reg)
     monkeypatch.setattr(paths, "RUNS", tmp_path / "runs")
-    mod = types.ModuleType("gtab.amt.experiments")
+    mod = types.ModuleType("bandscribe.amt.experiments")
     mod.EXPERIMENTS = {"E1": no_data}
-    monkeypatch.setitem(sys.modules, "gtab.amt.experiments", mod)
+    monkeypatch.setitem(sys.modules, "bandscribe.amt.experiments", mod)
     r = runner.invoke(app, ["eval", "exp", "E1", "--arg", "max_tracks=2"])
     assert r.exit_code == 1
     assert "Tier B 데이터가 없습니다" in r.output and "판단 보류 (데이터 대기)" in r.output

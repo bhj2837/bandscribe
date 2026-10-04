@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from gtab import paths
+from bandscribe import paths
 
-GTAB_ROOT = Path(__file__).resolve().parents[1]
-MSST = GTAB_ROOT / "gtab" / "third_party" / "msst"
+BANDSCRIBE_ROOT = Path(__file__).resolve().parents[1]
+MSST = BANDSCRIBE_ROOT / "bandscribe" / "third_party" / "msst"
 
 
 def _vendor_table() -> dict[str, tuple[str, str]]:
@@ -37,11 +37,11 @@ def test_vendored_files_match_vendor_md() -> None:
 
 
 def test_pinned_commit_is_consistent() -> None:
-    import gtab.third_party.msst as msst
+    import bandscribe.third_party.msst as msst
 
     text = (MSST / "VENDOR.md").read_text(encoding="utf-8")
     assert msst.MSST_COMMIT in text
-    from gtab.sep import run as seprun
+    from bandscribe.sep import run as seprun
 
     assert seprun.SEP_DEFAULTS["sep.msst_commit"] == msst.MSST_COMMIT
 
@@ -59,7 +59,7 @@ def test_trimmed_init_and_relative_import() -> None:
 
 def _gpu_env(code: str, cwd: Path) -> dict:
     # cwd = a pytest tmp dir: the snippets write scratch checkpoints relative to it (never into the repo root).
-    env = paths.child_env({"PYTHONPATH": str(GTAB_ROOT)})
+    env = paths.child_env({"PYTHONPATH": str(BANDSCRIBE_ROOT)})
     proc = subprocess.run([str(paths.GPU_PYTHON), "-W", "default", "-c", textwrap.dedent(code)],
                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, env=env,
                           cwd=str(cwd))
@@ -75,9 +75,9 @@ def test_strict_load_tiny_model_no_librosa_no_warning(tmp_path: Path) -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             import torch
-            import gtab.third_party.msst
-            from gtab.third_party.msst.models.bs_roformer import BSRoformer
-            from gtab.third_party.msst import loader
+            import bandscribe.third_party.msst
+            from bandscribe.third_party.msst.models.bs_roformer import BSRoformer
+            from bandscribe.third_party.msst import loader
             cfg = {"model": {"dim": 16, "depth": 1, "stereo": True, "num_stems": 2, "time_transformer_depth": 1,
                              "freq_transformer_depth": 1, "dim_head": 8, "heads": 2, "flash_attn": True,
                              "freqs_per_bands": tuple([2] * 24 + [4] * 12 + [12] * 8 + [24] * 8 + [48] * 8 + [128, 129]),
@@ -117,7 +117,7 @@ def test_sw_yaml_parses_with_safe_loader(tmp_path: Path) -> None:
         pytest.skip("SW yaml not on disk")
     out = _gpu_env(f"""
         import json
-        from gtab.third_party.msst import loader
+        from bandscribe.third_party.msst import loader
         cfg = loader.load_yaml(r"{yml}")
         print(json.dumps({{"stems": loader.stem_order(cfg), "fpb": type(cfg["model"]["freqs_per_bands"]).__name__,
                           "chunk": cfg["audio"]["chunk_size"], "hop": cfg["model"]["stft_hop_length"],

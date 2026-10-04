@@ -1,17 +1,17 @@
-# GPU worker environment. Workers run as child processes: <this venv>\Scripts\python.exe -m gtab.workers.<name>
+# GPU worker environment. Workers run as child processes: <this venv>\Scripts\python.exe -m bandscribe.workers.<name>
 # torch 2.11 is the last line built for cu128, which MuScriptor documents for Windows (docs/DESIGN.md 9.2).
 [project]
-name = "gtab-gpu-env"
+name = "bandscribe-gpu-env"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "gtab",
+    "bandscribe",
     "torch==2.11.0",
     "torchaudio==2.11.0",
-    # gtab.sysmon reads NVML from inside workers (device used-memory peak), M0_SPEC §0/§11.
+    # bandscribe.sysmon reads NVML from inside workers (device used-memory peak), M0_SPEC §0/§11.
     "nvidia-ml-py>=12.560",
     # --- M1a/M2 (docs/M1_M2_SPEC.md §1.1) ---
-    # AMT: MuScriptor 0.3.0 (brings fastapi/uvicorn/typer/httpx - unused by gtab, harmless).
+    # AMT: MuScriptor 0.3.0 (brings fastapi/uvicorn/typer/httpx - unused by bandscribe, harmless).
     "muscriptor==0.3.0",
     "safetensors",
     "huggingface-hub",
@@ -31,11 +31,11 @@ dependencies = [
 
 [tool.uv]
 package = false
-# Windows-only env: resolving for macOS fails (muscriptor pins numpy<2 on x86_64 darwin, gtab needs numpy>=2).
+# Windows-only env: resolving for macOS fails (muscriptor pins numpy<2 on x86_64 darwin, bandscribe needs numpy>=2).
 environments = ["sys_platform == 'win32'"]
 
 [tool.uv.sources]
-gtab = { path = "../..", editable = true }
+bandscribe = { path = "../..", editable = true }
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
 

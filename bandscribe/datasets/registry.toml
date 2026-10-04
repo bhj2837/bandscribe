@@ -1,0 +1,280 @@
+# Dataset registry (DATA owner, M1_M2_SPEC §9.5). Source of truth for URLs, sizes, checksums and licenses.
+#
+# Everything listed here stays on this PC under data/datasets/<name>/ and is never redistributed.
+# Per-dataset keys:
+#   title, tier ("B" | "C"), access ("zenodo" | "direct" | "gdrive_folder" | "manual"), license, page,
+#   approx_bytes (required files; shown before a fetch), loader (module in bandscribe/datasets/loaders),
+#   families (FAMILIES keys that can occur), notes, manual_ko (Korean steps shown when a download must be
+#   done by hand). Optional: license_url, doi, zenodo_record, contamination.
+# [[<name>.files]]: name (ASCII file name under raw/), url, bytes (0 = unknown), md5 ("" = none published),
+#   required, extract (zip/tar is unpacked to extracted/<stem>/), part (group label), song/title (Cambridge-MT).
+# [[<name>.folders]] (access = "gdrive_folder"): name, folder_id, required, expected_files.
+#
+# Checked 2026-09-30: Zenodo sizes/md5/licences via https://zenodo.org/api/records/<id>; the EGDB Drive
+# folder via drive.google.com/embeddedfolderview (plain HTML listing, no login); Cambridge-MT: the web site
+# (www.cambridge-mt.com, multitracks.cambridge-mt.com) answers every script with a Cloudflare challenge
+# (HTTP 403, cf-mitigated: challenge) -> never worked around; but the MTK archive host
+# mtkdata.cambridgemusictechnology.co.uk serves plain HTTP 200 for many songs, so those are "direct".
+
+format = "bandscribe.dataset_registry/1"
+
+# --------------------------------------------------------------------------------------------- Tier C
+
+[guitarset]
+title = "GuitarSet 1.1.0"
+tier = "C"
+access = "zenodo"
+zenodo_record = 3371780
+doi = "10.5281/zenodo.3371780"
+page = "https://zenodo.org/records/3371780"
+license = "CC BY 4.0"
+license_url = "https://creativecommons.org/licenses/by/4.0/"
+approx_bytes = 696060555
+loader = "guitarset"
+families = ["guitar"]
+contamination = "In Basic Pitch's training data (split not reproducible): structure, string GT, BP smoke and latency only - never a transcription verdict (DESIGN 8.2)."
+notes = "360 excerpts, 6 players (00-05), comp/solo pairs. JAMS note_midi per string (data_source 0 = low E). Latency split (M1_M2_SPEC §10): dev = players 00-02, test = 03-05."
+manual_ko = "브라우저로 https://zenodo.org/records/3371780 에서 annotation.zip, audio_mono-mic.zip 을 받아 한 폴더에 풀고 `bandscribe data import-local guitarset <폴더>` 를 실행하세요."
+
+[[guitarset.files]]
+name = "annotation.zip"
+url = "https://zenodo.org/records/3371780/files/annotation.zip?download=1"
+bytes = 39132574
+md5 = "b39b78e63d3446f2e54ddb7a54df9b10"
+required = true
+extract = true
+
+[[guitarset.files]]
+name = "audio_mono-mic.zip"
+url = "https://zenodo.org/records/3371780/files/audio_mono-mic.zip?download=1"
+bytes = 656927981
+md5 = "275966d6610ac34999b58426beb119c3"
+required = true
+extract = true
+
+[[guitarset.files]]
+name = "audio_mono-pickup_mix.zip"
+url = "https://zenodo.org/records/3371780/files/audio_mono-pickup_mix.zip?download=1"
+bytes = 683145360
+md5 = "aecce79f425a44e2055e46f680e10f6a"
+required = false
+extract = true
+
+[[guitarset.files]]
+name = "audio_hex-pickup_debleeded.zip"
+url = "https://zenodo.org/records/3371780/files/audio_hex-pickup_debleeded.zip?download=1"
+bytes = 3607349578
+md5 = "c31d97279464c9a67e640cb9061fb0c6"
+required = false
+extract = true
+
+[[guitarset.files]]
+name = "audio_hex-pickup_original.zip"
+url = "https://zenodo.org/records/3371780/files/audio_hex-pickup_original.zip?download=1"
+bytes = 3210735945
+md5 = "f9911bf217cb40e9e68edf3726ef86cc"
+required = false
+extract = true
+
+[idmt_bass_st]
+title = "IDMT-SMT-Bass-Single-Track 1.0.0"
+tier = "C"
+access = "zenodo"
+zenodo_record = 7544099
+doi = "10.5281/zenodo.7544099"
+page = "https://zenodo.org/records/7544099"
+license = "CC BY-NC-ND 4.0"
+license_url = "https://creativecommons.org/licenses/by-nc-nd/4.0/"
+approx_bytes = 20499169
+loader = "idmt_bass"
+families = ["bass"]
+notes = "17 electric bass lines with onset/offset/pitch/string/fret per note (XML). String/fret GT for M5."
+manual_ko = "브라우저로 https://zenodo.org/records/7544099 에서 IDMT-SMT-BASS-SINGLE-TRACKS.zip 을 받아 풀고 `bandscribe data import-local idmt_bass_st <폴더>` 를 실행하세요."
+
+[[idmt_bass_st.files]]
+name = "IDMT-SMT-BASS-SINGLE-TRACKS.zip"
+url = "https://zenodo.org/records/7544099/files/IDMT-SMT-BASS-SINGLE-TRACKS.zip?download=1"
+bytes = 20499169
+md5 = "c85540c664e8b13badd86880bacf11fa"
+required = true
+extract = true
+
+[filobass]
+title = "FiloBass 1.0.0"
+tier = "C"
+access = "zenodo"
+zenodo_record = 10069709
+doi = "10.5281/zenodo.10069709"
+page = "https://zenodo.org/records/10069709"
+license = "CC BY 4.0"
+license_url = "https://creativecommons.org/licenses/by/4.0/"
+approx_bytes = 434088235
+loader = "filobass"
+families = ["bass"]
+notes = "Jazz upright bass: separated bass stems, performance-aligned MIDI, beats/downbeats (M5)."
+manual_ko = "브라우저로 https://zenodo.org/records/10069709 에서 FiloBass_v1.0.0.zip 을 받아 풀고 `bandscribe data import-local filobass <폴더>` 를 실행하세요."
+
+[[filobass.files]]
+name = "FiloBass_v1.0.0.zip"
+url = "https://zenodo.org/records/10069709/files/FiloBass_v1.0.0.zip?download=1"
+bytes = 434088235
+md5 = "ea1f52ffd492bf3654d720529f15bd9b"
+required = true
+extract = true
+
+[egdb]
+title = "EGDB (electric guitar DI + 5 amp renders)"
+tier = "C"
+access = "gdrive_folder"
+page = "https://drive.google.com/drive/folders/1h9DrB4dk4QstgjNaHh7lL7IMeKdYw82_"
+license = "not stated (README asks for feedback only) - personal research use, never redistributed"
+approx_bytes = 9140000000
+loader = "egdb"
+families = ["guitar"]
+contamination = "Not in Basic Pitch's training data (paper + Spotify post). MuScriptor: unknown (EGDB is one of its in-distribution headline sets) -> gate-m2 rule applies."
+notes = "240 clips (ids 1..240; README says 216-241 are test, 241 does not exist), 44.1 kHz WAV per timbre folder (DI mono 16-bit ~0.57 GB; each amp render stereo 24-bit ~1.71 GB) + per-clip MIDI labels (7 tracks @480 tpq, tracks '1'..'6' = strings). README: train timbres Marshall, Ftwin, Mesa; test timbres JCjazz, Plexi; clip split: ids 216-241 = test (9/1). All amp renders are required: the gate-m2 distortion subset uses Marshall, Mesa and Plexi."
+manual_ko = "브라우저로 https://drive.google.com/drive/folders/1h9DrB4dk4QstgjNaHh7lL7IMeKdYw82_ 를 열어 audio_DI, audio_Ftwin, audio_JCjazz, audio_label, audio_Marshall, audio_Mesa, audio_Plexi 폴더와 README.txt 를 받아 한 폴더에 (폴더 이름 그대로) 풀고 `bandscribe data import-local egdb <폴더>` 를 실행하세요."
+
+[[egdb.files]]
+name = "README.txt"
+url = "https://drive.google.com/uc?export=download&id=1BlRU4rU2mpECz9qDGCeDLAGLFIE_ri7i"
+bytes = 670
+md5 = ""
+required = true
+extract = false
+
+[[egdb.folders]]
+name = "audio_label"
+folder_id = "1a6wDDbu_yYVAEGdeC2fRs6SnmXsKq9tN"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "audio_DI"
+folder_id = "1AfpAaWnBvrTLHxe2DafgQ4mz4GGBjwAa"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "audio_JCjazz"
+folder_id = "1t_4yqBEUIt8tCIAf_JfG5EPrDGYC2Bq9"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "audio_Plexi"
+folder_id = "1Dsi4eD8IkuOrJXEfY2qPORdtuThsWYNE"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "audio_Marshall"
+folder_id = "1FUk3IDUqZ3hXZDN1USuD01Rz3cFkJFCY"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "audio_Ftwin"
+folder_id = "12ww-3Sgjy38wyWdeco7lr0eVLjUXiyEM"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "audio_Mesa"
+folder_id = "1E3cV89X-AFVFfoNXwKGC1cPw-n3eakeD"
+required = true
+expected_files = 240
+
+[[egdb.folders]]
+name = "RealData"
+folder_id = "18FeblgMokmC57hGMEUn763yb4B-j_Hz_"
+required = false
+expected_files = 0
+
+# --------------------------------------------------------------------------------------------- Tier B
+
+[cambridge_mt]
+title = "Cambridge-MT Mixing Secrets multitracks (rock, 2+ electric guitar parts)"
+tier = "B"
+access = "direct"
+page = "https://www.cambridge-mt.com/ms3/mtk/"
+license = "Cambridge-MT library terms (educational/non-commercial use; personal local use only)"
+approx_bytes = 1504702774
+loader = "cambridge_mt"
+families = ["guitar", "bass", "vocals", "drums", "keys", "synth"]
+notes = "Picked 2026-09-30 from the MS21 annotation CSV (github.com/felixCheungcheung/mixing_secrets_v2, mixing_secret_dataset_annotation_with_comment.csv): Broad_Genre rock/metal, >= 2 Electric_Guitar files forming >= 2 parts, 'Clean' = 1, archive on the plain-HTTP MTK host; two with keys/synth for E3. No checksum is published (sha256 is pinned on first download). Line/role labels are by ear in each song's lines.yaml."
+manual_ko = "다른 곡은 브라우저로 https://www.cambridge-mt.com/ms3/mtk/ 에서 'Full' 멀티트랙 ZIP 을 받아 풀고 `bandscribe data import-local cambridge_mt <폴더> --song <곡 이름>` 을 실행한 뒤 lines.yaml 을 귀로 확인해 채우세요."
+
+[[cambridge_mt.files]]
+name = "Woodfire_HauntedHouse_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK014/Woodfire_HauntedHouse_Full.zip"
+bytes = 230758360
+md5 = ""
+required = true
+extract = true
+song = "woodfire_hauntedhouse"
+title = "Woodfire - Haunted House (Alt Rock; ElecGtr1a/b, 2a/b, 3a/b)"
+
+[[cambridge_mt.files]]
+name = "ButterflyEffect_Fairytale_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK008/ButterflyEffect_Fairytale_Full.zip"
+bytes = 250002875
+md5 = ""
+required = true
+extract = true
+song = "butterflyeffect_fairytale"
+title = "The Butterfly Effect - Fairytale (90s Alt Rock; ElecGtr1-6)"
+
+[[cambridge_mt.files]]
+name = "JetB_ToTheWolves_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK014/JetB_ToTheWolves_Full.zip"
+bytes = 283902601
+md5 = ""
+required = true
+extract = true
+song = "jetb_tothewolves"
+title = "Jet B - To The Wolves (Classic Rock; ElecGtr1-4 + Piano)"
+
+[[cambridge_mt.files]]
+name = "Mistrusted_Polemic_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK020/Mistrusted_Polemic_Full.zip"
+bytes = 187865992
+md5 = ""
+required = true
+extract = true
+song = "mistrusted_polemic"
+title = "Mistrusted - Polemic (Grunge/Punk; ElecGtr1-4 + Stylophone synth)"
+
+[[cambridge_mt.files]]
+name = "Secretariat_OverTheTop_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK007/Secretariat_OverTheTop_Full.zip"
+bytes = 225139753
+md5 = ""
+required = true
+extract = true
+song = "secretariat_overthetop"
+title = "Secretariat - Over The Top (Americana rock; ElecGtr1-3 + Hammond)"
+
+[[cambridge_mt.files]]
+name = "MR1110_YoungGriffo_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK002/MR1110_YoungGriffo_Full.zip"
+bytes = 327033193
+md5 = ""
+required = true
+extract = true
+song = "younggriffo_facade"
+title = "Young Griffo - Facade (Heavy Rock; ElecGtr1 a-d, ElecGtr2 a-d)"
+
+[medleydb]
+title = "MedleyDB 1.0 (audio)"
+tier = "B"
+access = "manual"
+zenodo_record = 1649325
+page = "https://zenodo.org/records/1649325"
+license = "CC BY-NC-SA 4.0 (per MedleyDB site; restricted Zenodo record, not machine-checkable) [verify]"
+approx_bytes = 0
+loader = "medleydb"
+families = ["guitar", "bass", "vocals", "drums", "keys", "synth", "strings", "brass", "winds"]
+contamination = "MedleyDB-Pitch is in Basic Pitch's training data -> flag in contamination.md."
+notes = "Access request on Zenodo (user). Loader reads a local copy only: <Song>/<Song>_METADATA.yaml + _STEMS/ + _MIX.wav."
+manual_ko = "https://zenodo.org/records/1649325 에서 접근 요청을 보내고 승인되면 받은 MedleyDB 폴더(곡 폴더들이 있는 폴더)를 `bandscribe data import-local medleydb <폴더>` 로 등록하세요."

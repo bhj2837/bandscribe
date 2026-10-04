@@ -1,4 +1,4 @@
-"""gtab.ingest.youtube and the URL path of gtab.ingest (M0_SPEC 12, 15).
+"""bandscribe.ingest.youtube and the URL path of bandscribe.ingest (M0_SPEC 12, 15).
 
 Offline tests replace the yt-dlp call (youtube._run_ytdlp) with a fake that writes what yt-dlp would.
 The one @network test downloads a short Creative Commons clip for real.
@@ -18,10 +18,10 @@ import pytest
 import soundfile as sf
 
 from fixtures import synth_audio
-from gtab import atomic, paths, winjob
-from gtab.config import Config
-from gtab.ingest import IngestError, YoutubeError, content_key, ingest, youtube
-from gtab.jobs.store import JobStore
+from bandscribe import atomic, paths, winjob
+from bandscribe.config import Config
+from bandscribe.ingest import IngestError, YoutubeError, content_key, ingest, youtube
+from bandscribe.jobs.store import JobStore
 
 VID = "YE7VzlLtp-4"  # Blender Foundation, "Big Buck Bunny" (CC BY 3.0)
 
@@ -366,7 +366,7 @@ def test_real_ytdlp_error_text_is_utf8(tmp_path: Path) -> None:
 
 
 def test_pace_spans_processes_via_the_stamp_file(ytenv: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A second `gtab ingest <url>` is a new process: the wait must come from disk, not memory."""
+    """A second `bandscribe ingest <url>` is a new process: the wait must come from disk, not memory."""
     monkeypatch.setattr(youtube, "MIN_INTERVAL_S", 5.0)
     monkeypatch.setattr(youtube, "_last_download_end", 0.0)  # fresh process
     slept: list[float] = []

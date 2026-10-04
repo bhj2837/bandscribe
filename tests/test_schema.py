@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-import gtab
-from gtab.schema import (
+import bandscribe
+from bandscribe.schema import (
     NOTE_FLAGS,
     Confidence,
     Line,
@@ -75,7 +75,7 @@ def test_defaults() -> None:
     score = Score(song=SongMeta(song_key="f-0123456789abcdef", duration_s=1.0, source_kind="file", source_ref="a.flac"))
     assert score.schema_version == 0
     assert score.lines == []
-    assert score.gtab_version == gtab.__version__
+    assert score.bandscribe_version == bandscribe.__version__
     assert score.created_utc.endswith("Z") and len(score.created_utc) == 20
     note = Note(onset_s=0, offset_s=1, pitch=60)
     assert note.confidence == Confidence()

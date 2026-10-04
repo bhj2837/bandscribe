@@ -21,7 +21,7 @@ import json, sys
 sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
 import numpy as np
 import repet_exp as R
-from gtab.analysis.repetition import background_mask
+from bandscribe.analysis.repetition import background_mask
 S = R.S; SR = R.SR; SEG = S.N
 res = []
 for m in (0, 20, 50):

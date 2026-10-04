@@ -7,8 +7,8 @@ import json
 import numpy as np
 import pytest
 
-from gtab import atomic
-from gtab.analysis import sections
+from bandscribe import atomic
+from bandscribe.analysis import sections
 from grid_testlib import onsets_from, synth_song
 
 SHIFT_S = 0.030
@@ -92,7 +92,7 @@ def test_determinism_across_thread_settings(tmp_path, ababca):
 
 
 def test_schema(ababca):
-    from gtab.schema.sections import RepeatMap, Sections
+    from bandscribe.schema.sections import RepeatMap, Sections
 
     _y, _grid, _ons, sec, rep = ababca
     Sections.model_validate(sec)

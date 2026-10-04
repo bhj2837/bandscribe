@@ -8,8 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gtab.eval import baselines, metrics
-from gtab.eval.metrics import UNASSIGNED, Event
+from bandscribe.eval import baselines, metrics
+from bandscribe.eval.metrics import UNASSIGNED, Event
 
 pytest.importorskip("mir_eval")
 
@@ -28,11 +28,11 @@ def random_notes(n: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
 
 
 def prediction(notes: list[tuple[float, float, int, str]], *, item: str = "t", posteriors=None):
-    from gtab.schema.evalio import PredNote, Prediction
+    from bandscribe.schema.evalio import PredNote, Prediction
 
     pn = [PredNote(onset_s=a, offset_s=b, pitch=p, line=ln, posterior=None if posteriors is None else posteriors[i])
           for i, (a, b, p, ln) in enumerate(notes)]
-    return Prediction(format="gtab.prediction/1", system="test", item=item, lines=[], notes=pn)
+    return Prediction(format="bandscribe.prediction/1", system="test", item=item, lines=[], notes=pn)
 
 
 def gt_events(notes: list[tuple[float, int, str]]) -> list[Event]:
@@ -194,7 +194,7 @@ def test_majority_all_in_one_line_equals_baseline(seed):
 
 
 def test_guitar_classes_match_schema():
-    from gtab.schema.instrumentation import GUITAR_CLASSES
+    from bandscribe.schema.instrumentation import GUITAR_CLASSES
 
     assert tuple(baselines.GUITAR_CLASSES) == tuple(GUITAR_CLASSES)
 
@@ -204,8 +204,8 @@ def test_guitar_classes_match_schema():
 
 def _grid_song(bars: int = 16, *, warp: bool = True, seed: int = 71):
     """GT (bar/tick) on a warped 4/4 tempo map: 100 -> 130 BPM ramp with ±3 % sinusoidal drift."""
-    from gtab.eval.refscore import tempo_map_dict, tempo_map_from_dict
-    from gtab.schema.gt import GtNote, GtNotes
+    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
+    from bandscribe.schema.gt import GtNote, GtNotes
 
     n_beats = bars * 4 + 1
     t, times = 0.0, []
@@ -224,7 +224,7 @@ def _grid_song(bars: int = 16, *, warp: bool = True, seed: int = 71):
             if rng.random() < 0.8:
                 notes.append(GtNote(line="L1", ref_track=1, bar=b, tick=k * 24.0, dur_ticks=24.0,
                                     pitch=int(rng.integers(40, 76)), string=None, fret=None))
-    gt = GtNotes(format="gtab.gtnotes/1", song_id="grid", tpb=48,
+    gt = GtNotes(format="bandscribe.gtnotes/1", song_id="grid", tpb=48,
                  bars=[{"bar": b, "numerator": 4, "denominator": 4, "beat_unit": "quarter", "nominal_bpm": 120.0}
                        for b in range(1, bars + 1)], notes=notes)
     return gt, tm
@@ -239,7 +239,7 @@ def _perf_arrays(gt, tm, jitter_s: float = 0.0, seed: int = 0):
 def test_grid_leak_system_grid_errors_do_not_reach_tick_f1():
     """Predictions at the true times, system grid off by half a beat and by one downbeat: tick F1 stays 1.0
     (it only uses the GT tempo map), while the system's own quantisation (notation match) is visibly wrong."""
-    from gtab.eval.refscore import tempo_map_dict, tempo_map_from_dict
+    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
 
     gt, tm = _grid_song(bars=16, warp=True)
     perf = _perf_arrays(gt, tm, jitter_s=0.02, seed=5)

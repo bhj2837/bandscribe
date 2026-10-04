@@ -17,13 +17,13 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from gtab import atomic, cli, config, log, paths
+from bandscribe import atomic, cli, config, log, paths
 
-MANAGED_ENV = ("GTAB_ROOT", "HF_HOME", "TORCH_HOME", "UV_CACHE_DIR", "PYTHONUTF8", "PYTHONIOENCODING", "PYTHONNOUSERSITE",
+MANAGED_ENV = ("BANDSCRIBE_ROOT", "HF_HOME", "TORCH_HOME", "UV_CACHE_DIR", "PYTHONUTF8", "PYTHONIOENCODING", "PYTHONNOUSERSITE",
                "MPLBACKEND")
 
 META = {
-    "gtab_version": "0.1.0",
+    "bandscribe_version": "0.1.0",
     "created_utc": "2026-09-30T00:00:00Z",
     "song_key": "f-0123456789abcdef",
     "source": {
@@ -50,8 +50,8 @@ META = {
 
 @pytest.fixture
 def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """GTAB_ROOT in tmp: gtab.paths is reloaded so every paths.X points below it, then restored."""
-    r = tmp_path / "gtab-root"
+    """BANDSCRIBE_ROOT in tmp: bandscribe.paths is reloaded so every paths.X points below it, then restored."""
+    r = tmp_path / "bandscribe-root"
     r.mkdir()
     root_logger = logging.getLogger()
     level = root_logger.level
@@ -61,7 +61,7 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
             # paths.apply_process_env() is fully undone when the context exits
             mp.setenv(key, "x")
             mp.delenv(key)
-        mp.setenv("GTAB_ROOT", str(r))
+        mp.setenv("BANDSCRIBE_ROOT", str(r))
         mp.setenv("COLUMNS", "200")  # rich tables: no wrapping of what the tests look for
         importlib.reload(paths)
         try:
@@ -117,7 +117,7 @@ class FakeStore:
 @pytest.fixture
 def fake_store(monkeypatch: pytest.MonkeyPatch) -> type[FakeStore]:
     FakeStore.instances = []
-    install(monkeypatch, "gtab.jobs.store", JobStore=FakeStore)
+    install(monkeypatch, "bandscribe.jobs.store", JobStore=FakeStore)
     return FakeStore
 
 
@@ -134,14 +134,14 @@ def test_help_lists_commands(root: Path, runner: CliRunner) -> None:
 def test_version(root: Path, runner: CliRunner) -> None:
     result = runner.invoke(cli.app, ["--version"])
     assert result.exit_code == 0
-    assert result.stdout.strip() == f"gtab {cli.__version__}"
+    assert result.stdout.strip() == f"bandscribe {cli.__version__}"
 
 
 def test_verbose_logs_debug_to_console_and_file(root: Path, runner: CliRunner) -> None:
     result = runner.invoke(cli.app, ["-v", "config", "show", "--set", "ingest.lowpass_detect_hz=15000"])
     assert result.exit_code == 0, result.output
     assert "config layer: --set ingest.lowpass_detect_hz=15000" in result.stderr
-    assert "config layer: --set" in (paths.LOGS / "gtab.log").read_text(encoding="utf-8")
+    assert "config layer: --set" in (paths.LOGS / "bandscribe.log").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------------------- config
@@ -202,7 +202,7 @@ def test_doctor_all_ok(root: Path, runner: CliRunner, monkeypatch: pytest.Monkey
         seen.append(cfg)
         return FakeReport([FakeCheck("ffmpeg", True, "8.0.1 [soxr]"), FakeCheck("node", True, "v24")])
 
-    install(monkeypatch, "gtab.doctor", run_doctor=run_doctor)
+    install(monkeypatch, "bandscribe.doctor", run_doctor=run_doctor)
     result = runner.invoke(cli.app, ["doctor"])
     assert result.exit_code == 0, result.output
     assert isinstance(seen[0], config.Config)
@@ -212,7 +212,7 @@ def test_doctor_all_ok(root: Path, runner: CliRunner, monkeypatch: pytest.Monkey
 
 def test_doctor_required_failure_exits_1(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     report = FakeReport([FakeCheck("cuda", False, "CUDA 없음"), FakeCheck("py310", False, "info", required=False)])
-    install(monkeypatch, "gtab.doctor", run_doctor=lambda cfg: report)
+    install(monkeypatch, "bandscribe.doctor", run_doctor=lambda cfg: report)
     result = runner.invoke(cli.app, ["doctor"])
     assert result.exit_code == 1
     assert "실패" in result.stdout and "경고" in result.stdout and "CUDA 없음" in result.stdout
@@ -220,7 +220,7 @@ def test_doctor_required_failure_exits_1(root: Path, runner: CliRunner, monkeypa
 
 def test_doctor_warning_only_exits_0(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     report = FakeReport([FakeCheck("cuda", True, "ok"), FakeCheck("py310", False, "info", required=False)])
-    install(monkeypatch, "gtab.doctor", run_doctor=lambda cfg: report)
+    install(monkeypatch, "bandscribe.doctor", run_doctor=lambda cfg: report)
     result = runner.invoke(cli.app, ["doctor"])
     assert result.exit_code == 0, result.output
     assert "경고 1개" in result.stdout
@@ -228,7 +228,7 @@ def test_doctor_warning_only_exits_0(root: Path, runner: CliRunner, monkeypatch:
 
 def test_doctor_json(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     report = FakeReport([FakeCheck("cuda", False, "없음"), FakeCheck("node", True, "v24")])
-    install(monkeypatch, "gtab.doctor", run_doctor=lambda cfg: report)
+    install(monkeypatch, "bandscribe.doctor", run_doctor=lambda cfg: report)
     result = runner.invoke(cli.app, ["doctor", "--json"])
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
@@ -237,10 +237,10 @@ def test_doctor_json(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPa
 
 
 def test_doctor_broken_module_is_a_clean_error(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-    install(monkeypatch, "gtab.doctor")  # no run_doctor attribute
+    install(monkeypatch, "bandscribe.doctor")  # no run_doctor attribute
     result = runner.invoke(cli.app, ["doctor"])
     assert result.exit_code == 1
-    assert "gtab.doctor.run_doctor" in result.stderr and "불러오지 못했습니다" in result.stderr
+    assert "bandscribe.doctor.run_doctor" in result.stderr and "불러오지 못했습니다" in result.stderr
     assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
@@ -248,7 +248,7 @@ def test_doctor_exception_is_a_clean_error(root: Path, runner: CliRunner, monkey
     def boom(cfg: Any) -> None:
         raise RuntimeError("nvml exploded")
 
-    install(monkeypatch, "gtab.doctor", run_doctor=boom)
+    install(monkeypatch, "bandscribe.doctor", run_doctor=boom)
     result = runner.invoke(cli.app, ["doctor"])
     assert result.exit_code == 1
     assert "환경 점검 실패: nvml exploded" in result.stderr
@@ -267,7 +267,7 @@ def _fake_ingest(monkeypatch: pytest.MonkeyPatch, *, meta: dict, cache_hit: bool
         key = meta["song_key"]
         return types.SimpleNamespace(song_key=key, job_dir=paths.JOBS / key, meta=meta, cache_hit=cache_hit)
 
-    install(monkeypatch, "gtab.ingest", ingest=ingest)
+    install(monkeypatch, "bandscribe.ingest", ingest=ingest)
     return calls
 
 
@@ -384,7 +384,7 @@ def test_status_unknown_or_ambiguous(root: Path, runner: CliRunner) -> None:
     assert result.exit_code == 1 and "작업을 찾을 수 없습니다" in result.stderr
     result = runner.invoke(cli.app, ["status", "f-0123"])
     assert result.exit_code == 1 and "여러 개" in result.stderr
-    result = runner.invoke(cli.app, ["status", "../gtab-root"])
+    result = runner.invoke(cli.app, ["status", "../bandscribe-root"])
     assert result.exit_code == 1
 
 
@@ -412,9 +412,9 @@ def test_gc_nothing(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPat
 
 
 def test_gc_without_jobs_module(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-    install(monkeypatch, "gtab.jobs.store")  # module present but JobStore missing
+    install(monkeypatch, "bandscribe.jobs.store")  # module present but JobStore missing
     result = runner.invoke(cli.app, ["gc"])
-    assert result.exit_code == 1 and "gtab.jobs.store.JobStore" in result.stderr
+    assert result.exit_code == 1 and "bandscribe.jobs.store.JobStore" in result.stderr
 
 
 # ------------------------------------------------------------------------------------------ main
@@ -437,8 +437,8 @@ def test_main_bootstraps_everything(root: Path, capsys: pytest.CaptureFixture[st
     assert os.environ["MPLBACKEND"] == "Agg"  # synctoolbox/matplotlib never look for a GUI backend
     for sub in ("eval", "runs", "datasets", "bench", "npm-cache"):  # M1a/M2 layout (M1_M2_SPEC 1.2)
         assert (data / sub).is_dir(), sub
-    assert log.get_logfile() == data / "logs" / "gtab.log"
-    assert "argv=['config', 'show']" in (data / "logs" / "gtab.log").read_text(encoding="utf-8")
+    assert log.get_logfile() == data / "logs" / "bandscribe.log"
+    assert "argv=['config', 'show']" in (data / "logs" / "bandscribe.log").read_text(encoding="utf-8")
 
 
 def test_utf8_stdio_reconfigures_in_place_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -493,9 +493,9 @@ def test_broken_command_module_becomes_a_placeholder(root: Path, runner: CliRunn
     def hello() -> None:
         """기존 명령"""
 
-    install(monkeypatch, "gtab.commands.fakebroken")  # no register() -> AttributeError
-    assert cli._register_optional(app, "gtab.commands.fakebroken") is False
-    assert cli._register_optional(app, "gtab.commands.does_not_exist_xyz") is False
+    install(monkeypatch, "bandscribe.commands.fakebroken")  # no register() -> AttributeError
+    assert cli._register_optional(app, "bandscribe.commands.fakebroken") is False
+    assert cli._register_optional(app, "bandscribe.commands.does_not_exist_xyz") is False
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0 and "hello" in result.output and "fakebroken" in result.output
     for args in (["fakebroken"], ["fakebroken", "run", "--suite", "quick"], ["fakebroken", "--help"]):
@@ -520,14 +520,14 @@ def test_half_registered_module_is_rolled_back(root: Path, runner: CliRunner, mo
         app.add_typer(sub, name="halfway")
         raise RuntimeError("register 도중 실패")
 
-    install(monkeypatch, "gtab.commands.halfway", register=register)
+    install(monkeypatch, "bandscribe.commands.halfway", register=register)
     app = typer.Typer()
 
     @app.command()
     def hello() -> None:
         pass
 
-    assert cli._register_optional(app, "gtab.commands.halfway") is False
+    assert cli._register_optional(app, "bandscribe.commands.halfway") is False
     assert len(app.registered_groups) == 0 and [c.name for c in app.registered_commands] == [None, "halfway"]
     result = runner.invoke(app, ["halfway", "x"])
     assert result.exit_code == 1 and "register 도중 실패" in result.stderr
@@ -541,28 +541,28 @@ def test_working_module_is_registered(root: Path, runner: CliRunner, monkeypatch
         def _ok() -> None:
             print("실행됨")
 
-    install(monkeypatch, "gtab.commands.okmod", register=register)
+    install(monkeypatch, "bandscribe.commands.okmod", register=register)
     app = typer.Typer()
 
     @app.command()
     def hello() -> None:
         pass
 
-    assert cli._register_optional(app, "gtab.commands.okmod") is True
+    assert cli._register_optional(app, "bandscribe.commands.okmod") is True
     result = runner.invoke(app, ["ok-cmd"])
     assert result.exit_code == 0 and "실행됨" in result.output
 
 
 def test_optional_commands_load_lazily(root: Path) -> None:
-    """`gtab ingest` / `status` must not pay for the M2 command modules (cache hit < 1 s, DESIGN 10)."""
-    code = "import sys, gtab.cli; print(sorted(m for m in sys.modules if m.startswith('gtab.commands.')))"
+    """`bandscribe ingest` / `status` must not pay for the M2 command modules (cache hit < 1 s, DESIGN 10)."""
+    code = "import sys, bandscribe.cli; print(sorted(m for m in sys.modules if m.startswith('bandscribe.commands.')))"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
                          errors="replace", check=True)
     assert out.stdout.strip() == "[]", out.stdout
 
 
 def test_broken_owner_module_does_not_break_the_cli(root: Path, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-    install(monkeypatch, "gtab.commands.eval")  # imports fine but has no register()
+    install(monkeypatch, "bandscribe.commands.eval")  # imports fine but has no register()
     result = runner.invoke(cli.app, ["--help"])
     assert result.exit_code == 0 and "(불러오지 못함)" in result.output and "doctor" in result.output
     result = runner.invoke(cli.app, ["eval", "run", "--suite", "quick"])

@@ -3,18 +3,18 @@
 모든 선택지는 여기의 실험으로 관리한다. **실험 전에** 주 지표, 최소 검출 효과(MDE), 데이터, 분석 방법, 결정 규칙을 적는다.
 **첫 실행 뒤에는 지표·MDE·데이터·규칙을 바꾸지 않는다.** 바꿔야 하면 새 id로 다시 사전 등록한다.
 
-- 제목 줄 `## <id>` 의 id가 곧 `gtab eval exp <id>` 의 id다(정확히 같아야 한다).
+- 제목 줄 `## <id>` 의 id가 곧 `bandscribe eval exp <id>` 의 id다(정확히 같아야 한다).
 - 상태: `사전 등록` → (첫 결과가 나오면 러너가 바꿈) `실행 중` → (사람이 확인 후) `결정: 채택|기각|판단 보류 (이유)`.
   러너는 `사전 등록`·`실행 중` 만 실행하고, `결정:` 항목은 거부한다(다시 보려면 새 id로 등록).
   데이터·모델이 없어 결과 없이 끝난 실행은 상태를 바꾸지 않는다. 데이터를 기다리기로 했으면
-  `gtab eval exp <id> --record "판단 보류 (데이터 대기)"` 로 사람이 기록한다.
+  `bandscribe eval exp <id> --record "판단 보류 (데이터 대기)"` 로 사람이 기록한다.
 - `판정 설정` 의 `select=dev; split=test`: dev 에서 선택지 하나를 고르고 그 하나만 test 에서 확인한다(test 로 고르지 않음).
 - `판정 설정` 줄은 러너가 읽는 기계 판독 설정이다(`키=값; …`). 단위는 점(F1 × 100).
 - 분석 기본값: 곡(또는 연주자) 블록 부트스트랩 10,000회(seed 20260930), 후보 − 기준 쌍 비교, 95 % CI.
   채택 = CI가 0을 제외 **그리고** 점추정 ≥ MDE **그리고** 어느 시나리오 하위 세트도 CI 상한 < −2점이 아님(DESIGN 8.1).
   CI가 0을 포함하면 `판단 보류` 로 기록하고 기본값을 유지한다.
 - 측정하는 GPU 백엔드는 실험마다 `force_rung` 으로 사다리 칸을 고정하고, 지표 행의 `rung` 열에 적는다. 칸이 다른 행은 합치지 않는다.
-  `gtab run` 의 단계 캐시는 쓰지 않는다.
+  `bandscribe run` 의 단계 캐시는 쓰지 않는다.
 - 오염 규칙: `docs/eval/contamination.md` 에서 해당 모델 × 세트가 `학습 포함`·`불명` 이면 그 세트로 절대 성능을 주장하지 않는다.
 - 지표 행(metrics.csv) 규약: `system` = 선택지(arm) 이름, `item` = 곡/트랙/창, `group` = 부트스트랩 블록(곡·연주자),
   `scenario` = 하위 세트 태그(예: `distortion`, `keys`), `section` = 분할(`dev`/`test`, 튜닝·지연 실험), `line` = 파트(`guitar`/`bass`).
@@ -34,7 +34,7 @@
 - 결정 규칙:
 - 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=<기준 arm>; mde=1.0`
 - 비용:
-- 실행 명령: `gtab eval exp E<번호>`
+- 실행 명령: `bandscribe eval exp E<번호>`
 - 결과: (아직 없음)
 ```
 
@@ -54,7 +54,7 @@
 - 결정 규칙: DESIGN 8.1 채택 규칙. 두 후보가 모두 채택이면 점추정이 큰 쪽.
 - 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=off; mde=1.0`
 - 비용: SW 곡당 3회 + MuScriptor 곡당 6뷰. 실행 시간 추가 없음(설정값 변경).
-- 실행 명령: `gtab eval exp E1`
+- 실행 명령: `bandscribe eval exp E1`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전(지표·MDE·결정 규칙은 그대로). (1) 지연 상수 `amt.latency_s` 는 추정 전사와 reftx 참조에 **똑같이** 뺀다. 둘 다 MuScriptor 원시 출력이라 같은 지연을 가지므로, 추정에만 빼면 모든 arm 이 상수만큼 참조와 어긋난다(실행 전에 `_refs_by_kind` 를 고침). (2) Tier B = Cambridge-MT 6곡(ButterflyEffect, JetB, Mistrusted, YoungGriffo, Secretariat, Woodfire). `lines.yaml` 은 사람이 검토하기 전(`reviewed: false`)이고 MedleyDB 는 없다.
   Tier A 는 GT 가 없어 이 실험에서 서술하지 않는다(E2/E3 의 Tier A 서술 표 참고).
 - 결과:
@@ -84,7 +84,7 @@
 - 결정 규칙: DESIGN 8.1 채택 규칙.
 - 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=guitar_mono; mde=1.0`
 - 비용: MuScriptor 곡당 4뷰.
-- 실행 명령: `gtab eval exp E2`
+- 실행 명령: `bandscribe eval exp E2`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전(지표·MDE·결정 규칙은 그대로). (1) 지연 상수 `amt.latency_s` 는 추정 전사와 reftx 참조에 **똑같이** 뺀다. 둘 다 MuScriptor 원시 출력이라 같은 지연을 가지므로, 추정에만 빼면 모든 arm 이 상수만큼 참조와 어긋난다(실행 전에 `_refs_by_kind` 를 고침). (2) Tier B = Cambridge-MT 6곡(ButterflyEffect, JetB, Mistrusted, YoungGriffo, Secretariat, Woodfire). `lines.yaml` 은 사람이 검토하기 전(`reviewed: false`)이고 MedleyDB 는 없다.
   Tier A(`D:/backing` 의 5곡)는 GP 정답이 없어 판정 행에 넣지 않고, 변형별 음 수·음역·클래스 활동·변형 간 일치도만 서술한다.
 - 결과:
@@ -116,7 +116,7 @@
 - 결정 규칙: DESIGN 8.1 채택 규칙 + 누락 제약(test 행에서도 확인). dev 최적이 기본값이면 기각(기본값 유지).
 - 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=guitar+present; mde=1.0; constraint=guitar_class_omissions==0; split_col=section; select=dev; split=test`
 - 비용: 추가 패스 없음.
-- 실행 명령: `gtab eval exp E3`
+- 실행 명령: `bandscribe eval exp E3`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전(지표·MDE·결정 규칙은 그대로). (1) 지연 상수 `amt.latency_s` 는 추정 전사와 reftx 참조에 **똑같이** 뺀다. 둘 다 MuScriptor 원시 출력이라 같은 지연을 가지므로, 추정에만 빼면 모든 arm 이 상수만큼 참조와 어긋난다(실행 전에 `_refs_by_kind` 를 고침). (2) Tier B = Cambridge-MT 6곡(ButterflyEffect, JetB, Mistrusted, YoungGriffo, Secretariat, Woodfire). `lines.yaml` 은 사람이 검토하기 전(`reviewed: false`)이고 MedleyDB 는 없다.
   dev/test 는 등록대로 항목 id 해시(seed 20260930): test = Secretariat, Woodfire(건반 없음 → E3 항목 아님), synthetic A:s1·B:s1·twin:s0. Tier A 는 사람이 정한 편성 GT 가 없어 b13 표에 추정값만 서술한다.
 - 결과:
@@ -142,7 +142,7 @@
 ## E3b
 - 제목: 표본 존재 패스 기준의 `instruments` 하드 마스크 정책 + 존재 문턱 (E3 재등록)
 - 상태: 사전 등록
-- 질문: 2026-10-04 속도·존재 수정 이후 `gtab run` 이 실제로 쓰는 편성 근거(표본 piano+other 존재 패스, 믹스 패스 없음)에서
+- 질문: 2026-10-04 속도·존재 수정 이후 `bandscribe run` 이 실제로 쓰는 편성 근거(표본 piano+other 존재 패스, 믹스 패스 없음)에서
   기타 뷰 마스크를 무엇으로 하고 문턱을 얼마로 할 것인가? 현악기를 마스크에 넣는 것(`guitar+present+strings`)이 도움이 되는가?
 - 선택지: `amt.guitar_mask` = `guitar+present`(기준, 건반·신스만) | `guitar_only` | `all` | `guitar+present+strings`;
   `instr.threshold` ∈ {0.3, 0.4, 0.5, 0.6, 0.7} (`guitar+present` 만; arm 이름은 E3 와 같은 규칙)
@@ -150,14 +150,14 @@
   (keys·synth·strings 가족 추정 vs `families_present`).
 - MDE: +1.0점
 - 데이터(세트, 분할, 창 정의): E3 와 같다(건반 포함 Tier B 곡, 합성 `full_band` 장면, 분할 = 항목 id 해시 seed 20260930).
-  존재 패스 창은 `gtab run` quality 설정(최대 6 × 10 s, 60 s, 곡의 20 %)을 2 s 의사 마디에서 고른다(구간 정보 없음).
+  존재 패스 창은 `bandscribe run` quality 설정(최대 6 × 10 s, 60 s, 곡의 20 %)을 2 s 의사 마디에서 고른다(구간 정보 없음).
   E3 에서 합성 장면 7/8 이 SW 기타 스템 0음이라 정보가 없었다: 실행 전에 건반이 실제로 검출되는 Tier B 곡을 더 넣는다.
 - 분석: E3 와 같다(dev 에서 제약을 지킨 최대 F1 선택지 하나를 test 에서 `guitar+present` 와 쌍 비교, 곡 블록 부트스트랩 10k).
 - 결정 규칙: DESIGN 8.1 채택 규칙 + 누락 제약. dev 최적이 기본값이면 기각(기본값 유지).
 - 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=guitar+present; mde=1.0; constraint=guitar_class_omissions==0; split_col=section; select=dev; split=test`
 - 비용: 항목마다 piano+other 존재 창 전사(최대 60 s 오디오) + 정책·문턱마다 기타 뷰 전사. GPU 30분을 넘으면 사용자에게 먼저 묻는다.
-- 실행 명령: `gtab eval exp E3b`
-- 등록 근거(2026-10-04 리뷰): E3 는 믹스 패스로 편성을 추정해 지금의 `gtab run` 을 재지 않는다. 실곡 3곡에서 현악기를 넣은
+- 실행 명령: `bandscribe eval exp E3b`
+- 등록 근거(2026-10-04 리뷰): E3 는 믹스 패스로 편성을 추정해 지금의 `bandscribe run` 을 재지 않는다. 실곡 3곡에서 현악기를 넣은
   마스크는 백킹 대조 오검출을 줄이지 못했고(怪獣の花唄 17.7 → 17.7 %, 青と夏 15.3 → 20.2 %) 기타 하위 클래스 라벨만 뒤섞었다.
   그래서 기본값은 `guitar+present`(건반·신스)로 되돌렸고, 현악기 변형은 이 실험이 정답 데이터로 판정할 때까지 켜지 않는다.
 - 결과: (아직 없음)
@@ -176,7 +176,7 @@
 - 결정 규칙: test 점추정 ≥ 0이면 채택(튜닝값을 `defaults.toml` 과 `amt_bp` manifest에 기록), 아니면 기본값 유지.
 - 판정 설정: `rule=tuning; metric=onset_f1_50; baseline=f4_o0.5_fr0.3; split_col=section`
 - 비용: 트랙당 모델 1회(`sweep` 모드) + 후처리 72회.
-- 실행 명령: `gtab eval exp E23`
+- 실행 명령: `bandscribe eval exp E23`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전(등록 문구의 구체화). EGDB 는 README 의 공식 분할이 있다: dev = train 클립 1–215, test = 클립 216–240(241 없음). 두 분할 모두 앰프 렌더 5종(Ftwin, JCjazz, Marshall, Mesa, Plexi), DI 제외. 블록 = 클립(한 클립의 렌더 5개 = 한 블록). `scenario` = 앰프 이름으로 짐작한 clean/distorted(귀로 확인 안 함).
 - 결과:
   - 2026-10-03 `20261003-182652_1e422dc_exp-e23`: 계산된 판정 = 채택 (튜닝값 f12_o0.6_fr0.3, test Δ +6.04점)
@@ -190,7 +190,7 @@
     12 프레임이 더 낫다는 근거는 없다.
   - 반영: `amt.bp_onset_threshold = 0.6`, `amt.bp_frame_threshold = 0.4`, `amt.bp_min_note_frames = 7`(81 ms 이상 유지).
     defaults.toml, config.py, AMT_DEFAULTS, test_config, test_amt_bp_params, test_amt_stages, M1_M2_SPEC §1.3 을 고쳤다.
-    `amt_bp` manifest 에는 다음 `gtab run` 때 기록된다.
+    `amt_bp` manifest 에는 다음 `bandscribe run` 때 기록된다.
   - dev 주변 효과(풀링 F1): 프레임 3/4/5/6/7/12 = 51.4/52.8/54.2/55.4/56.2/57.2, onset 0.3/0.4/0.5/0.6 =
     45.0/54.9/60.4/61.3, frame 0.2/0.3/0.4 = 49.8/56.7/58.2. **최적값이 격자의 끝(onset 0.6, frame 0.4, 프레임 7)에 있다.**
     격자 밖이 더 나을 수 있으므로, 넓히려면 새 id 로 사전 등록한다. 한계: EGDB 는 단독 기타(앰프 시뮬)라 밴드 분리 스템의
@@ -209,7 +209,7 @@
 - 결정 규칙: CI 하한 > −0.5 **그리고** (reserved 피크 −20 % 이상 **또는** 실시간 배수 +20 % 이상)일 때만 fp16 채택. 기본은 upstream 유지.
 - 판정 설정: `rule=noninferiority; metric=onset_f1_50; baseline=upstream; margin=-0.5; resource=reserved_peak_mb:-20%|rtf:+20%`
 - 비용: SW 곡당 2회.
-- 실행 명령: `gtab eval exp E24-sep`
+- 실행 명령: `bandscribe eval exp E24-sep`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전(지표·MDE·결정 규칙은 그대로). (1) 지연 상수 `amt.latency_s` 는 추정 전사와 reftx 참조에 **똑같이** 뺀다. 둘 다 MuScriptor 원시 출력이라 같은 지연을 가지므로, 추정에만 빼면 모든 arm 이 상수만큼 참조와 어긋난다(실행 전에 `_refs_by_kind` 를 고침). (2) Tier B = Cambridge-MT 6곡(ButterflyEffect, JetB, Mistrusted, YoungGriffo, Secretariat, Woodfire). `lines.yaml` 은 사람이 검토하기 전(`reviewed: false`)이고 MedleyDB 는 없다.
 - 결과: (아직 없음)
 
@@ -225,7 +225,7 @@
 - 결정 규칙: E24-sep와 같다. 기본은 upstream 유지.
 - 판정 설정: `rule=noninferiority; metric=onset_f1_50; baseline=upstream; margin=-0.5; resource=reserved_peak_mb:-20%|rtf:+20%`
 - 비용: MuScriptor 뷰당 2회.
-- 실행 명령: `gtab eval exp E24-amt`
+- 실행 명령: `bandscribe eval exp E24-amt`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전. 데이터 = GuitarSet 연주자마다 5트랙(항목 id 의 seed 20260930 해시 순, 모두 30트랙). 코드가 앞 30트랙(= 연주자 00 하나 = 블록 1개)을 고르던 것을 실행 전에 고쳤다. 블록 = 연주자(6블록, 기본 분석 규칙). Tier B reftx 부분은 비용 때문에 뺀다. GuitarSet × MuScriptor 오염 = 불명 → 두 dtype 의 상대 비교만 하고 절대 성능은 주장하지 않는다.
 - 결과: (아직 없음)
 
@@ -244,7 +244,7 @@
   (수치와 CI는 그대로 보고).
 - 판정 설정: `rule=gate; metric=onset_f1_50; candidate=muscriptor; baseline=basicpitch; threshold=5.0; subset=distortion; contamination=muscriptor-medium:egdb`
 - 비용: EGDB test 트랙에 두 전사기.
-- 실행 명령: `gtab eval exp gate-m2`
+- 실행 명령: `bandscribe eval exp gate-m2`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전. test = EGDB 공식 test 클립 216–240 의 앰프 렌더(README 분할). 디스토션 하위 세트 = Marshall, Mesa, Plexi(앰프 이름으로 짐작, 귀로 확인 안 함). 판정과 무관한 진단 행을 더한다: 두 전사기의 onset 중앙 잔차(`median_residual_ms`). Basic Pitch 는 설계상 지연 보정을 하지 않으므로, 점수 차이가 지연에서 오는지 확인하려는 것이다.
 - 결과:
   - 2026-10-04 `20261004-010229_1e422dc_exp-gate-m2`: 계산된 판정 = 판단 보류 (오염 불명)
@@ -274,7 +274,7 @@
 - 결정 규칙: 서술(판정 없음). 상수는 통합 요청으로 `defaults.toml` 에 반영.
 - 판정 설정: `rule=descriptive; metric=median_abs_residual_ms; split_col=section`
 - 비용: GuitarSet 트랙당 MuScriptor 1회.
-- 실행 명령: `gtab eval exp latency`
+- 실행 명령: `bandscribe eval exp latency`
 - 사전 등록 보완: 2026-10-03 17시 45분 KST, 첫 실행 전. (1) EGDB dev 는 넣지 않는다. 실행 시점에 EGDB 가 덜 받아졌고, 다 받아도 train 클립 앰프 렌더 1,075개(약 9시간 오디오, MuScriptor 약 7시간)라 비용이 맞지 않는다. 추정 = GuitarSet 연주자 00–02 전체(180트랙), 보고 = 03–05 전체(180트랙). (2) 부트스트랩 블록 = 트랙(등록대로). 코드가 연주자를 블록으로 쓰던 것(분할당 3블록)을 실행 전에 고쳤다. 같은 연주자의 트랙끼리는 독립이 아니므로 연주자 블록 CI 도 참고로 적는다.
 - 결과:
   - 2026-10-03 `20261003-190418_1e422dc_exp-latency`: 계산된 판정 = 서술(판정 없음)
@@ -304,5 +304,5 @@
 - 결정 규칙: 서술(판정 없음). M6 go/no-go 참고 자료.
 - 판정 설정: `rule=descriptive; metric=stereo_delta_coh`
 - 비용: SW 장면당 1회.
-- 실행 명령: `gtab eval exp stereo-preservation`
+- 실행 명령: `bandscribe eval exp stereo-preservation`
 - 결과: (아직 없음)

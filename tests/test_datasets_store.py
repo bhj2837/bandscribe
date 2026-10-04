@@ -8,8 +8,8 @@ import threading
 import pytest
 
 from fixtures.datasets_fakes import write_wav
-from gtab import atomic
-from gtab.datasets import store
+from bandscribe import atomic
+from bandscribe.datasets import store
 
 
 def _rec(sha="0" * 64, n=3):
@@ -18,7 +18,7 @@ def _rec(sha="0" * 64, n=3):
 
 
 def test_lock_roundtrip_and_format(tmp_path):
-    assert store.read_lock(tmp_path) == {"format": "gtab.datasets/1", "datasets": {}}
+    assert store.read_lock(tmp_path) == {"format": "bandscribe.datasets/1", "datasets": {}}
     store.record_files("guitarset", {"raw/b.zip": _rec(), "raw/a.zip": _rec()}, status="fetched", root=tmp_path)
     lock = store.read_lock(tmp_path)
     ds = lock["datasets"]["guitarset"]

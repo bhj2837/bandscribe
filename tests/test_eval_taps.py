@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gtab.eval import taps
+from bandscribe.eval import taps
 
 LABELS = "\n".join([
     "1.000000\t1.000000\tb1",
@@ -32,7 +32,7 @@ def test_read_label_text_cp949(tmp_path):
 
 
 def test_assign_bars_nearest_and_monotonic():
-    from gtab.eval.refscore import tempo_map_dict, tempo_map_from_dict
+    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
 
     times = [1.0 + 0.5 * i for i in range(4 * 6 + 1)]  # bar 1 at 1.0 s, 2 s per bar
     bars = [1 + i // 4 for i in range(len(times))]
@@ -41,7 +41,7 @@ def test_assign_bars_nearest_and_monotonic():
     rows = taps.assign_bars(taps.parse_audacity_labels(LABELS), tm, range(1, 7))
     assert [r["bar"] for r in rows] == [1, 2, 3, 4]
     js = taps.taps_json("labels.txt", rows)
-    assert js["format"] == "gtab.taps/1" and js["taps"][1] == {"t_s": 3.01, "bar": 2, "label": ""}
+    assert js["format"] == "bandscribe.taps/1" and js["taps"][1] == {"t_s": 3.01, "bar": 2, "label": ""}
 
 
 @pytest.mark.parametrize("label,bar", [("b17", 17), ("B 3", 3), ("  12 ", 12), ("x17", None)])

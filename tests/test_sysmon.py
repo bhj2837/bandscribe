@@ -9,8 +9,8 @@ import types
 
 import pytest
 
-from gtab import sysmon
-from gtab.workers import base
+from bandscribe import sysmon
+from bandscribe.workers import base
 
 
 @pytest.mark.parametrize("name, pid", [

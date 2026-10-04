@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from gtab import config
-from gtab.eval import report, runs, suites
+from bandscribe import config
+from bandscribe.eval import report, runs, suites
 
 pytest.importorskip("mir_eval")
 

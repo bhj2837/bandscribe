@@ -1,7 +1,7 @@
 [project]
-name = "gtab"
+name = "bandscribe"
 version = "0.1.0"
-description = "Band recording -> per-part guitar tabs + bass tab (personal use)"
+description = "Band recording -> per-part guitar tabs + bass tab; drums/piano scores planned (personal use)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 # Light runtime deps only: this package is also installed (editable) into the GPU worker env.
@@ -39,7 +39,7 @@ core = [
 ]
 
 [project.scripts]
-gtab = "gtab.cli:main"
+bandscribe = "bandscribe.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.2"]
@@ -49,7 +49,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["gtab"]
+packages = ["bandscribe"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

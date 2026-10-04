@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 
 from fixtures.datasets_fakes import write_midi, write_wav
-from gtab.datasets import store
-from gtab.datasets.loaders import _common as C
-from gtab.datasets.loaders import cambridge_mt, egdb, filobass, guitarset, idmt_bass, medleydb
+from bandscribe.datasets import store
+from bandscribe.datasets.loaders import _common as C
+from bandscribe.datasets.loaders import cambridge_mt, egdb, filobass, guitarset, idmt_bass, medleydb
 
 
 def _check_track(t, root: Path) -> None:
@@ -212,7 +212,7 @@ def test_cambridge_rejects_bad_labels(tmp_path):
     root = tmp_path / "cambridge_mt"
     song = root / "local" / "x"
     write_wav(song / "a.wav", 0.1)
-    (song / "lines.yaml").write_text("format: gtab.cmt_lines/1\nsong: x\nfamilies_present: [kazoo]\nparts:\n"
+    (song / "lines.yaml").write_text("format: bandscribe.cmt_lines/1\nsong: x\nfamilies_present: [kazoo]\nparts:\n"
                                      "  - {id: p1, file: a.wav, kind: guitar, line: G1}\nlines: []\n", encoding="utf-8")
     with pytest.raises(cambridge_mt.LinesYamlError):
         cambridge_mt.load_track(root, "x")

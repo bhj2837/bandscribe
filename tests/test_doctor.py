@@ -1,4 +1,4 @@
-"""Tests for gtab.doctor: parsers, check isolation, required-vs-warning logic, plus a real smoke run."""
+"""Tests for bandscribe.doctor: parsers, check isolation, required-vs-warning logic, plus a real smoke run."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from gtab import doctor, paths
-from gtab.doctor import Check, DoctorReport, _Proc
+from bandscribe import doctor, paths
+from bandscribe.doctor import Check, DoctorReport, _Proc
 
 MB = 1024 * 1024
 DiskUsage = namedtuple("DiskUsage", "total used free")
@@ -148,10 +148,10 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     exe = tools / "yt-dlp.exe"
     exe.write_bytes(b"")
     conf = tools / "yt-dlp.conf"
-    conf.write_text("# gtab\n--js-runtimes node\n", encoding="utf-8")
+    conf.write_text("# bandscribe\n--js-runtimes node\n", encoding="utf-8")
     monkeypatch.setattr(paths, "DATA", data)
     # M2 "models" group (SEP): a healthy machine has its models recorded and present (absolute paths
-    # override GTAB_ROOT below). No vram_table.json yet is fine (defaults are used, reported as ok).
+    # override BANDSCRIBE_ROOT below). No vram_table.json yet is fine (defaults are used, reported as ok).
     monkeypatch.setattr(paths, "MODELS", data / "models")
     monkeypatch.setattr(paths, "MODELS_LOCK", data / "models" / "models.lock.json")
     monkeypatch.setattr(paths, "VRAM_TABLE", data / "bench" / "vram_table.json")
@@ -159,20 +159,20 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     ckpt.write_bytes(b"x")
     (data / "models").mkdir(parents=True)
     (data / "models" / "models.lock.json").write_text(json.dumps(
-        {"format": "gtab.models/1", "models": {"beat_this.final0": {"path": str(ckpt)}}}), encoding="utf-8")
+        {"format": "bandscribe.models/1", "models": {"beat_this.final0": {"path": str(ckpt)}}}), encoding="utf-8")
     monkeypatch.setattr(paths, "GPU_PYTHON", gpu_py)
     monkeypatch.setattr(paths, "YTDLP_EXE", exe)
     monkeypatch.setattr(paths, "YTDLP_CONF", conf)
-    monkeypatch.setattr(paths, "GTAB_ROOT", Path(r"D:\gtab"))
+    monkeypatch.setattr(paths, "ROOT", Path(r"D:\gtab"))
     monkeypatch.setattr(paths, "child_env", lambda extra=None: {
         "HF_HOME": r"D:\gtab\data\hf", "TORCH_HOME": r"D:\gtab\data\torch", "UV_CACHE_DIR": r"D:\gtab\data\uv-cache"})
 
-    from gtab.eval import node as gnode
+    from bandscribe.eval import node as gnode
 
     monkeypatch.setattr(gnode, "alphatab_available", lambda: True)  # node.alphatab check (non-required)
 
     gpu, sysmon, runner = FakeGpu(), FakeSysmon(), FakeRunner()
-    modules: dict[str, Any] = {"gtab.gpu": gpu, "gtab.sysmon": sysmon}
+    modules: dict[str, Any] = {"bandscribe.gpu": gpu, "bandscribe.sysmon": sysmon}
 
     def fake_import(name: str) -> Any:
         mod = modules[name]
@@ -284,7 +284,7 @@ def test_cfg_value_sources() -> None:
 
 
 def test_cfg_value_with_real_config() -> None:
-    config = pytest.importorskip("gtab.config")
+    config = pytest.importorskip("bandscribe.config")
     cfg = config.Config()
     assert doctor._cfg_value(cfg, "youtube.enabled") is True
     assert doctor._cfg_value(cfg, "doctor.min_node_major") == 22
@@ -364,10 +364,10 @@ def test_exception_in_single_probe_is_isolated(env: SimpleNamespace) -> None:
 
 def test_missing_tools_are_reported(env: SimpleNamespace) -> None:
     env.which["node"] = None
-    env.modules["gtab.sysmon"] = ImportError("no pynvml")
+    env.modules["bandscribe.sysmon"] = ImportError("no pynvml")
     report = doctor.run_doctor(env.cfg)
     assert report.get("node").status == "fail" and "PATH" in report.get("node").detail
-    assert report.get("nvml").status == "fail" and "gtab.sysmon" in report.get("nvml").detail
+    assert report.get("nvml").status == "fail" and "bandscribe.sysmon" in report.get("nvml").detail
     assert report.get("pdh").status == "fail"
 
 
@@ -381,11 +381,11 @@ def test_gpu_venv_missing(env: SimpleNamespace) -> None:
 
 
 def test_gpu_module_missing(env: SimpleNamespace) -> None:
-    env.modules["gtab.gpu"] = ModuleNotFoundError("No module named 'gtab.gpu'")
+    env.modules["bandscribe.gpu"] = ModuleNotFoundError("No module named 'bandscribe.gpu'")
     report = doctor.run_doctor(env.cfg)
     assert report.get("gpu.venv").ok
     sel = report.get("gpu.selftest")
-    assert sel.status == "fail" and "gtab.gpu" in sel.detail
+    assert sel.status == "fail" and "bandscribe.gpu" in sel.detail
 
 
 def test_gpu_lock_busy(env: SimpleNamespace) -> None:
@@ -502,7 +502,7 @@ def test_disk_low_and_cache_on_other_drive(env: SimpleNamespace, monkeypatch: py
     assert report.get("disk.free").status == "fail"
     cache = report.get("disk.cache_paths")
     assert cache.status == "fail" and "HF_HOME" in cache.detail and "다른 드라이브" in cache.detail
-    assert "GTAB_ROOT 밖" in cache.detail  # D:\elsewhere is allowed but flagged
+    assert "BANDSCRIBE_ROOT 밖" in cache.detail  # D:\elsewhere is allowed but flagged
 
 
 def test_youtube_disabled_makes_ytdlp_optional(env: SimpleNamespace) -> None:
@@ -581,7 +581,7 @@ def test_skip_groups(env: SimpleNamespace) -> None:
 
 
 def test_cfg_none_falls_back_to_defaults(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(sys.modules, "gtab.config", None)  # import now raises ImportError
+    monkeypatch.setitem(sys.modules, "bandscribe.config", None)  # import now raises ImportError
     report = doctor.run_doctor(None, skip={"gpu"})
     assert report.checks[0].name == "config" and report.checks[0].status == "fail"
     assert report.get("node").ok  # defaults (min_node_major=22) still applied
@@ -614,7 +614,7 @@ def test_smoke_real_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 @pytest.mark.gpu
 @pytest.mark.slow
 def test_real_cuda_selftest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    pytest.importorskip("gtab.gpu")
+    pytest.importorskip("bandscribe.gpu")
     monkeypatch.setattr(paths, "DATA", tmp_path / "data")
     skip = set(doctor.GROUPS) - {"gpu"}
     report = doctor.run_doctor(None, skip=skip)

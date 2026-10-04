@@ -1,7 +1,7 @@
 """Loader checks on the real datasets under data/datasets (skipped for any dataset not on this PC).
 
 Marked ``data(name)`` (P0's conftest skips when the dataset is not in datasets.lock.json). The extra
-``skipif`` uses ``gtab.datasets`` availability, which also skips a *partial* fetch (e.g. an interrupted
+``skipif`` uses ``bandscribe.datasets`` availability, which also skips a *partial* fetch (e.g. an interrupted
 Google Drive download is recorded in the lock but misses required folders).
 """
 
@@ -11,8 +11,8 @@ import collections
 
 import pytest
 
-from gtab import datasets
-from gtab.datasets import store
+from bandscribe import datasets
+from bandscribe.datasets import store
 
 
 def _need(name: str):
@@ -43,7 +43,7 @@ def test_guitarset_real():
         idx = t.notes["gtr"].notes.index(low)
         assert t.string_fret["gtr"][idx][0] >= 5
     root = datasets.dataset_root("guitarset")
-    from gtab.datasets.loaders import guitarset
+    from bandscribe.datasets.loaders import guitarset
 
     idx = guitarset.index(root)
     assert len(idx) == 360 and all("mic" in v for v in idx.values())
@@ -76,7 +76,7 @@ def test_filobass_real():
 @_need("egdb")
 def test_egdb_real():
     root = datasets.dataset_root("egdb")
-    from gtab.datasets.loaders import egdb
+    from bandscribe.datasets.loaders import egdb
 
     idx = egdb.index(root)
     assert len(idx["labels"]) == 240

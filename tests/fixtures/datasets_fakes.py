@@ -1,7 +1,7 @@
 """Test helpers for the DATA owner's tests (tests/test_datasets_*.py, tests/test_model_fetch.py).
 
-- ``models_root(monkeypatch, root)``: repoint P0's ``gtab.models`` (via ``gtab.paths``) at a throw-away
-  GTAB_ROOT, so tests record into a temp ``models.lock.json`` through the real module.
+- ``models_root(monkeypatch, root)``: repoint P0's ``bandscribe.models`` (via ``bandscribe.paths``) at a throw-away
+  BANDSCRIBE_ROOT, so tests record into a temp ``models.lock.json`` through the real module.
 - ``write_midi``: a tiny Standard MIDI File writer (format 1) for label fixtures.
 - ``HttpFixture``: a local ``http.server`` in a thread with Range support and switchable failure modes.
 """
@@ -21,12 +21,12 @@ import numpy as np
 
 
 def models_root(monkeypatch: Any, root: Path) -> Path:
-    """Point ``gtab.paths`` (GTAB_ROOT, MODELS, MODELS_LOCK) at ``root``; ``gtab.models`` reads them at call time."""
-    from gtab import paths
+    """Point ``bandscribe.paths`` (BANDSCRIBE_ROOT, MODELS, MODELS_LOCK) at ``root``; ``bandscribe.models`` reads them at call time."""
+    from bandscribe import paths
 
     root = Path(root)
     (root / "data" / "models").mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(paths, "GTAB_ROOT", root)
+    monkeypatch.setattr(paths, "ROOT", root)
     monkeypatch.setattr(paths, "MODELS", root / "data" / "models")
     monkeypatch.setattr(paths, "MODELS_LOCK", root / "data" / "models" / "models.lock.json")
     return root / "data" / "models" / "models.lock.json"

@@ -6,38 +6,38 @@ This file fixes the *interfaces* so modules can be implemented in parallel. Engl
 ## 0. Ground rules (all modules)
 
 - Python 3.12, `from __future__ import annotations`, full type hints, `logging.getLogger(__name__)`, no `print` outside `cli.py`.
-- Repo root `D:\gtab` (= `paths.GTAB_ROOT`). Package `gtab/` (flat layout). Tests in `tests/`.
+- Repo root `D:\gtab` (= `paths.ROOT`). Package `bandscribe/` (flat layout). Tests in `tests/`.
 - **Two environments.**
-  - core: `D:\gtab\.venv` — orchestrator/CLI. **Never import torch** anywhere under `gtab/` except `gtab/workers/*`.
-  - gpu: `D:\gtab\envs\gpu\.venv` — torch 2.11.0+cu128; has `gtab` installed editable (light deps only: numpy, soundfile, filelock, pydantic) plus nvidia-ml-py.
-  - Modules imported by workers (`gtab/workers/*`, `gtab/sysmon.py`, `gtab/paths.py`, `gtab/atomic.py`) may only import stdlib + numpy/soundfile/filelock/pydantic (+ torch/pynvml inside workers, lazily).
+  - core: `D:\gtab\.venv` — orchestrator/CLI. **Never import torch** anywhere under `bandscribe/` except `bandscribe/workers/*`.
+  - gpu: `D:\gtab\envs\gpu\.venv` — torch 2.11.0+cu128; has `bandscribe` installed editable (light deps only: numpy, soundfile, filelock, pydantic) plus nvidia-ml-py.
+  - Modules imported by workers (`bandscribe/workers/*`, `bandscribe/sysmon.py`, `bandscribe/paths.py`, `bandscribe/atomic.py`) may only import stdlib + numpy/soundfile/filelock/pydantic (+ torch/pynvml inside workers, lazily).
 - Commands: run tests with `D:\gtab\.venv\Scripts\python.exe -m pytest -q`. Sync envs with `D:\gtab\tools\uvw.cmd sync --extra core --group dev` run *from* `D:\gtab` (the wrapper keeps uv's python/cache on D:). Do **not** use the global Python 3.10 or plain `pip`.
 - Windows pitfalls (from DESIGN §9.8 + user memory): console is cp949 → every subprocess gets `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`; open text files with `encoding="utf-8"`; wrap `sys.stdout` for UTF-8 **only once**, in `cli.main()`; all paths we create are ASCII; no `shell=True`; subprocess text I/O uses `encoding="utf-8", errors="replace"`; std `wave` cannot read float32 WAV → use `soundfile`.
 - The Claude desktop app sandbox redirects writes under `%APPDATA%`/`%LOCALAPPDATA%` for processes it launches. Never place durable state there; everything lives under `D:\gtab`.
-- Atomicity: any file others may read is written via `gtab.atomic.write_bytes/write_text/write_json` (temp file in same dir + `os.replace`). Directories via `JobStore.stage_writer` (temp dir + rename).
+- Atomicity: any file others may read is written via `bandscribe.atomic.write_bytes/write_text/write_json` (temp file in same dir + `os.replace`). Directories via `JobStore.stage_writer` (temp dir + rename).
 - Every module gets unit tests. Tests must not need network or GPU unless marked `@pytest.mark.network` / `@pytest.mark.gpu` (they are skipped automatically when unavailable — see `tests/conftest.py`).
 
-## 1. `gtab/paths.py` (owner: A)
+## 1. `bandscribe/paths.py` (owner: A)
 
 ```python
-GTAB_ROOT: Path          # env GTAB_ROOT or Path(__file__).resolve().parents[1]
-DATA, TOOLS, MODELS, JOBS, HF_HOME, TORCH_HOME, UV_CACHE, DOWNLOADS, LOGS: Path  # DATA=GTAB_ROOT/"data", DOWNLOADS=DATA/"downloads", LOGS=DATA/"logs"
-GPU_PYTHON: Path         # GTAB_ROOT/"envs/gpu/.venv/Scripts/python.exe"
-CORE_PYTHON: Path        # GTAB_ROOT/".venv/Scripts/python.exe"
+BANDSCRIBE_ROOT: Path          # env BANDSCRIBE_ROOT or Path(__file__).resolve().parents[1]
+DATA, TOOLS, MODELS, JOBS, HF_HOME, TORCH_HOME, UV_CACHE, DOWNLOADS, LOGS: Path  # DATA=BANDSCRIBE_ROOT/"data", DOWNLOADS=DATA/"downloads", LOGS=DATA/"logs"
+GPU_PYTHON: Path         # BANDSCRIBE_ROOT/"envs/gpu/.venv/Scripts/python.exe"
+CORE_PYTHON: Path        # BANDSCRIBE_ROOT/".venv/Scripts/python.exe"
 YTDLP_EXE: Path          # TOOLS/"yt-dlp.exe" ; YTDLP_CONF = TOOLS/"yt-dlp.conf"
 GPU_LOCK: Path           # DATA/"gpu.lock"
 def child_env(extra: dict[str,str] | None = None) -> dict[str,str]
     # os.environ copy + HF_HOME, TORCH_HOME, UV_CACHE_DIR (all under DATA), PYTHONUTF8=1, PYTHONIOENCODING=utf-8,
-    # PYTHONNOUSERSITE=1, GTAB_ROOT ; then `extra`.
+    # PYTHONNOUSERSITE=1, BANDSCRIBE_ROOT ; then `extra`.
 def apply_process_env() -> None   # sets the same vars in os.environ (called once by cli.main)
 def ensure_dirs() -> None         # mkdir -p for DATA subdirs
 ```
 
-## 2. `gtab/atomic.py` (owner: B)
+## 2. `bandscribe/atomic.py` (owner: B)
 
 `write_bytes(path, data)`, `write_text(path, text)`, `write_json(path, obj)` (utf-8, `ensure_ascii=False`, indent=1, sorted keys False), `read_json(path)`, `sha256_file(path, chunk=1<<20) -> str`, `sha256_bytes(b) -> str`.
 
-## 3. `gtab/config.py` + `gtab/defaults.toml` (owner: A)
+## 3. `bandscribe/config.py` + `bandscribe/defaults.toml` (owner: A)
 
 - Layers (later wins): package `defaults.toml` → `DATA/config.toml` (user) → job `hints.toml` (optional path) → `--set a.b=value` overrides (value parsed as TOML literal, fallback string).
 - `--set` with an unknown top-level section is a `ConfigError` (CLI exit 2) with a difflib suggestion: on the command line it is a typo (`--set youtub.enabled=false` must not leave YouTube on). Unknown sections in config *files* stay lenient (kept in `Config.extra`).
@@ -78,21 +78,21 @@ min_node_major = 22
 youtube = "2026-09-30 사용자 동의: YouTube 약관(다운로드 금지)과 JS 챌린지 해결의 기술적 보호조치 우회 위험(해외 판례, 한국법 미검증)을 고지받고 기본 켜기를 요청함. 개인 비공개 사용."
 ```
 
-## 4. `gtab/log.py` (owner: A)
+## 4. `bandscribe/log.py` (owner: A)
 
-`setup_logging(level="INFO", logfile: Path|None=None)` — rich handler on console when available, plain file handler (utf-8) to `LOGS/gtab.log`. Idempotent.
+`setup_logging(level="INFO", logfile: Path|None=None)` — rich handler on console when available, plain file handler (utf-8) to `LOGS/bandscribe.log`. Idempotent.
 
-## 5. `gtab/schema/` (owner: A) — score.json v0
+## 5. `bandscribe/schema/` (owner: A) — score.json v0
 
 pydantic models (JSON-schema exportable via `export_json_schema(path)`):
 `Confidence{pitch,onset,part,fret: float|None}`,
 `Note{onset_s: float, offset_s: float, pitch: int (MIDI), velocity: int|None, string: int|None, fret: int|None, techniques: list[str], confidence: Confidence, sources: list[str], part_posterior: dict[str,float], flags: dict[str,bool]}` (flags keys used later: shared,double,octave,variant,low_conf,unison_undecided),
 `Line{id: str, name: str, kind: Literal["guitar","bass","reference","unassigned"], role_segments: list[{start_s,end_s,role}], tuning: list[int] (MIDI, low→high) | None, capo: int|None, notes: list[Note]}`,
 `SongMeta{song_key, title, artist, duration_s, source_kind: Literal["file","youtube"], source_ref: str}`,
-`Score{schema_version: Literal[0] = 0, song: SongMeta, lines: list[Line], created_utc: str, gtab_version: str}`.
+`Score{schema_version: Literal[0] = 0, song: SongMeta, lines: list[Line], created_utc: str, bandscribe_version: str}`.
 Round-trip test: model → json → model equal.
 
-## 6. `gtab/jobs/store.py` (owner: B)
+## 6. `bandscribe/jobs/store.py` (owner: B)
 
 ```python
 class JobStore:
@@ -113,9 +113,9 @@ class JobStore:
     def load_manifest(self, song_key, stage, key) -> dict
     def gc_temp(self) -> int   # remove stale .tmp-* dirs whose pid is not alive
 ```
-- **Index** `root/"index.json"` guarded by `filelock` (`root/"index.lock"`): maps `"file:<content key>" → song_key`, `"yt:<videoId>" → song_key`. API: `index_get(key) -> str|None`, `index_put(key, song_key)`. The content key is `gtab.ingest.filekey.content_key(path)`: sha256 over the size and the sha256 of every 8 MiB chunk, hashed on a thread pool (every byte is hashed; plain sha256 at ~400 MiB/s broke the 1 s cache-hit goal for 165 MiB WAVs).
+- **Index** `root/"index.json"` guarded by `filelock` (`root/"index.lock"`): maps `"file:<content key>" → song_key`, `"yt:<videoId>" → song_key`. API: `index_get(key) -> str|None`, `index_put(key, song_key)`. The content key is `bandscribe.ingest.filekey.content_key(path)`: sha256 over the size and the sha256 of every 8 MiB chunk, hashed on a thread pool (every byte is hashed; plain sha256 at ~400 MiB/s broke the 1 s cache-hit goal for 165 MiB WAVs).
 
-## 7. `gtab/jobs/dag.py` (owner: B)
+## 7. `bandscribe/jobs/dag.py` (owner: B)
 
 ```python
 @dataclass
@@ -135,7 +135,7 @@ def run_dag(stages, song_key, store, config, until: str|None=None, force: set[st
     # skips complete stages (cache), runs others via store.stage_writer, returns {stage: final_dir}
 ```
 
-## 8. `gtab/winjob.py` (owner: C) — ctypes only, no pywin32
+## 8. `bandscribe/winjob.py` (owner: C) — ctypes only, no pywin32
 
 ```python
 class JobObject:
@@ -161,7 +161,7 @@ def spawn_in_job(args: list[str], job: JobObject, env: dict, cwd: Path, stdout, 
     # assigning before resume guarantees the child is born inside the job.
 ```
 
-## 9. `gtab/sysmon.py` (owner: C) — importable from both envs, lazy imports
+## 9. `bandscribe/sysmon.py` (owner: C) — importable from both envs, lazy imports
 
 ```python
 def nvml_info() -> dict | None       # {driver, devices:[{index,name,total_mb,used_mb,free_mb,capability:(maj,min)}], processes:[{pid,name,used_mb|None}]}; None if NVML unavailable
@@ -171,7 +171,7 @@ def pdh_gpu_adapter_memory() -> dict[str,int] | None              # {"dedicated"
 - PDH via ctypes `pdh.dll`: `PdhOpenQueryW`, **`PdhAddEnglishCounterW`** (Windows is Korean-localized; English names still work), `PdhCollectQueryData`, `PdhGetFormattedCounterArrayW` with `PDH_FMT_LARGE`. Counters: `\GPU Process Memory(*)\Dedicated Usage`, `\GPU Process Memory(*)\Shared Usage`, `\GPU Adapter Memory(*)\Dedicated Usage`, `\GPU Adapter Memory(*)\Shared Usage`. Instance names look like `pid_1234_luid_0x..._phys_0` → parse pid, sum per pid.
 - NVML via `pynvml` (package `nvidia-ml-py`); under WDDM per-process `usedGpuMemory` is often unavailable → `None`.
 
-## 10. `gtab/gpu.py` (owner: C) — worker runner
+## 10. `bandscribe/gpu.py` (owner: C) — worker runner
 
 ```python
 @dataclass
@@ -182,25 +182,25 @@ class WorkerResult:
 def run_worker(name: str, request: dict, work_dir: Path, *, timeout_s: float | None = None,
                python: Path = paths.GPU_PYTHON, use_lock: bool = True, lock_timeout_s: float | None = None) -> WorkerResult
 ```
-- Writes `work_dir/request.json`; runs `[python, "-m", f"gtab.workers.{name}", str(request.json), str(result.json)]` via `spawn_in_job`, env=`paths.child_env()`, stdout/stderr to `work_dir/{stdout,stderr}.log`.
+- Writes `work_dir/request.json`; runs `[python, "-m", f"bandscribe.workers.{name}", str(request.json), str(result.json)]` via `spawn_in_job`, env=`paths.child_env()`, stdout/stderr to `work_dir/{stdout,stderr}.log`.
 - `use_lock`: acquire `filelock.FileLock(paths.GPU_LOCK)` **before** spawning; release only **after** `job.wait_empty()` returned True (after normal exit, timeout-terminate, or KeyboardInterrupt → terminate). This is the "one model on the GPU" guarantee (DESIGN §9.5).
 - `timeout_s`: on expiry `job.terminate()` then `wait_empty(10)`; `timed_out=True, killed=True`.
 - **Hard-killed orchestrator (added 2026-09-30):** Windows frees the lock file the instant its holder dies, while kill-on-close needs a few more ms to end the worker. The holder therefore keeps `data/gpu.lock.pids` (job pids, updated as they appear); a clean release deletes it. The next holder, right after acquiring the lock, waits (≤ 60 s) for any pids listed in a leftover sidecar to exit before spawning.
 - `ok` = returncode==0 and result.json exists and result["ok"] is True and the release was clean.
-- Trade-off (documented, deliberate): if processes survive `TerminateJobObject` for `DRAIN_TIMEOUT_S + DRAIN_EXTRA_S` (10 + 60 s; e.g. stuck in the driver during a TDR), the runner gives up and releases the lock anyway, so one hung kernel call cannot block every later GPU run until a reboot. This is never silent: an error is logged, `lock_released_dirty=True`, `ok=False`, and `gtab doctor` reports a failed `gpu.cleanup` check. Callers that start another GPU worker must stop on `lock_released_dirty`.
+- Trade-off (documented, deliberate): if processes survive `TerminateJobObject` for `DRAIN_TIMEOUT_S + DRAIN_EXTRA_S` (10 + 60 s; e.g. stuck in the driver during a TDR), the runner gives up and releases the lock anyway, so one hung kernel call cannot block every later GPU run until a reboot. This is never silent: an error is logged, `lock_released_dirty=True`, `ok=False`, and `bandscribe doctor` reports a failed `gpu.cleanup` check. Callers that start another GPU worker must stop on `lock_released_dirty`.
 
-## 11. `gtab/workers/` (owner: C)
+## 11. `bandscribe/workers/` (owner: C)
 
-- `gtab/workers/base.py`: `worker_main(handler: Callable[[dict, WorkerContext], dict]) -> NoReturn`. Reads argv[1] request.json, runs handler, writes argv[2] result.json atomically:
+- `bandscribe/workers/base.py`: `worker_main(handler: Callable[[dict, WorkerContext], dict]) -> NoReturn`. Reads argv[1] request.json, runs handler, writes argv[2] result.json atomically:
   `{ok, worker, version, started_utc, duration_s, output: <handler dict>, error: str|None, traceback: str|None, python: sys.executable, base_executable: sys._base_executable, pid, ppid, cuda: {max_allocated_mb, max_reserved_mb} | None, sysmon: {nvml_used_peak_mb, pdh_self_dedicated_peak_mb, pdh_self_shared_peak_mb, pdh_self_shared_start_mb}}`.
   A background sampler thread (every 0.25 s) records NVML device used-memory peak and PDH dedicated/shared usage **for this process's pid**. torch stats are read only if torch was imported by the handler. Exit code 0 when ok else 1.
-- `gtab/workers/selftest.py` handler modes (`request["mode"]`):
+- `bandscribe/workers/selftest.py` handler modes (`request["mode"]`):
   - `"cuda"` (default): report `torch.__version__`, `torch.version.cuda`, `cuda_available`, device name, capability, total VRAM; run fp16 matmul (1024², check finite & close to fp32 within tolerance) and `torch.autocast("cuda", dtype=torch.float16)` conv2d; report bf16 support flag (expected False/emulated on Turing — do not use bf16).
   - `"hold"`: sleep `request["seconds"]` (for kill tests; no torch import).
   - `"spawn_grandchild"`: start a grandchild `python -c "import time; time.sleep(600)"` (same interpreter), write its pid to output file `request["pid_file"]`, then sleep `seconds` (no torch).
   - `"echo"`: return request (no torch).
 
-## 12. `gtab/ingest/` (owner: D)
+## 12. `bandscribe/ingest/` (owner: D)
 
 - `decode.py`
   - `probe(path) -> dict` via `ffprobe -v error -show_format -show_streams -of json` (codec_name, sample_rate, channels, bit_rate, duration, tags).
@@ -215,34 +215,34 @@ def run_worker(name: str, request: dict, work_dir: Path, *, timeout_s: float | N
 - `__init__.py`: `ingest(source: str, *, store: JobStore, cfg) -> IngestResult(song_key, job_dir, meta: dict, cache_hit: bool)`:
   1. URL? (`http(s)://`): require `cfg.youtube.enabled` else raise with Korean message; video id → `index_get("yt:<id>")` and existing complete input → cache hit **without network**. Else download to `DOWNLOADS/<id>/`, song_key = `yt-<id>`.
   2. File: `content_key(path)` → `index_get("file:<key>")` and input complete with equal params → cache hit (**must return in < 1 s**, CLI start-up included, for a copy of the same file under another name; checked with a 165 MiB WAV in `tests/test_ingest.py`). Else decode to temp, `pcm_sha256` → song_key `f-<first16>`; if that job's input is already complete (same audio, other container) → cache hit too.
-  3. Build `input/` atomically (temp dir + rename): `source.<ext>` (byte copy, never re-encoded), `mix_44k_f32.wav` (after `apply_ceiling`), `meta.json` {gtab_version, created_utc, song_key, params, source:{kind, ref, filename, stored_as, sha256, content_key, probe}, youtube: info|None, decode:{sr, pcm_sha256}, loudness: {..., gain_db}, flags}. Input is "complete" iff `input/meta.json` exists.
+  3. Build `input/` atomically (temp dir + rename): `source.<ext>` (byte copy, never re-encoded), `mix_44k_f32.wav` (after `apply_ceiling`), `meta.json` {bandscribe_version, created_utc, song_key, params, source:{kind, ref, filename, stored_as, sha256, content_key, probe}, youtube: info|None, decode:{sr, pcm_sha256}, loudness: {..., gain_db}, flags}. Input is "complete" iff `input/meta.json` exists.
   3a. `params` = `ingest_params(cfg)` = {version (INGEST_VERSION), sample_rate, true_peak_ceiling_dbfs, quasi_mono_side_mid_db, lowpass_detect_hz}. Every cache hit (file index, PCM hash, yt index) requires `meta["params"] == ingest_params(cfg)`; otherwise the input is rebuilt from the job's own stored `source.<ext>` (no network; the job keeps its kind/ref/filename/youtube info) and the old `input/` is moved aside (`.tmp-old-input-*`) and replaced. Inputs without `params` (older builds) are rebuilt once.
   4. Update index for `file:<sha>` and/or `yt:<id>`.
 
-## 13. `gtab/doctor.py` (owner: E)
+## 13. `bandscribe/doctor.py` (owner: E)
 
 `run_doctor(cfg) -> DoctorReport(checks: list[Check(name, ok: bool, detail: str, required: bool)])`; `DoctorReport.ok` = all required ok. Checks (DESIGN §10 M0):
 1. gpu env python exists; `run_worker("selftest", {"mode":"cuda"})` → CUDA True, capability == (7,5) (warn-only if different GPU), fp16 matmul OK, autocast conv OK; report torch/cuda versions, VRAM, max_reserved.
 2. gpu venv `python.exe` is a launcher: selftest result `python` vs `base_executable` → report the base interpreter path (this is where the NVIDIA per-program profile must be set).
 3. ffmpeg present + `-buildconf` has `--enable-libsoxr` and `--enable-chromaprint`; `-filters` has `ebur128`.
 4. Node ≥ `doctor.min_node_major` (`node --version`).
-5. D: free ≥ `doctor.min_free_disk_gb`; `child_env()` HF_HOME/TORCH_HOME/UV_CACHE_DIR resolve under GTAB_ROOT's drive.
+5. D: free ≥ `doctor.min_free_disk_gb`; `child_env()` HF_HOME/TORCH_HOME/UV_CACHE_DIR resolve under BANDSCRIBE_ROOT's drive.
 6. NVML readable: driver, total/free VRAM, GPU processes list (names); PDH Shared Usage counter readable (adapter + per-process).
 7. yt-dlp.exe exists, `--version`, config has `--js-runtimes node` (required only if youtube.enabled).
 8. Global Python untouched (informational): `py -3.10 -c "import sys,torch;print(sys.version, torch.__version__)"` if `py` exists — never modify it.
 Probes run external programs through `winjob.run_captured` (several are launchers), so their timeouts hold. If the selftest's `WorkerResult.lock_released_dirty` is True, a required `gpu.cleanup` check fails.
 Non-required checks are warnings. The CLI exits non-zero if `report.ok` is False.
 
-## 14. `gtab/cli.py` (owner: A, integrates others)
+## 14. `bandscribe/cli.py` (owner: A, integrates others)
 
 typer app `main()`:
-- `gtab doctor [--json]` → table (rich), exit code 1 on failure.
-- `gtab ingest <file|url> [--set k=v ...]` → prints song_key, cache hit, duration, LUFS/TP/gain, flags, job dir.
-- `gtab status [song_key]` → list jobs (index + dirs) or show one job's meta and stage dirs.
-- `gtab config show [--set ...]` → effective config TOML.
-- `gtab gc` → `JobStore.gc_temp()`.
+- `bandscribe doctor [--json]` → table (rich), exit code 1 on failure.
+- `bandscribe ingest <file|url> [--set k=v ...]` → prints song_key, cache hit, duration, LUFS/TP/gain, flags, job dir.
+- `bandscribe status [song_key]` → list jobs (index + dirs) or show one job's meta and stage dirs.
+- `bandscribe config show [--set ...]` → effective config TOML.
+- `bandscribe gc` → `JobStore.gc_temp()`.
 `main()` does: UTF-8 stdout wrap (once), `paths.apply_process_env()`, `paths.ensure_dirs()`, `config.ensure_user_config()`, `log.setup_logging()`.
-Launcher `D:\gtab\gtab.cmd`: `@"%~dp0.venv\Scripts\python.exe" -m gtab.cli %*`.
+Launcher `D:\gtab\bandscribe.cmd`: `@"%~dp0.venv\Scripts\python.exe" -m bandscribe.cli %*`.
 
 ## 15. Tests (each owner writes their own; integrator runs all)
 

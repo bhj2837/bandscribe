@@ -1,6 +1,6 @@
 """CLI start-up stays light (M1_M2_SPEC 0, 1.7): heavy analysis libraries are imported inside functions only.
 
-``import gtab.cli`` registers every ``gtab.commands.*`` module, so ``gtab --help`` would otherwise pay for
+``import bandscribe.cli`` registers every ``bandscribe.commands.*`` module, so ``bandscribe --help`` would otherwise pay for
 librosa/numba JIT set-up, synctoolbox (matplotlib.pyplot at import time), libfmp (IPython 8), music21 and
 pandas. Checked in a fresh interpreter so this test process's own imports do not count.
 """
@@ -20,11 +20,11 @@ HEAVY = (
 
 
 def _command_modules() -> list[str]:
-    return sorted(f"gtab.commands.{m.name}" for m in pkgutil.iter_modules([str(ROOT / "gtab" / "commands")]))
+    return sorted(f"bandscribe.commands.{m.name}" for m in pkgutil.iter_modules([str(ROOT / "bandscribe" / "commands")]))
 
 
 def test_cli_and_commands_import_no_heavy_modules() -> None:
-    mods = ["gtab.cli", *_command_modules()]
+    mods = ["bandscribe.cli", *_command_modules()]
     code = (
         "import importlib, json, sys\n"
         f"for m in {mods!r}:\n"
@@ -39,5 +39,5 @@ def test_cli_and_commands_import_no_heavy_modules() -> None:
 
 
 def test_every_spec_command_module_exists() -> None:
-    assert {"gtab.commands.run", "gtab.commands.bench", "gtab.commands.eval", "gtab.commands.gt",
-            "gtab.commands.data", "gtab.commands.models"} <= set(_command_modules())
+    assert {"bandscribe.commands.run", "bandscribe.commands.bench", "bandscribe.commands.eval", "bandscribe.commands.gt",
+            "bandscribe.commands.data", "bandscribe.commands.models"} <= set(_command_modules())

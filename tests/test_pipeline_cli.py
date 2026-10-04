@@ -1,12 +1,12 @@
-"""``gtab run`` command (M1_M2_SPEC 5; GRID) with fake stages."""
+"""``bandscribe run`` command (M1_M2_SPEC 5; GRID) with fake stages."""
 from __future__ import annotations
 
 import typer
 from typer.testing import CliRunner
 
-from gtab import atomic, paths
-from gtab.commands import run as run_cmd
-from gtab.jobs.store import JobStore
+from bandscribe import atomic, paths
+from bandscribe.commands import run as run_cmd
+from bandscribe.jobs.store import JobStore
 from grid_testlib import Fakes
 
 KEY = "f-0123456789abcdef"
@@ -58,7 +58,7 @@ def test_missing_model_fails_before_running(tmp_path, monkeypatch):
     f.missing = {"beats"}
     r = CliRunner().invoke(_app(), ["run", KEY])
     assert r.exit_code == 1
-    assert "gtab models fetch model.beats" in r.output
+    assert "bandscribe models fetch model.beats" in r.output
     assert f.calls == []
     r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run"])
     assert r.exit_code == 0 and "모델 없음" in r.output
@@ -82,7 +82,7 @@ def test_from_reruns_downstream(tmp_path, monkeypatch):
 
 
 def test_profile_and_instruments_flags_reach_the_config(tmp_path, monkeypatch):
-    from gtab.pipeline import runner
+    from bandscribe.pipeline import runner
 
     _job(tmp_path, monkeypatch)
     seen = {}
@@ -106,8 +106,8 @@ def test_profile_and_instruments_flags_reach_the_config(tmp_path, monkeypatch):
 
 
 def test_config_error_at_plan_time_is_a_usage_error(tmp_path, monkeypatch):
-    from gtab.config import ConfigError
-    from gtab.pipeline import runner
+    from bandscribe.config import ConfigError
+    from bandscribe.pipeline import runner
 
     _job(tmp_path, monkeypatch)
 

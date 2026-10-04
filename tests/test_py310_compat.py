@@ -1,9 +1,9 @@
 """Modules a bp310 worker can import must parse as Python 3.10 (M1_M2_SPEC 1.7, 7.4).
 
-The Basic Pitch worker runs on Python 3.10 (onnxruntime wheels) and imports gtab from the source tree via
+The Basic Pitch worker runs on Python 3.10 (onnxruntime wheels) and imports bandscribe from the source tree via
 PYTHONPATH, so 3.11+ syntax in any module on its import path (``except*``, PEP 695 generics, ...) would break
-it only at run time. This test parses the fixed list below plus every ``gtab/**/*.py`` that declares
-``# gtab: py310`` in its first 5 lines. Parse only: the ``bp310``-marked worker test covers real imports.
+it only at run time. This test parses the fixed list below plus every ``bandscribe/**/*.py`` that declares
+``# bandscribe: py310`` in its first 5 lines. Parse only: the ``bp310``-marked worker test covers real imports.
 (``feature_version`` checks grammar, not library APIs such as ``datetime.UTC`` - see the API scan below.)
 """
 from __future__ import annotations
@@ -14,25 +14,26 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GTAB = ROOT / "gtab"
+PKG = ROOT / "bandscribe"
 FIXED = (
-    "gtab/__init__.py",
-    "gtab/workers/__init__.py",
-    "gtab/workers/base.py",
-    "gtab/atomic.py",
-    "gtab/sysmon.py",
-    "gtab/paths.py",
-    "gtab/audio.py",
-    "gtab/models.py",
+    "bandscribe/__init__.py",
+    "bandscribe/workers/__init__.py",
+    "bandscribe/workers/base.py",
+    "bandscribe/atomic.py",
+    "bandscribe/formats.py",  # imported by atomic
+    "bandscribe/sysmon.py",
+    "bandscribe/paths.py",
+    "bandscribe/audio.py",
+    "bandscribe/models.py",
 )
-MARK = "# gtab: py310"
+MARK = "# bandscribe: py310"
 # Stdlib names that only exist from 3.11 on (grammar-valid, so ast.parse(feature_version=...) misses them).
 PY311_APIS = ("datetime.UTC", "dt.UTC", "_dt.UTC", "tomllib", "typing.Self", "StrEnum", "ExceptionGroup", "TaskGroup")
 
 
 def _marked() -> list[str]:
     out = []
-    for p in sorted(GTAB.rglob("*.py")):
+    for p in sorted(PKG.rglob("*.py")):
         if "__pycache__" in p.parts:
             continue
         head = p.read_text(encoding="utf-8").splitlines()[:5]
@@ -45,7 +46,7 @@ FILES = sorted(set(FIXED) | set(_marked()))
 
 
 def test_basicpitch_worker_is_marked() -> None:
-    assert "gtab/workers/amt_basicpitch.py" in _marked()
+    assert "bandscribe/workers/amt_basicpitch.py" in _marked()
 
 
 @pytest.mark.parametrize("rel", FILES)
