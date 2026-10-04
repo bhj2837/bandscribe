@@ -708,17 +708,24 @@ def _release(gmin: np.ndarray, a: float) -> np.ndarray:
     return 1.0 - out
 
 
+def limiter_envelope(x: np.ndarray, sr: int, *, ceiling_dbtp: float = -1.0, lookahead_s: float = 0.005,
+                     release_s: float = 0.08) -> np.ndarray:
+    """Per-sample gain (n,) of one ``limit`` pass on ``x`` (float64)."""
+    x = np.asarray(x, dtype=np.float64)
+    ceiling = 10 ** (ceiling_dbtp / 20)
+    peak = true_peak_per_sample(x)
+    g = np.minimum(1.0, ceiling / np.maximum(peak, 1e-12))
+    gmin = _forward_min(g, int(round(lookahead_s * sr)))
+    return _release(gmin, math.exp(-1.0 / (release_s * sr)))
+
+
 def limit(x: np.ndarray, sr: int, *, ceiling_dbtp: float = -1.0, lookahead_s: float = 0.005,
           release_s: float = 0.08) -> np.ndarray:
     """One look-ahead brickwall pass (float64). Gain from the 4× true-peak estimate, sliding minimum over the
     look-ahead window (so the gain is already down when the peak arrives: equivalent to delaying the signal by
     the look-ahead and trimming the delay), instantaneous attack, one-pole release (τ = ``release_s``)."""
     x = np.asarray(x, dtype=np.float64)
-    ceiling = 10 ** (ceiling_dbtp / 20)
-    peak = true_peak_per_sample(x)
-    g = np.minimum(1.0, ceiling / np.maximum(peak, 1e-12))
-    gmin = _forward_min(g, int(round(lookahead_s * sr)))
-    env = _release(gmin, math.exp(-1.0 / (release_s * sr)))
+    env = limiter_envelope(x, sr, ceiling_dbtp=ceiling_dbtp, lookahead_s=lookahead_s, release_s=release_s)
     return x * (env[:, None] if x.ndim == 2 else env)
 
 
@@ -748,6 +755,32 @@ def master(x: np.ndarray, sr: int, *, lufs: float = -8.0, ceiling_dbtp: float = 
             break
         gain_db += lufs - got
     return np.clip(y, -ceiling, ceiling).astype(np.float32)
+
+
+def master_gain(x: np.ndarray, sr: int, *, lufs: float = -8.0, ceiling_dbtp: float = -1.0,
+                tol_lu: float = 0.2, max_repeats: int = 3) -> np.ndarray:
+    """The per-sample gain (n,) float64 that ``master`` applies to ``x`` before its final safety clip.
+
+    Same loop as ``master`` (static gain to ``lufs``, limiter, re-measure). The distractor suite computes it on the
+    full mix of an excerpt and multiplies **every** condition (and every stem) by it, so the guitar signal is the
+    same, sample for sample, in all conditions and only the presence of the other sounds changes; the ``full``
+    condition then equals ``master(full)`` up to float rounding. Silence (no loudness) -> all ones."""
+    x64 = np.asarray(x, dtype=np.float64)
+    n = x64.shape[0]
+    loud = _loudness(x64, sr)
+    if not math.isfinite(loud):
+        return np.ones(n, dtype=np.float64)
+    gain_db = lufs - loud
+    g = env = None
+    for _ in range(1 + max_repeats):
+        g = 10 ** (gain_db / 20)
+        env = limiter_envelope(x64 * g, sr, ceiling_dbtp=ceiling_dbtp)
+        got = _loudness(x64 * g * (env[:, None] if x64.ndim == 2 else env), sr)
+        if not math.isfinite(got) or abs(got - lufs) <= tol_lu:
+            break
+        gain_db += lufs - got
+    assert g is not None and env is not None
+    return g * env
 
 
 # ---------------------------------------------------------------------------------------- Tier B mix

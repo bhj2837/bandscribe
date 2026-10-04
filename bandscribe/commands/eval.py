@@ -77,17 +77,55 @@ def _resolve_run(ref: str) -> Path:
     raise AssertionError
 
 
+def _ci_txt(d: Any) -> str:
+    if not d:
+        return "–"
+    pt = d.get("delta", d.get("value"))
+    lo, hi = (d.get("ci") or [None, None])[:2]
+    if lo is None or hi is None or lo != lo or hi != hi:
+        return f"{_num(pt)}"
+    return f"{_num(pt)} [{_num(lo)}, {_num(hi)}]"
+
+
+def _print_special(con: Console, suite: str, s: dict[str, Any]) -> None:
+    """Short console view of the distractors / backing suites (the full report is report.md / report.html)."""
+    if s.get("dry_run"):
+        con.print(f"계획만 세웠습니다(dry_run): 구간 {len(s.get('windows') or [])}개, 예상 GPU 약 {s.get('gpu_estimate_min')}분")
+        for w in s.get("windows") or []:
+            con.print(f"  {escape(w['item'])} {w['start_s']:.0f}–{w['end_s']:.0f} s: {escape(', '.join(w['conditions']))}")
+        return
+    if suite == "backing":
+        t = Table("쌍", "원곡 기타 음", "반주에도 있음", "비율")
+        for p in s.get("pairs") or []:
+            t.add_row(escape(p["label"]), str(p.get("orig_n", "–")), str(p.get("on_backing", "–")),
+                      _num(p.get("share")))
+        con.print(t)
+        return
+    from bandscribe.eval import distractor_report as R
+
+    t = Table("조건", "구간", "ΔFP/분", "ΔFN/분", "Δ재현율(점)", "ΔF1(점)")
+    for cond, d in ((s.get("deltas") or {}).get("production") or {}).items():
+        t.add_row(escape(R.cond_ko(cond)), str(d["n_items"]), _ci_txt(d["fp_per_min"]), _ci_txt(d["fn_per_min"]),
+                  _ci_txt(d["recall"]), _ci_txt(d["f1"]))
+    con.print(t)
+    gpu = s.get("gpu") or {}
+    con.print(f"GPU: 분리 {(gpu.get('sep_s') or 0) / 60:.1f}분, MuScriptor {(gpu.get('ms_s') or 0) / 60:.1f}분")
+
+
 def register(app: typer.Typer) -> None:
     ev = typer.Typer(help="평가: 지표 계산, 실행 비교, 외부 결과 가져오기, 사전 등록 실험, 참조 전사.", no_args_is_help=True)
     app.add_typer(ev, name="eval")
 
     @ev.command("run")
     def run_cmd(
-        suite: Annotated[str, typer.Option("--suite", help="quick | bp-smoke | synth | tierA | tierB | components")] = "quick",
+        suite: Annotated[str, typer.Option("--suite", help="quick | bp-smoke | synth | tierA | tierB | components | distractors | backing")] = "quick",
         system: Annotated[str | None, typer.Option("--system", help="oracle, oracle-noisy, majority, b0, no_split, job:<단계>, external:<이름>")] = None,
         out: Annotated[Path | None, typer.Option("--out", help="실행 폴더를 만들 상위 폴더 (기본 data/runs)")] = None,
         split: Annotated[str, typer.Option("--split", help="tierA 분할: dev | test | all")] = "dev",
         data: Annotated[str | None, typer.Option("--data", help="tierB 데이터셋(쉼표로 여러 개, 기본 cambridge_mt,medleydb)")] = None,
+        arg: Annotated[list[str] | None, typer.Option("--arg", metavar="KEY=VALUE",
+                                                      help="세트 인자(여러 번 가능): 예 distractors 의 songs=a,b · max_windows=1 · "
+                                                           "gpu_budget_min=60 · dry_run=true, backing 의 pairs=<toml>")] = None,
         set_: SetOpt = None,
     ) -> None:
         """평가 세트를 돌려 metrics.csv, summary.json, report.html 을 만든다."""
@@ -102,12 +140,23 @@ def register(app: typer.Typer) -> None:
         args: dict[str, Any] = {"split": split}
         if data:
             args["datasets"] = [d.strip() for d in data.split(",") if d.strip()]
+        args.update(_parse_args(arg))
+
+        def progress(ev_: str, d: dict) -> None:
+            if ev_ == "message":
+                con.print(escape(str(d.get("message", ""))))
+            else:
+                log.debug("%s %s", ev_, d)
+
         try:
-            res = suites.run_suite(suite, system, cfg, out=out, args=args,
-                                   progress=lambda ev_, d: log.debug("%s %s", ev_, d))
+            res = suites.run_suite(suite, system, cfg, out=out, args=args, progress=progress)
         except suites.SuiteError as e:
             _fail(str(e))
         s = res.summary
+        if suite in ("distractors", "backing"):
+            _print_special(con, suite, s)
+            con.print(f"결과 폴더: {escape(str(res.run_dir))}")
+            return
         con.print(f"평가 세트 [bold]{suite}[/] · 시스템 [bold]{escape(str(s.get('system', '')))}[/] · 항목 {s.get('n_items', '-')}개")
         if s.get("note"):
             con.print(f"[yellow]{escape(s['note'])}[/]")

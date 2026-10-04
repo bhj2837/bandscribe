@@ -265,6 +265,90 @@ extract = true
 song = "younggriffo_facade"
 title = "Young Griffo - Facade (Heavy Rock; ElecGtr1 a-d, ElecGtr2 a-d)"
 
+# Distractor set (added 2026-10-04 for the `distractors` eval suite, docs/decisions.md): rock/pop songs whose
+# multitrack has electric guitars AND synth pad / synth lead / strings / electric piano / organ / FX stems.
+# Picked from the MS21 annotation CSV + its downloadurls.txt (github.com/felixCheungcheung/mixing_secrets_v2;
+# only plain-HTTP MTK-host archives, sizes from one HEAD request each), preferring small archives (2.48 GB in
+# all). Optional parts (`required = false`): `bandscribe data fetch cambridge_mt --part <song>` (or `--part all`).
+# No checksum is published; the sha256 is pinned in datasets.lock.json on first download.
+
+[[cambridge_mt.files]]
+name = "MR0902_JamesElder_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK001/MR0902_JamesElder_Full.zip"
+bytes = 368728001
+md5 = ""
+required = false
+extract = true
+part = "jameselder_englishactor"
+song = "jameselder_englishactor"
+title = "James Elder & Mark M Thompson - The English Actor (Indie Pop; ElecGtr1-3 + SynthPad1-2, SynthLead, SynthFuzz, SynthFX)"
+
+[[cambridge_mt.files]]
+name = "MR1204_JokersJacksKings_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK003/MR1204_JokersJacksKings_Full.zip"
+bytes = 390109915
+md5 = ""
+required = false
+extract = true
+part = "jokers_seaofleaves"
+song = "jokers_seaofleaves"
+title = "Jokers, Jacks & Kings - Sea Of Leaves (Uptempo Indie Rock; ElecGtr1-8 + SynthPad, SynthLead)"
+
+[[cambridge_mt.files]]
+name = "MR1003_Zeno_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK001/MR1003_Zeno_Full.zip"
+bytes = 395769026
+md5 = ""
+required = false
+extract = true
+part = "zeno_signs"
+song = "zeno_signs"
+title = "Zeno - Signs (Epic Indie Rock; ElecGtr1-9 + SynthPad, Piano)"
+
+[[cambridge_mt.files]]
+name = "RememberDecember_CUNextTime_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK006/RememberDecember_CUNextTime_Full.zip"
+bytes = 456408057
+md5 = ""
+required = false
+extract = true
+part = "rememberdecember_cunexttime"
+song = "rememberdecember_cunexttime"
+title = "Remember December - C U Next Time (Alt Pop/Rock; ElecGtr1-6 + Strings, SubDrop SFX)"
+
+[[cambridge_mt.files]]
+name = "MR1107_SigneJakobsen_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK001/MR1107_SigneJakobsen_Full.zip"
+bytes = 271749358
+md5 = ""
+required = false
+extract = true
+part = "signejakobsen_whathaveyoudone"
+song = "signejakobsen_whathaveyoudone"
+title = "Signe Jakobsen - What Have You Done To Me (Rock; ElecGtr01-10 + StringPad, Organ, Piano1-2)"
+
+[[cambridge_mt.files]]
+name = "Mu_TooBright_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK009/Mu_TooBright_Full.zip"
+bytes = 374812079
+md5 = ""
+required = false
+extract = true
+part = "mu_toobright"
+song = "mu_toobright"
+title = "Mu - Too Bright (Alternative Electro Rock; ElecGtr1-6 + Rhodes, RhodesSFX, Synth1-4)"
+
+[[cambridge_mt.files]]
+name = "MR0903_Moosmusic_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK002/MR0903_Moosmusic_Full.zip"
+bytes = 225397491
+md5 = ""
+required = false
+extract = true
+part = "moosmusic_bigdummyshake"
+song = "moosmusic_bigdummyshake"
+title = "Moosmusic - Big Dummy Shake (Indie Pop/Rock; ElecGtr1-7 + Rhodes)"
+
 [medleydb]
 title = "MedleyDB 1.0 (audio)"
 tier = "B"

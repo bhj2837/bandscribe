@@ -9,6 +9,11 @@ Suites:
 - ``tierA``   — songs under ``data/eval/tierA/`` (gt.yaml sections, GT tempo map); ``dev`` split unless ``--set``.
 - ``tierB``   — Tier B dataset tracks (line GT from the dataset or AMT's reference transcription).
 - ``components`` — runs every registered experiment that is still open (``bandscribe eval exp`` for each).
+- ``distractors`` — which kinds of sound (synth pad/lead, keys, strings, FX ...) add false or missed guitar notes:
+                Cambridge-MT excerpts remixed with and without each sound category, production guitar path,
+                per-note cause attribution (``bandscribe.eval.distractors``; pre-registered as ``distractors``).
+- ``backing`` — auxiliary: share of an original song's guitar notes that also appear on its guitar-removed backing
+                (``bandscribe.eval.backing``; pairs in ``data/eval/backing_pairs.toml``, local only).
 
 Systems: ``oracle`` (GT as prediction, sanity 1.0), ``oracle-noisy`` (seeded deletions / octave errors / jitter /
 label swaps / unassigned / insertions), ``job:<stage>`` (NoteSets of a job's stage dir; rung from ``gpu_run.json``),
@@ -34,9 +39,9 @@ from bandscribe.eval.metrics import UNASSIGNED, Event
 
 log = logging.getLogger(__name__)
 
-SUITES = ("quick", "bp-smoke", "synth", "tierA", "tierB", "components")
+SUITES = ("quick", "bp-smoke", "synth", "tierA", "tierB", "components", "distractors", "backing")
 DEFAULT_SYSTEM = {"quick": "oracle-noisy", "synth": "oracle-noisy", "bp-smoke": "basicpitch", "tierA": "job:notes",
-                  "tierB": "oracle", "components": "experiments"}
+                  "tierB": "oracle", "components": "experiments", "distractors": "production", "backing": "job:notes"}
 BP_SMOKE_NOTE = "학습 데이터 포함(Basic Pitch 학습에 GuitarSet 사용), 판정용 아님"
 Progress = Callable[[str, dict], None]
 
@@ -725,6 +730,8 @@ def run_suite(suite: str, system: str | None, cfg: Any, *, out: Path | None = No
 
     if suite == "components":
         return _run_components(cfg, out=out, args=args, now=now, gitsha=gitsha)
+    if suite in ("distractors", "backing"):
+        return _run_special(suite, cfg, out=out, args=args, progress=progress, now=now, gitsha=gitsha)
     system = system or DEFAULT_SYSTEM[suite]
     note = BP_SMOKE_NOTE if suite == "bp-smoke" else ""
     items = items_for_suite(suite, cfg, args)
@@ -797,6 +804,53 @@ def _write_worst_bars(path: Path, worst: Sequence[dict[str, Any]]) -> None:
     atomic.write_bytes(path, buf.getvalue().encode("utf-8"))
 
 
+def _run_special(suite: str, cfg: Any, *, out: Path | None, args: dict | None, progress: Progress | None,
+                 now: Any, gitsha: str | None) -> SuiteRun:
+    """Suites with their own runner and report (``distractors``, ``backing``). A registry entry with the suite's
+    id (docs/decisions.md) goes from 사전 등록 to 실행 중 and gets a result line, like ``bandscribe eval exp``."""
+    import datetime as dt
+
+    from bandscribe.eval import experiments, runs
+
+    args = dict(args or {})
+    run_dir = runs.new_run_dir(suite, root=out, now=now, gitsha=gitsha)
+    started = runs.utc_now()
+    say = (lambda msg: progress("message", {"message": msg})) if progress else None
+    try:
+        if suite == "distractors":
+            from bandscribe.eval import distractors
+
+            summary = distractors.run(run_dir, cfg, args, progress=say)
+        else:
+            from bandscribe.eval import backing
+
+            summary = backing.run(run_dir, cfg, args, progress=say)
+    except Exception as e:
+        try:
+            atomic.write_json(run_dir / "failed.json", {"suite": suite, "error_type": type(e).__name__, "error": str(e)})
+        except OSError:
+            pass
+        if type(e).__name__ in ("DistractorError", "BackingError"):
+            raise SuiteError(str(e)) from e
+        raise
+    runs.write_run_json(run_dir / "run.json", {
+        "suite": suite, "system": DEFAULT_SYSTEM[suite], "args": {k: v for k, v in args.items() if k != "cache_root"},
+        "git_sha": run_dir.name.split("_")[1], "started_utc": started, "finished_utc": runs.utc_now(),
+        "config": cfg.model_dump(mode="json") if hasattr(cfg, "model_dump") else None, **runs.provenance()})
+    if not summary.get("dry_run") and not args.get("no_registry"):
+        try:
+            reg_path = experiments.decisions_path()
+            entry = experiments.load_registry(reg_path).get(suite)
+            if entry is not None and not entry.decided:
+                if entry.status == experiments.STATE_PRE:
+                    experiments.set_status(suite, experiments.STATE_RUNNING, reg_path)
+                experiments.append_result(suite, f"{(now or dt.datetime.now()).strftime('%Y-%m-%d')} `{run_dir.name}`: "
+                                                 "계산된 판정 = 서술(판정 없음)", reg_path)
+        except OSError as e:
+            log.warning("decisions.md 를 갱신하지 못했습니다: %s", e)
+    return SuiteRun(run_dir, summary)
+
+
 def _run_components(cfg: Any, *, out: Path | None, args: dict | None, now: Any, gitsha: str | None) -> SuiteRun:
     from bandscribe.eval import experiments, runs
 
@@ -806,6 +860,13 @@ def _run_components(cfg: Any, *, out: Path | None, args: dict | None, now: Any, 
     started = runs.utc_now()
     results: dict[str, Any] = {}
     for eid in open_ids:
+        if reg[eid].spec.get("suite"):  # a suite registered for its pre-registration (e.g. distractors)
+            try:
+                r = _run_special(reg[eid].spec["suite"], cfg, out=out, args=args, progress=None, now=now, gitsha=gitsha)
+                results[eid] = {"run_dir": r.run_dir.name, "decision": "서술(판정 없음)"}
+            except SuiteError as e:
+                results[eid] = {"error": str(e)}
+            continue
         try:
             r = experiments.run_experiment(eid, cfg, args=args, runs_root=out, now=now, gitsha=gitsha)
             results[eid] = {"run_dir": r.run_dir.name, "decision": r.summary.get("decision_ko")}

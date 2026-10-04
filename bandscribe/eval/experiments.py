@@ -585,6 +585,8 @@ def run_experiment(exp_id: str, cfg: Any, *, args: dict | None = None, dry_run: 
 
     reg_path = Path(registry_path or decisions_path())
     entry = check_runnable(load_registry(reg_path), exp_id)
+    if entry.spec.get("suite"):
+        raise ExperimentStateError(f"'{exp_id}' 는 평가 세트로 실행합니다: bandscribe eval run --suite {entry.spec['suite']}")
     fn = experiment_fn(exp_id)
     if dry_run:
         return entry
