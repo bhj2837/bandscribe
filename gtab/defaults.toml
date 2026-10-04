@@ -57,7 +57,10 @@ min_node_major = 22
 # (cache key); [gpu] keys never are.
 
 [run]
-profile = "quality"            # fast | quality   (max = later milestones)
+profile = "quality"            # fast | quality | eval   (max = later milestones)
+                               # fast/quality: no full-mix B0 pass; piano+other presence pass on sampled windows
+                               # (fast: half the windows). eval: + B0 mix pass + full-length piano+other pass as
+                               # extra outputs (instrumentation and guitar pass equal quality's).
 
 [hints]                        # user hints; CLI flags write these via --set
 instruments = "auto"           # "auto" or comma list of families: guitar,keys,synth,bass,strings,brass,winds,vocals
@@ -89,9 +92,15 @@ beam_size = 1
 cfg_coef = 1.0
 batch_size = 1
 latency_s = -0.003                                 # latency experiment 2026-10-03: MuScriptor onsets ~3 ms early (GuitarSet dev 00-02); subtracted from MuScriptor times
-piano_other_instruments = "keys+guitar"            # keys | keys+guitar  (M1_M2_SPEC A5)
+piano_other_instruments = "keys+guitar"            # keys | keys+guitar  (M1_M2_SPEC A5); keys = keys/synth/strings classes
+presence_pass = "auto"                             # auto (= sampled windows, every profile) | sampled | full
+presence_window_s = 10.0                           # sampled presence pass: window length (s), starts on a bar
+presence_max_windows = 6                           # at most this many windows (fast profile: half)
+presence_max_total_s = 60.0                        # and at most this much audio
+presence_max_fraction = 0.2                        # and at most this share of the song (at least one window)
+presence_min_active = 0.5                          # share of a window's frames with piano+other above instr.active_rel_db (or its power mean above it)
 guitar_view = "guitar_mono"                        # E2: guitar_mono | mix_mono | nonvox_mono | guitar_other_mono
-guitar_mask = "guitar+present"                     # E3: guitar_only | guitar+present | all
+guitar_mask = "guitar+present"                     # E3: guitar_only | guitar+present (keys/synth) | guitar+present+strings (E3b) | all
 bp_onset_threshold = 0.6                           # E23 (2026-10-03, EGDB dev argmax among frames 3-7) tunes these three
 bp_frame_threshold = 0.4
 bp_min_note_frames = 7                             # shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms);
@@ -108,6 +117,7 @@ guitar_threshold = 0.15                            # low: omitting a guitar clas
 guitar_stem_active_ratio = 0.05                    # guitar stem active in >= 5 % of bars -> all 3 guitar classes
 active_rel_db = -40.0                              # a stem/bar is "active" above this RMS relative to the mix
 mix_class_min_notes = 8
+presence_min_notes = 8                             # notes a class needs in the piano+other presence pass to count
 
 [grid]
 checkpoint = "final0"                              # model "beat_this.final0" in models.lock.json (gtab models fetch)

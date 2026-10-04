@@ -66,10 +66,18 @@ class NoteSet(_Model):
     backend: BackendInfo
     time_offset_applied_s: float = 0.0  # already added to onset/offset (MuScriptor: -latency)
     audio_duration_s: Seconds | None = None
+    # Only parts of the view were transcribed (S3.5 presence windows): [[start_s, end_s], ...] in view time,
+    # sorted and disjoint. Note times stay in view time. None = the whole view.
+    segments: list[tuple[Seconds, Seconds]] | None = None
     notes: list[NoteEvent]
 
     @model_validator(mode="after")
     def _sorted(self) -> NoteSet:
+        prev_end = 0.0
+        for a, b in self.segments or []:
+            if b <= a or a < prev_end:
+                raise ValueError(f"segments must be sorted, disjoint and non-empty: [{a}, {b}] after {prev_end}")
+            prev_end = b
         keys = [note_sort_key(n) for n in self.notes]
         for i in range(1, len(keys)):
             if keys[i] < keys[i - 1]:

@@ -311,14 +311,36 @@ class External(System):
         return load_external(self.ext, it.item)
 
 
+B0_FILE = "raw/mix_mono__muscriptor.json"  # amt_ms1's full-mix transcription: only the eval profile makes it
+
+
+def with_profile(cfg: Any, profile: str) -> Any:
+    """A copy of ``cfg`` (Config or plain dict) with ``run.profile`` replaced; anything else is returned as is."""
+    from gtab.config import Config
+
+    if isinstance(cfg, Config):
+        return cfg.model_copy(update={"run": cfg.run.model_copy(update={"profile": profile})})
+    if isinstance(cfg, dict):
+        return {**cfg, "run": {**(cfg.get("run") or {}), "profile": profile}}
+    return cfg
+
+
 class JobStage(System):
-    """NoteSets of a job's stage: ``job:notes`` (guitar_all.json), ``job:amt_gtr`` (raw guitar view), …"""
+    """NoteSets of a job's stage: ``job:notes`` (guitar_all.json), ``job:amt_gtr`` (raw guitar view), …
+
+    ``b0`` (baseline B0) needs the full-mix transcription, which only the ``eval`` profile runs (2026-10-04: the
+    default ``quality`` profile skips it for speed). So B0 plans its stage keys with ``run.profile = "eval"`` and
+    otherwise takes the newest ``amt_ms1`` dir that has the mix file; without one B0 is skipped with a Korean hint
+    to run ``gtab run <곡> --profile eval``.
+    """
 
     def __init__(self, stage: str, *, mode: str = "lines", cfg: Any = None) -> None:
         self.stage = stage
         self.mode = mode
         self.name = f"job:{stage}" if mode == "lines" else mode
-        self.cfg = cfg
+        self.cfg = with_profile(cfg, "eval") if mode == "b0" else cfg
+        self._need = B0_FILE if mode == "b0" else None
+        self._warned: set[str] = set()
         self._rung: dict[str, str] = {}
         self._planned: dict[str, dict[str, str]] = {}
 
@@ -341,14 +363,18 @@ class JobStage(System):
             self._planned[song_key] = keys
         return self._planned[song_key]
 
-    def _stage_dir(self, song_key: str, stage: str) -> Path | None:
-        """The stage dir made with the current settings (planned key), else the newest finished one."""
+    def _stage_dir(self, song_key: str, stage: str, need: str | None = None) -> Path | None:
+        """The stage dir made with the current settings (planned key), else the newest finished one; with
+        ``need`` (a file relative to the stage dir) only dirs that contain it."""
         d = paths.JOBS / song_key / "stages" / stage
         key12 = self._planned_keys(song_key).get(stage)
-        if key12 and (d / key12 / "manifest.json").is_file():
+
+        def ok(p: Path) -> bool:
+            return (p / "manifest.json").is_file() and (need is None or (p / need).is_file())
+
+        if key12 and ok(d / key12):
             return d / key12
-        cands = sorted((p for p in d.glob("*") if (p / "manifest.json").is_file()),
-                       key=lambda p: p.stat().st_mtime) if d.is_dir() else []
+        cands = sorted((p for p in d.glob("*") if ok(p)), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
         if cands and key12:
             log.warning("%s/%s: 현재 설정의 단계(%s)가 없어 가장 최근 결과(%s)를 씁니다", song_key, stage, key12,
                         cands[-1].name)
@@ -357,7 +383,7 @@ class JobStage(System):
     def _read_rung(self, song_key: str) -> str:
         labels = []
         for st in ("sep", "amt_ms1" if self.mode == "b0" else "amt_gtr"):
-            sd = self._stage_dir(song_key, st)
+            sd = self._stage_dir(song_key, st, self._need if st == "amt_ms1" else None)
             gr = sd / "gpu_run.json" if sd else None
             if gr and gr.is_file():
                 lab = (atomic.read_json(gr).get("rung") or {}).get("label")
@@ -372,9 +398,13 @@ class JobStage(System):
         if not it.song_key:
             return None
         if self.mode == "b0":
-            sd = self._stage_dir(it.song_key, "amt_ms1")
-            f = sd / "raw" / "mix_mono__muscriptor.json" if sd else None
+            sd = self._stage_dir(it.song_key, "amt_ms1", B0_FILE)
+            f = sd / B0_FILE if sd else None
             if not f or not f.is_file():
+                if it.song_key not in self._warned:
+                    self._warned.add(it.song_key)
+                    log.warning("%s: B0 는 eval 프로필의 믹스 전사가 필요합니다. 'gtab run %s --profile eval' 로 "
+                                "만든 뒤 다시 평가하세요(B0 생략).", it.song_key, it.song_key)
                 return None
             pred = b0(NoteSet.model_validate_json(f.read_bytes()), item=it.item)
         else:

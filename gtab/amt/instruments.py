@@ -5,9 +5,19 @@ token is forbidden), and the conditioning string is built in list order. So:
 
 - every mask sent to the worker and every cache key goes through ``sort_mt3`` (MT3 id order, no duplicates);
 - a guitar class is never dropped from a guitar-view mask (omitting clean guitar deletes those notes);
-- the piano+other view is masked with keys/synth classes, plus the guitar classes by default
-  (``amt.piano_other_instruments = "keys+guitar"``, M1_M2_SPEC A5): with a keys-only mask, guitar bleed in the
-  "other" stem would be forced into keys classes and later penalise true guitar notes in S7.
+- the piano+other view is masked with the keys/synth/strings classes (``PRESENCE_CLASSES``), plus the guitar
+  classes by default (``amt.piano_other_instruments = "keys+guitar"``, M1_M2_SPEC A5): with a keys-only mask,
+  guitar bleed in the "other" stem would be forced into keys classes and later penalise true guitar notes in S7.
+  Strings joined the mask on 2026-10-04: on 怪獣の花唄 / 青と夏 SW's guitar stem is mostly non-guitar content
+  (very likely strings/pads), and a mask without strings could only call it synth or keys.
+- the guitar-pass mask ``guitar+present`` (default) adds the **keys/synth** classes the instrumentation marks
+  present (the M2 set), so MuScriptor can label keyboard bleed non-guitar instead of forcing it into a guitar
+  class. Strings are **not** added by default (review 2026-10-04): on 怪獣の花唄 / 青と夏 / SC the strings-widened
+  mask removed no measurable bleed (share of guitar notes also found on the guitar-removed backing 17.7 -> 17.7 %
+  and 15.3 -> 20.2 %) but reshuffled the guitar sub-class labels (MuScriptor's labels follow the prompt) and
+  added notes on SC. ``guitar+present+strings`` keeps that variant for E3b; it never adds ``orchestral_harp``
+  (plucked, the most guitar-like class) or ``contrabass`` (guitar's low register). Brass/winds stay out of every
+  mask: each extra class is one more sink a real guitar note can be mislabelled into.
 
 The class and family tables are ``gtab.schema.instrumentation.MT3_GROUPS`` / ``FAMILIES`` (P0).
 """
@@ -26,8 +36,18 @@ log = logging.getLogger(__name__)
 GUITAR_CLASSES: tuple[str, ...] = tuple(FAMILIES["guitar"])
 BASS_CLASSES: tuple[str, ...] = tuple(FAMILIES["bass"])
 KEYS_SYNTH_CLASSES: tuple[str, ...] = tuple(FAMILIES["keys"]) + tuple(FAMILIES["synth"])
+# Non-guitar classes of the piano+other (presence) transcription (evidence for instrumentation.json).
+PRESENCE_FAMILIES: tuple[str, ...] = ("keys", "synth", "strings")
+PRESENCE_CLASSES: tuple[str, ...] = tuple(c for fam in PRESENCE_FAMILIES for c in FAMILIES[fam])
+# Present classes a guitar-pass mask may add: guitar+present = keys/synth; guitar+present+strings (E3b) also the
+# bowed strings, never orchestral_harp / contrabass (guitar-like timbre / register).
+GUITAR_MASK_STRINGS: tuple[str, ...] = ("violin", "viola", "cello", "string_ensemble")
+GUITAR_MASK_ADDS: dict[str, tuple[str, ...]] = {
+    "guitar+present": KEYS_SYNTH_CLASSES,
+    "guitar+present+strings": KEYS_SYNTH_CLASSES + GUITAR_MASK_STRINGS,
+}
 
-GUITAR_MASK_POLICIES = ("guitar_only", "guitar+present", "all")
+GUITAR_MASK_POLICIES = ("guitar_only", "guitar+present", "guitar+present+strings", "all")
 PIANO_OTHER_MODES = ("keys", "keys+guitar")
 GUITAR_VIEWS = ("guitar_mono", "mix_mono", "nonvox_mono", "guitar_other_mono")
 
@@ -93,11 +113,11 @@ def mask_guitar_only() -> list[str]:
 
 
 def mask_piano_other(mode: str = "keys+guitar") -> list[str]:
-    """Mask of the piano+other view (S3.5 bleed evidence for S7): keys/synth classes (+ guitar, A5)."""
+    """Mask of the piano+other view (S3.5 presence evidence; S7 bleed later): keys/synth/strings (+ guitar, A5)."""
     if mode not in PIANO_OTHER_MODES:
         raise ConfigError(f"amt.piano_other_instruments 는 {' | '.join(PIANO_OTHER_MODES)} 중 하나여야 합니다 "
                             f"(입력값: {mode!r})")
-    classes = list(KEYS_SYNTH_CLASSES)
+    classes = list(PRESENCE_CLASSES)
     if mode == "keys+guitar":
         classes += list(GUITAR_CLASSES)
     return sort_mt3(classes)
@@ -118,8 +138,9 @@ def mask_guitar_view(instrumentation: Any, policy: str = "guitar+present") -> li
     """Mask for the guitar transcription (``amt.guitar_mask``, E3).
 
     ``guitar_only`` = the three guitar classes; ``guitar+present`` = those plus every keys/synth class the
-    instrumentation marks present; ``all`` = None (no mask). The guitar classes are always in a list mask,
-    whatever the instrumentation says.
+    instrumentation marks present; ``guitar+present+strings`` = also the present bowed strings
+    (``GUITAR_MASK_STRINGS``); ``all`` = None (no mask). The guitar classes are always in a list mask, whatever
+    the instrumentation says.
     """
     if policy not in GUITAR_MASK_POLICIES:
         raise ConfigError(f"amt.guitar_mask 는 {' | '.join(GUITAR_MASK_POLICIES)} 중 하나여야 합니다 "
@@ -127,15 +148,25 @@ def mask_guitar_view(instrumentation: Any, policy: str = "guitar+present") -> li
     if policy == "all":
         return None
     classes = list(GUITAR_CLASSES)
-    if policy == "guitar+present":
+    if policy in GUITAR_MASK_ADDS:
         present = _present(instrumentation)
-        classes += [c for c in KEYS_SYNTH_CLASSES if present.get(c)]
+        classes += [c for c in GUITAR_MASK_ADDS[policy] if present.get(c)]
     return sort_mt3(classes)
 
 
 def pass1_masks(piano_other_mode: str) -> dict[str, list[str] | None]:
-    """Masks of the pass-1 views of ``amt_ms1`` (the mix view is transcribed with every class, B0)."""
-    return {"mix_mono": None, "bass_mono": mask_bass(), "piano_other_mono": mask_piano_other(piano_other_mode)}
+    """Masks of the pass-1 views of ``amt_ms1`` (the mix view is transcribed with every class, B0).
+
+    ``piano_other_presence`` (sampled windows of the piano+other view) uses the same mask as the full view.
+    """
+    po = mask_piano_other(piano_other_mode)
+    return {"mix_mono": None, "bass_mono": mask_bass(), "piano_other_mono": po, "piano_other_presence": list(po)}
+
+
+def presence_evidence_classes(piano_other_mode: str) -> list[str]:
+    """Classes the piano+other transcription is presence evidence for: its mask minus the guitar classes
+    (guitar notes there are bleed; guitar presence comes from the guitar stem rule)."""
+    return [c for c in mask_piano_other(piano_other_mode) if c not in GUITAR_CLASSES]
 
 
 def guitar_omissions(mask: list[str] | None) -> int:

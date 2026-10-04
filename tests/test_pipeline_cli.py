@@ -96,8 +96,11 @@ def test_profile_and_instruments_flags_reach_the_config(tmp_path, monkeypatch):
     r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run", "--profile", "fast", "--instruments", 'guitar, keys"x'])
     assert r.exit_code == 0, r.output
     assert seen["cfg"].run.profile == "fast" and seen["cfg"].hints.instruments == 'guitar, keys"x'
+    r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run", "--profile", "eval"])
+    assert r.exit_code == 0, r.output
+    assert seen["cfg"].run.profile == "eval"
     r = CliRunner().invoke(_app(), ["run", KEY, "--profile", "max"])
-    assert r.exit_code == 2 and "fast 또는 quality" in r.output
+    assert r.exit_code == 2 and "fast, quality, eval" in r.output
     r = CliRunner().invoke(_app(), ["run", KEY, "--set", "grid.refine_windw_ms=3"])
     assert r.exit_code == 2
 

@@ -114,8 +114,14 @@ STFT_HOP = 512  # BS-RoFormer SW stft_hop_length: chunk sizes must be multiples 
 _LUFS_MSG = '"off" 이거나 -30 ~ -6 사이의 LUFS 숫자여야 합니다'
 
 
+RUN_PROFILES: tuple[str, ...] = ("fast", "quality", "eval")
+
+
 class RunCfg(_Section):
-    profile: Literal["fast", "quality"] = "quality"  # max = later milestones
+    # fast / quality: no full-mix B0 pass, sampled piano+other presence pass (fast: half the windows).
+    # eval: quality + the full-mix B0 pass and the full-length piano+other pass as extra outputs (baselines,
+    # evaluation); its instrumentation / guitar pass equal quality's. max = later.
+    profile: Literal["fast", "quality", "eval"] = "quality"
 
 
 class HintsCfg(_Section):
@@ -187,8 +193,19 @@ class AmtCfg(_Section):
     batch_size: int = Field(1, ge=1)
     latency_s: float = Field(-0.003, ge=-1.0, le=1.0)  # latency experiment 2026-10-03; subtracted from MuScriptor times
     piano_other_instruments: Literal["keys", "keys+guitar"] = "keys+guitar"  # M1_M2_SPEC A5
+    # piano+other presence pass (S3.5, gtab.amt.presence): auto = sampled windows in every profile (eval runs
+    # the full-length view as an extra output only); sampled | full force the presence source. The sampled budget: up to presence_max_windows windows of
+    # presence_window_s, at most presence_max_total_s and presence_max_fraction of the song (fast: half the
+    # windows); a window qualifies if >= presence_min_active of its frames have piano+other above
+    # instr.active_rel_db, or its power-mean level is above it.
+    presence_pass: Literal["auto", "sampled", "full"] = "auto"
+    presence_window_s: float = Field(10.0, ge=2.0, le=60.0)
+    presence_max_windows: int = Field(6, ge=1, le=50)
+    presence_max_total_s: float = Field(60.0, gt=0.0)
+    presence_max_fraction: float = Field(0.2, gt=0.0, le=1.0)
+    presence_min_active: float = Field(0.5, ge=0.0, le=1.0)
     guitar_view: Literal["guitar_mono", "mix_mono", "nonvox_mono", "guitar_other_mono"] = "guitar_mono"  # E2
-    guitar_mask: Literal["guitar_only", "guitar+present", "all"] = "guitar+present"  # E3
+    guitar_mask: Literal["guitar_only", "guitar+present", "guitar+present+strings", "all"] = "guitar+present"  # E3
     bp_onset_threshold: float = Field(0.6, gt=0.0, lt=1.0)  # E23 (2026-10-03) tuned these three
     bp_frame_threshold: float = Field(0.4, gt=0.0, lt=1.0)
     # Shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms); the worker passes frames - 1 to Basic
@@ -218,6 +235,7 @@ class InstrCfg(_Section):
     guitar_stem_active_ratio: Prob = 0.05  # guitar stem active in >= 5 % of bars -> all 3 guitar classes
     active_rel_db: float = Field(-40.0, le=0.0)  # a stem/bar is "active" above this RMS relative to the mix
     mix_class_min_notes: int = Field(8, ge=0)
+    presence_min_notes: int = Field(8, ge=0)  # notes a class needs in the piano+other presence pass to count
 
 
 class GridCfg(_Section):

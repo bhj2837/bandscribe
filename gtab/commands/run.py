@@ -37,7 +37,9 @@ def run_cmd(
     from_: Annotated[str | None, typer.Option("--from", help="이 단계부터 다시 계산한다(뒤 단계도 모두)")] = None,
     force: Annotated[list[str] | None, typer.Option(
         "--force", help="캐시가 있어도 다시 계산할 단계(쉼표로 여러 개, 뒤 단계도 모두)")] = None,
-    profile: Annotated[str | None, typer.Option("--profile", help="fast | quality")] = None,
+    profile: Annotated[str | None, typer.Option(
+        "--profile", help="fast | quality(기본) | eval. eval 은 평가용: 믹스 전체 전사(B0)와 piano+other 전체 전사를 "
+                          "추가 결과로 더해 훨씬 느리다(편성·기타 전사는 quality 와 같다).")] = None,
     instruments: Annotated[str | None, typer.Option(
         "--instruments", help='편성 힌트: auto 또는 "guitar,keys" 처럼 악기군 목록')] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="실행하지 않고 단계별 캐시 여부만 보여 준다.")] = False,
@@ -58,8 +60,8 @@ def run_cmd(
 
     overrides = list(set_ or [])
     if profile is not None:
-        if profile not in ("fast", "quality"):
-            fail(f"--profile 은 fast 또는 quality 입니다: {profile}", 2)
+        if profile not in config.RUN_PROFILES:
+            fail(f"--profile 은 fast, quality, eval 중 하나입니다: {profile}", 2)
         overrides.append(f"run.profile={profile}")
     if instruments is not None:
         # a JSON string literal is a valid TOML basic string, so quotes/backslashes in the value cannot break

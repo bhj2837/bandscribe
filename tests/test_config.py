@@ -288,11 +288,14 @@ def test_m2_defaults_match_spec(no_user: Path) -> None:
     assert a.muscriptor_revision == "f32236969308476e01fd3aae67357de5feb05a2d"
     assert (a.prelude_forcing, a.beam_size, a.cfg_coef, a.batch_size, a.latency_s) == (True, 1, 1.0, 1, -0.003)  # latency exp
     assert (a.piano_other_instruments, a.guitar_view, a.guitar_mask) == ("keys+guitar", "guitar_mono", "guitar+present")
+    assert (a.presence_pass, a.presence_window_s, a.presence_max_windows, a.presence_max_total_s,
+            a.presence_max_fraction, a.presence_min_active) == ("auto", 10.0, 6, 60.0, 0.2, 0.5)
     assert (a.bp_onset_threshold, a.bp_frame_threshold, a.bp_min_note_frames) == (0.6, 0.4, 7)  # E23
     assert (a.bp_min_freq_hz, a.bp_max_freq_hz, a.bp_melodia_trick, a.bp_threads) == (0.0, 0.0, True, 4)
     i = cfg.instr
     assert (i.threshold, i.guitar_threshold, i.guitar_stem_active_ratio, i.active_rel_db, i.mix_class_min_notes) == (
         0.5, 0.15, 0.05, -40.0, 8)
+    assert i.presence_min_notes == 8
     g = cfg.grid
     assert (g.checkpoint, g.dbn, g.refine_window_ms, g.half_double_check) == ("final0", False, 35.0, True)
     assert (g.compound_triple_ratio, g.compound_margin, g.downbeat_snap_ms, g.meter_smooth_bars) == (0.6, 0.1, 70.0, 8)
@@ -349,6 +352,7 @@ def test_chunk_ladder_validation(no_user: Path) -> None:
 
 def test_m2_literals_and_unknown_keys(no_user: Path) -> None:
     for item in ("run.profile=max", "amt.guitar_view=bass_mono", "amt.guitar_mask=none",
+                 "amt.presence_pass=some", "amt.presence_max_fraction=0", "amt.presence_window_s=1",
                  "amt.piano_other_instruments=guitar", "gpu.cpu_backends=[\"amt_basicpitch\"]",
                  "sep.allow_cpu=true", "amt.muscriptor_model=huge"):
         with pytest.raises(ConfigError):
@@ -356,6 +360,8 @@ def test_m2_literals_and_unknown_keys(no_user: Path) -> None:
     cfg = load_config(overrides=["run.profile=fast", "hints.instruments=guitar,keys", "amt.guitar_view=mix_mono"],
                       user_config=no_user)
     assert (cfg.run.profile, cfg.hints.instruments, cfg.amt.guitar_view) == ("fast", "guitar,keys", "mix_mono")
+    cfg = load_config(overrides=["run.profile=eval", "amt.presence_pass=full"], user_config=no_user)
+    assert (cfg.run.profile, cfg.amt.presence_pass) == ("eval", "full")
 
 
 def test_m2_sections_are_settable_and_listed(no_user: Path) -> None:

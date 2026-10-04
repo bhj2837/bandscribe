@@ -66,6 +66,9 @@ class Instrumentation(_Model):
     thresholds: dict
     hints: dict
     warnings: list[str]
+    # Summary of the piano+other presence transcription that fed the estimate (mode sampled|full, windows,
+    # per-class note counts); None when no presence pass ran (older stage dirs, experiments).
+    presence: dict | None = None
 
     @model_validator(mode="after")
     def _check(self) -> Instrumentation:

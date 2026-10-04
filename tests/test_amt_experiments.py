@@ -88,6 +88,7 @@ class Fakes:
 
     def ms(self, views, params, cfg, *, work_dir, cache, force_rung):
         self.ms_calls.append({"views": [v["id"] for v in views], "masks": [v.get("instruments") for v in views],
+                              "segments": [v.get("segments") for v in views],
                               "force_rung": force_rung, "dtype": params["dtype"]})
         raws = {}
         for v in views:
@@ -208,11 +209,27 @@ def test_e3_synthetic_scene_policies_omissions_and_families(env):
     om = [r for r in rows if r["metric"] == "guitar_class_omissions"]
     assert om and all(r["value"] == 0 for r in om)
     fam = [r for r in rows if r["metric"].endswith("_presence_correct")]
-    assert {r["metric"] for r in fam} == {"keys_presence_correct", "synth_presence_correct"}
+    assert {r["metric"] for r in fam} == {"keys_presence_correct", "synth_presence_correct",
+                                          "strings_presence_correct"}
     assert all(r["section"] in ("dev", "test") for r in rows)
+    assert env.fakes.ms_calls[0]["views"] == ["mix_mono"]  # E3: presence from the full-mix pass (M2 estimator)
     masks = [m[0] for m in (c["masks"] for c in env.fakes.ms_calls[1:])]
     assert None in masks and I.mask_guitar_only() in masks  # 'all' and 'guitar_only' arms
     _check_rows(rows, "E3")
+
+
+def test_e3b_uses_the_production_presence_pass_and_the_strings_policy(env):
+    """Review 2026-10-04: E3 estimated presence from the mix pass, which gtab run no longer runs."""
+    rows = E.EXPERIMENTS["E3b"](env.out, {}, {"scenes": ["A"], "seeds": [0], "thresholds": [0.5]})
+    assert {r["system"] for r in rows} == {"guitar+present", "guitar_only", "all", "guitar+present+strings"}
+    first = env.fakes.ms_calls[0]
+    assert first["views"] == ["piano_other_presence"] and first["segments"][0]  # windows, not the whole view
+    assert first["masks"][0] == I.mask_piano_other("keys+guitar")
+    assert all("mix_mono" not in c["views"] for c in env.fakes.ms_calls)
+    om = [r for r in rows if r["metric"] == "guitar_class_omissions"]
+    assert om and all(r["value"] == 0 for r in om)
+    assert "strings_presence_correct" in {r["metric"] for r in rows}
+    _check_rows(rows, "E3b")
 
 
 def _egdb(env, n_train: int = 3, n_test: int = 3) -> None:

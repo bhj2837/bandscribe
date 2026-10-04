@@ -36,7 +36,7 @@ from gtab.eval.runs import METRIC_COLUMNS
 log = logging.getLogger(__name__)
 
 SEP_IDS = frozenset({"stereo-preservation"})
-AMT_IDS = frozenset({"E1", "E2", "E3", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
+AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
 ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS))
 
 STATE_PRE = "사전 등록"

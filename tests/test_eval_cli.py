@@ -73,15 +73,21 @@ def test_eval_run_bad_suite_exits_2(app, runner, sandbox):
     assert r.exit_code == 2 and "알 수 없는 평가 세트" in r.output
 
 
-def test_eval_exp_dry_run_and_unknown(app, runner, monkeypatch):
+def test_eval_exp_dry_run_and_unknown(app, runner, monkeypatch, tmp_path):
+    from gtab.eval import experiments
+
     mod = types.ModuleType("gtab.amt.experiments")
     mod.EXPERIMENTS = {"E1": lambda out, cfg, args: []}
     monkeypatch.setitem(sys.modules, "gtab.amt.experiments", mod)
-    before = (paths.GTAB_ROOT / "docs" / "decisions.md").read_bytes()
+    from tests.fixtures.registry import fresh_registry
+
+    reg = fresh_registry(tmp_path / "decisions.md")
+    monkeypatch.setattr(experiments, "decisions_path", lambda: reg)
+    before = reg.read_bytes()
     r = runner.invoke(app, ["eval", "exp", "E1", "--dry-run"])
     assert r.exit_code == 0, r.output
     assert "주 지표" in r.output
-    assert (paths.GTAB_ROOT / "docs" / "decisions.md").read_bytes() == before
+    assert reg.read_bytes() == before
     r = runner.invoke(app, ["eval", "exp", "E99"])
     assert r.exit_code == 1 and "사전 등록" in r.output
 
@@ -176,8 +182,9 @@ def test_eval_exp_data_missing_suggests_record(app, runner, monkeypatch, tmp_pat
     def no_data(out, cfg, args):
         raise ExperimentDataMissing("Tier B 데이터가 없습니다")
 
-    reg = tmp_path / "decisions.md"
-    shutil.copyfile(paths.GTAB_ROOT / "docs" / "decisions.md", reg)
+    from tests.fixtures.registry import fresh_registry
+
+    reg = fresh_registry(tmp_path / "decisions.md")
     monkeypatch.setattr(experiments, "decisions_path", lambda: reg)
     monkeypatch.setattr(paths, "RUNS", tmp_path / "runs")
     mod = types.ModuleType("gtab.amt.experiments")

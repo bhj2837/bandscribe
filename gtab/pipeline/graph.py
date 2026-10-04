@@ -11,6 +11,11 @@ beats -> sep -> amt_ms1 -> amt_gtr (DESIGN 9.5).
 Deviation from the §3.2 table, deliberate: ``vocal`` also depends on ``sep``. It reads ``stems/vocals.wav``
 from the ``sep`` stage dir, and a stage may only read its own dep dirs (``stems`` does not re-export the vocals
 stem). The key is unaffected in substance: ``stems`` already depends on ``sep``.
+
+``amt_ms1`` also depends on ``grid`` and ``sections`` (2026-10-04): the sampled piano+other presence pass picks
+its windows at bar starts, spread over the sections (``gtab.amt.presence``). Whole-view transcriptions (bass,
+eval's mix and full piano+other) come from the shared transcription cache, so a new grid does not re-transcribe
+them.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("stems", ("sep",), "gtab.sep.stage"),
     ("vocal", ("stems", "grid", "sep"), "gtab.analysis.stage"),
     ("resid1", ("stems", "grid", "sections"), "gtab.analysis.stage"),
-    ("amt_ms1", ("stems",), "gtab.amt.stage"),
+    ("amt_ms1", ("stems", "grid", "sections"), "gtab.amt.stage"),
     ("amt_bp", ("stems",), "gtab.amt.stage"),
     ("instr", ("amt_ms1", "stems", "sections", "grid"), "gtab.amt.stage"),
     ("amt_gtr", ("stems", "instr"), "gtab.amt.stage"),

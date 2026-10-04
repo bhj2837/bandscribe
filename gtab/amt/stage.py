@@ -4,15 +4,23 @@
 imports this module lazily. Stage functions depend only on ``ctx.params``, their dep dirs and the job input;
 ``ctx.config`` is read only for non-semantic knobs (timeouts, VRAM policy) through ``gtab.vram``.
 
-- ``amt_ms1`` (GPU, ``amt_muscriptor``): pass-1 views ``mix_mono`` (quality only; all classes = baseline B0),
-  ``bass_mono`` (bass classes), ``piano_other_mono`` (keys/synth [+ guitar], M1_M2_SPEC A5).
+- ``amt_ms1`` (GPU, ``amt_muscriptor``): pass-1 views ``bass_mono`` (bass classes) and the piano+other presence
+  pass (keys/synth/strings [+ guitar], M1_M2_SPEC A5): ``piano_other_presence`` = sampled windows of
+  ``piano_other_mono`` (``gtab.amt.presence``; ``amt.presence_pass = "full"``: the full-length view instead).
+  ``eval`` adds two **extra outputs** that no later stage of the job reads: ``mix_mono`` (all classes = baseline
+  B0) and the full-length ``piano_other_mono`` (S7/M6 and E3b material). Writes ``presence.json``.
 - ``amt_bp`` (CPU, bp310 ``amt_basicpitch``, no GPU lock; **optional**): ``guitar_mono`` and ``bass_mono``. Without
   the bp310 env it writes ``skipped.json`` and a Korean warning; its models() then return
   ``{"basic_pitch": "absent"}`` so the key changes once the env is installed (M1_M2_SPEC A21).
-- ``instr`` (CPU): ``instrumentation.json`` (``gtab.amt.instrumentation``).
+- ``instr`` (CPU): ``instrumentation.json`` (``gtab.amt.instrumentation``) from the presence pass, the bass pass,
+  stem energy and hints; identical in every profile (``eval``'s mix pass is reported, not used: review 2026-10-04,
+  ``eval`` must not change the system it evaluates).
 - ``amt_gtr`` (GPU): the ``amt.guitar_view`` transcription with the guitar-pass mask from ``instr``.
-- ``s35`` (CPU): ``s35.json`` index of the S3.5 artifacts (paths relative to the job dir).
-- ``notes`` (CPU): ``guitar_all.json`` + ``midi/*.mid`` + ``notes_summary.json``.
+- ``s35`` (CPU): ``s35.json`` index of the S3.5 artifacts (paths relative to the job dir). ``guitar_pass`` is the
+  **raw** guitar view: with ``guitar+present`` it may hold notes labelled with a present keys/synth class
+  (counted in ``guitar_pass_non_guitar``); S4+ read ``notes/guitar_all.json`` (guitar classes only).
+- ``notes`` (CPU): ``guitar_all.json`` + ``midi/*.mid`` + ``notes_summary.json``; a Korean warning when the guitar
+  pass labelled >= 10 % of its notes non-guitar.
 
 Transcriptions go through the shared cache (``gtab.amt.cache``): views without an entry are sent to the worker,
 which writes raw NoteSets under ``_worker/raw/`` (provenance); the stage stores them in the cache under the rung
@@ -32,7 +40,8 @@ from typing import Any
 from gtab import atomic, models, paths, vram
 from gtab.amt import cache as amt_cache
 from gtab.amt import instruments as I
-from gtab.config import Config, ConfigError
+from gtab.amt import presence as P
+from gtab.config import RUN_PROFILES, Config, ConfigError
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +70,12 @@ AMT_DEFAULTS: dict[str, Any] = {
     "amt.batch_size": 1,
     "amt.latency_s": -0.003,  # latency experiment 2026-10-03 (docs/decisions.md)
     "amt.piano_other_instruments": "keys+guitar",
+    "amt.presence_pass": "auto",
+    "amt.presence_window_s": 10.0,
+    "amt.presence_max_windows": 6,
+    "amt.presence_max_total_s": 60.0,
+    "amt.presence_max_fraction": 0.2,
+    "amt.presence_min_active": 0.5,
     "amt.guitar_view": "guitar_mono",
     "amt.guitar_mask": "guitar+present",
     "amt.bp_onset_threshold": 0.6,  # E23 2026-10-03
@@ -75,8 +90,11 @@ AMT_DEFAULTS: dict[str, Any] = {
     "instr.guitar_stem_active_ratio": 0.05,
     "instr.active_rel_db": -40.0,
     "instr.mix_class_min_notes": 8,
+    "instr.presence_min_notes": 8,
 }
+PROFILES = RUN_PROFILES  # fast | quality | eval (2026-10-04)
 BP_WORKER_TIMEOUT_S = 3600.0
+DROPPED_WARN_SHARE = 0.1  # notes: warn when the guitar pass labelled this share of its notes non-guitar
 
 
 class AmtStageError(RuntimeError):
@@ -203,15 +221,55 @@ def ms_params(cfg: Any) -> dict[str, Any]:
     }
 
 
-def pass1_views(profile: str) -> list[str]:
-    return (["mix_mono"] if profile != "fast" else []) + ["bass_mono", "piano_other_mono"]
+def _check_profile(profile: str) -> str:
+    if profile not in PROFILES:  # Config already restricts it; dict configs (experiments, tests) land here
+        raise ConfigError(f"run.profile 은 {' | '.join(PROFILES)} 중 하나여야 합니다 (입력값: {profile!r})")
+    return profile
+
+
+def presence_mode(profile: str, presence_pass: str = "auto") -> str:
+    """The presence source: ``sampled`` (windows) or ``full`` (whole piano+other view). ``auto`` = sampled in
+    every profile, so ``eval`` estimates the instrumentation exactly like ``quality`` (review 2026-10-04)."""
+    if presence_pass not in ("auto", "sampled", "full"):
+        raise ConfigError(f"amt.presence_pass 는 auto | sampled | full 중 하나여야 합니다 "
+                          f"(입력값: {presence_pass!r})")
+    _check_profile(profile)
+    return "sampled" if presence_pass == "auto" else presence_pass
+
+
+def pass1_views(profile: str, presence_pass: str = "auto") -> list[str]:
+    """Views of ``amt_ms1``: bass and the presence source; ``eval`` adds the B0 mix pass and the full-length
+    piano+other pass as extra outputs (first and last)."""
+    _check_profile(profile)
+    po = P.FULL_VIEW if presence_mode(profile, presence_pass) == "full" else P.PRESENCE_VIEW
+    views = ["bass_mono", po]
+    if profile == "eval":
+        views = ["mix_mono"] + views + ([P.FULL_VIEW] if po != P.FULL_VIEW else [])
+    return views
+
+
+def presence_settings(cfg: Any, profile: str) -> dict[str, Any]:
+    """The sampled-window budget (``gtab.amt.presence``); ``fast`` halves the windows and the audio cap."""
+    max_windows = int(amt_value(cfg, "amt.presence_max_windows"))
+    max_total = float(amt_value(cfg, "amt.presence_max_total_s"))
+    if profile == "fast":
+        max_windows, max_total = max(1, max_windows // 2), max_total / 2
+    return {"window_s": float(amt_value(cfg, "amt.presence_window_s")), "max_windows": max_windows,
+            "max_total_s": max_total, "max_fraction": float(amt_value(cfg, "amt.presence_max_fraction")),
+            "min_active": float(amt_value(cfg, "amt.presence_min_active")),
+            "active_rel_db": float(amt_value(cfg, "instr.active_rel_db"))}
 
 
 def amt_ms1_params(cfg: Any) -> dict[str, Any]:
-    profile = str(amt_value(cfg, "run.profile"))
+    profile = _check_profile(str(amt_value(cfg, "run.profile")))
     mode = str(amt_value(cfg, "amt.piano_other_instruments"))
     I.mask_piano_other(mode)  # validates
-    return {**ms_params(cfg), "profile": profile, "piano_other_instruments": mode, "views": pass1_views(profile)}
+    pmode = presence_mode(profile, str(amt_value(cfg, "amt.presence_pass")))
+    presence: dict[str, Any] = {"mode": pmode}
+    if pmode == "sampled":
+        presence.update(presence_settings(cfg, profile))
+    return {**ms_params(cfg), "profile": profile, "piano_other_instruments": mode,
+            "views": pass1_views(profile, str(amt_value(cfg, "amt.presence_pass"))), "presence": presence}
 
 
 def amt_gtr_params(cfg: Any) -> dict[str, Any]:
@@ -271,8 +329,9 @@ def instr_params(cfg: Any) -> dict[str, Any]:
         "guitar_stem_active_ratio": float(amt_value(cfg, "instr.guitar_stem_active_ratio")),
         "active_rel_db": float(amt_value(cfg, "instr.active_rel_db")),
         "mix_class_min_notes": int(amt_value(cfg, "instr.mix_class_min_notes")),
+        "presence_min_notes": int(amt_value(cfg, "instr.presence_min_notes")),
         "hints_instruments": hint if isinstance(hint, str) else list(hint),
-        "profile": str(amt_value(cfg, "run.profile")),
+        "profile": _check_profile(str(amt_value(cfg, "run.profile"))),
         # the masks inside instrumentation.json depend on these too
         "guitar_view": str(amt_value(cfg, "amt.guitar_view")),
         "guitar_mask": str(amt_value(cfg, "amt.guitar_mask")),
@@ -371,11 +430,20 @@ def _ms_cache_params(params: Mapping[str, Any]) -> dict[str, Any]:
     return {"dtype": params["dtype"], "decode": dict(params["decode"]), "revision": params["muscriptor_revision"]}
 
 
+def _view_cparams(cparams: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str, Any]:
+    """Cache params of one view: whole-view entries keep the M2 key; a segmented view adds its segments."""
+    if not view.get("segments"):
+        return dict(cparams)
+    return {**cparams, "segments": [[round(float(a), 6), round(float(b), 6)] for a, b in view["segments"]]}
+
+
 def transcribe_views_ms(views: list[dict[str, Any]], params: Mapping[str, Any], cfg: Any, *, work_dir: Path,
                         cache: amt_cache.AmtCache, model_sha256: str | None = None, job: dict | None = None,
                         notify: Callable[[str], None] | None = None, force_rung: str | None = None,
                         run_gpu_stage: Callable[..., Any] | None = None) -> tuple[dict[str, dict], dict[str, Any]]:
-    """Raw NoteSets for ``views`` = [{"id", "wav", "pcm_sha256", "instruments"}] via the cache and the worker.
+    """Raw NoteSets for ``views`` = [{"id", "wav", "pcm_sha256", "instruments", ["segments"]}] via the cache
+    and the worker. ``segments`` ([[start_s, end_s], ...], the presence windows) transcribes only those parts of
+    the view (one decode per segment, times in view time); they are part of that view's cache key.
 
     Returns ({view id: raw NoteSet dict}, info) where info has ``labels``, ``worker_output`` (None if every
     view was cached), ``waited_s``, ``rung_label`` (actual rung of the fresh views, or the looked-up rung).
@@ -395,8 +463,8 @@ def transcribe_views_ms(views: list[dict[str, Any]], params: Mapping[str, Any], 
     missing: list[dict[str, Any]] = []
     for v in views:
         mask = None if v.get("instruments") is None else I.sort_mt3(v["instruments"])
-        key = amt_cache.amt_key("muscriptor", version, model_sha256, v["pcm_sha256"], mask, cparams,
-                                CACHE_CODE_VERSION, lookup_label)
+        key = amt_cache.amt_key("muscriptor", version, model_sha256, v["pcm_sha256"], mask,
+                                _view_cparams(cparams, v), CACHE_CODE_VERSION, lookup_label)
         hit = cache.get(key)
         if hit is not None:
             results[v["id"]] = hit
@@ -412,7 +480,8 @@ def transcribe_views_ms(views: list[dict[str, Any]], params: Mapping[str, Any], 
         "format": "gtab.worker/1", "job": job, "out_dir": str(Path(work_dir).parent), "device": "auto",
         "model": model, "decode": dict(params["decode"]), "dtype": params["dtype"],
         "views": [{"id": v["id"], "wav": str(v["wav"]), "instruments": v["instruments"],
-                   "out": str(raw_dir / f"{v['id']}__muscriptor.json"), "view_sha256": v["pcm_sha256"]}
+                   "out": str(raw_dir / f"{v['id']}__muscriptor.json"), "view_sha256": v["pcm_sha256"],
+                   **({"segments": [list(map(float, sg)) for sg in v["segments"]]} if v.get("segments") else {})}
                   for v in missing],
         "determinism": True,
     }
@@ -430,8 +499,8 @@ def transcribe_views_ms(views: list[dict[str, Any]], params: Mapping[str, Any], 
     for v in missing:
         doc = atomic.read_json(raw_dir / f"{v['id']}__muscriptor.json")
         validate_noteset(doc)
-        key = amt_cache.amt_key("muscriptor", version, actual_sha, v["pcm_sha256"], v["instruments"], cparams,
-                                CACHE_CODE_VERSION, rung_label)
+        key = amt_cache.amt_key("muscriptor", version, actual_sha, v["pcm_sha256"], v["instruments"],
+                                _view_cparams(cparams, v), CACHE_CODE_VERSION, rung_label)
         cache.put(key, doc)
         results[v["id"]] = doc
     info.update(worker_output=out, waited_s=float(getattr(res, "waited_s", 0.0) or 0.0), rung_label=rung_label)
@@ -462,17 +531,61 @@ def _ms_model_sha(params: Mapping[str, Any]) -> str:
     return _sha256(w)
 
 
+def _song_s(grid: Mapping[str, Any] | None, energy: Mapping[str, Any], fps: float) -> float:
+    if grid and grid.get("duration_s"):
+        return float(grid["duration_s"])
+    mix = energy.get("mix")
+    return 0.0 if mix is None else len(mix) / float(fps)
+
+
+def select_presence_windows(ctx: Any, settings: Mapping[str, Any]) -> dict[str, Any]:
+    """The presence windows of this job (``gtab.amt.presence.select_windows`` on the stems/grid/sections deps)."""
+    from gtab.amt import instrumentation as S
+
+    dd = ctx.dep_dirs
+    energy, fps = _load_energy(Path(dd["stems"]))
+    grid = atomic.read_json(Path(dd["grid"]) / "grid.json") if "grid" in dd else None
+    sections = []
+    if "sections" in dd:
+        sections = atomic.read_json(Path(dd["sections"]) / "sections.json").get("sections") or []
+    bars = S.bars_from_grid(grid) if grid else []
+    return P.select_windows(bars=bars, sections=sections, energy=energy, fps=fps, song_s=_song_s(grid, energy, fps),
+                            **{k: settings[k] for k in P.DEFAULTS})
+
+
 def run_amt_ms1(ctx: Any) -> None:
     params = dict(ctx.params)
     views = read_views(Path(ctx.dep_dirs["stems"]))
     masks = I.pass1_masks(params["piano_other_instruments"])
-    todo = [{"id": vid, "wav": views[vid]["path"], "pcm_sha256": views[vid]["pcm_sha256"], "instruments": masks[vid]}
-            for vid in params["views"]]
+    presence = dict(params.get("presence") or {"mode": "full"})
+    po_view = P.FULL_VIEW if presence["mode"] == "full" else P.PRESENCE_VIEW
+    todo = []
+    pres_doc: dict[str, Any] = {"format": "gtab.presence/1", "mode": presence["mode"], "source_view": P.SOURCE_VIEW,
+                                "instruments": masks[P.SOURCE_VIEW],
+                                "evidence_classes": I.presence_evidence_classes(params["piano_other_instruments"])}
+    for vid in params["views"]:
+        if vid == P.PRESENCE_VIEW:
+            sel = select_presence_windows(ctx, presence)
+            segs = P.spans(sel)
+            pres_doc.update(view=vid, selection=sel, skipped=None if segs else sel.get("reason") or "no_window",
+                            file=f"raw/{vid}__muscriptor.json" if segs else None)
+            if not segs:  # piano+other is quiet: nothing to transcribe (instr counts it as coverage, e = 0)
+                continue
+            src = views[P.SOURCE_VIEW]
+            todo.append({"id": vid, "wav": src["path"], "pcm_sha256": src["pcm_sha256"],
+                         "instruments": masks[vid], "segments": segs})
+            continue
+        if vid == po_view:  # the full-length view as the presence source (eval's extra full view is not)
+            pres_doc.update(view=vid, selection=None, skipped=None, file=f"raw/{vid}__muscriptor.json")
+        todo.append({"id": vid, "wav": views[vid]["path"], "pcm_sha256": views[vid]["pcm_sha256"],
+                     "instruments": masks[vid]})
     cache = amt_cache.AmtCache(amt_cache.job_cache_root(ctx.store, ctx.song_key))
     raws, info = transcribe_views_ms(todo, params, ctx.config, work_dir=Path(ctx.out_dir) / "_worker", cache=cache,
                                      model_sha256=_ms_model_sha(params), job=_job(ctx),
                                      notify=_notifier(ctx))
     _write_ms_outputs(ctx, raws, params, info)
+    if "view" in pres_doc:
+        atomic.write_json(Path(ctx.out_dir) / "presence.json", pres_doc)
 
 
 def run_amt_gtr(ctx: Any) -> None:
@@ -590,22 +703,60 @@ def _load_energy(stems_dir: Path) -> tuple[dict[str, Any], float]:
     return data, fps
 
 
+def load_presence(ms1_dir: Path) -> dict[str, Any] | None:
+    """The piano+other presence transcription of an ``amt_ms1`` stage dir, as ``instrumentation.estimate`` wants it.
+
+    ``presence.json`` names the file and the windows; a stage dir from before it (M2: full-length pass, no
+    presence.json) falls back to ``raw/piano_other_mono__muscriptor.json`` as a full pass.
+    """
+    ms1_dir = Path(ms1_dir)
+    meta_path = ms1_dir / "presence.json"
+    if meta_path.is_file():
+        meta = atomic.read_json(meta_path)
+    elif (ms1_dir / "raw" / f"{P.FULL_VIEW}__muscriptor.json").is_file():
+        meta = {"mode": "full", "view": P.FULL_VIEW, "file": f"raw/{P.FULL_VIEW}__muscriptor.json", "skipped": None}
+    else:
+        return None
+    sel = meta.get("selection") or {}
+    wins = sel.get("windows") or []
+    summary = {"view": meta.get("view"), "source_view": meta.get("source_view", P.SOURCE_VIEW),
+               "windows": [[w["start_s"], w["end_s"]] for w in wins] if sel else None,
+               "window_sections": [w.get("section") for w in wins] if sel else None,
+               "transcribed_s": sel.get("transcribed_s") if sel else None,
+               "fraction": sel.get("fraction") if sel else None, "song_s": sel.get("song_s") if sel else None}
+    if meta.get("skipped") or not meta.get("file"):
+        return {"mode": meta.get("mode"), "skipped": meta.get("skipped") or "no_file", "notes": [], "spans": None,
+                "classes": meta.get("evidence_classes"), "summary": summary}
+    doc = atomic.read_json(ms1_dir / meta["file"])
+    # A segmented NoteSet is a sampled pass even when its segment list is empty (every window clipped away):
+    # that must not read as a full pass with the song-wide saturation (review 2026-10-04).
+    sampled = "segments" in doc or meta.get("mode") == "sampled"
+    spans = [list(sg) for sg in doc.get("segments") or []] if sampled else None
+    win_secs = [w.get("section") for w in wins] if sampled and len(wins) == len(spans or []) else None
+    return {"mode": "sampled" if sampled else "full", "skipped": None, "notes": doc.get("notes") or [],
+            "spans": spans, "window_sections": win_secs, "classes": meta.get("evidence_classes"),
+            "summary": summary}
+
+
 def run_instr(ctx: Any) -> None:
     from gtab.amt import instrumentation as S
 
     params = dict(ctx.params)
     grid = atomic.read_json(Path(ctx.dep_dirs["grid"]) / "grid.json")
     sections_doc = atomic.read_json(Path(ctx.dep_dirs["sections"]) / "sections.json")
-    mix_doc = None
-    mix_path = Path(ctx.dep_dirs["amt_ms1"]) / "raw" / "mix_mono__muscriptor.json"
-    if params["profile"] != "fast" and mix_path.is_file():
-        mix_doc = atomic.read_json(mix_path)
+    ms1 = Path(ctx.dep_dirs["amt_ms1"])
+
+    def notes_of(view: str) -> list[dict] | None:
+        f = ms1 / "raw" / f"{view}__muscriptor.json"
+        return atomic.read_json(f).get("notes", []) if f.is_file() else None
+
     energy, fps = _load_energy(Path(ctx.dep_dirs["stems"]))
-    doc = S.estimate(profile=params["profile"], bars=S.bars_from_grid(grid),
-                     mix_notes=None if mix_doc is None else mix_doc.get("notes", []), energy=energy,
-                     sections=sections_doc.get("sections") or [], hint=params["hints_instruments"],
+    # eval's mix pass (B0) is reported in the document, never used as evidence: every profile estimates alike
+    doc = S.estimate(profile=params["profile"], bars=S.bars_from_grid(grid), mix_notes=notes_of("mix_mono"),
+                     energy=energy, sections=sections_doc.get("sections") or [], hint=params["hints_instruments"],
                      params=params, guitar_view=params["guitar_view"], guitar_mask=params["guitar_mask"],
-                     piano_other_mode=params["piano_other_instruments"], energy_fps=fps)
+                     piano_other_mode=params["piano_other_instruments"], energy_fps=fps,
+                     presence=load_presence(ms1), bass_notes=notes_of("bass_mono"))
     from gtab.schema.instrumentation import Instrumentation
 
     Instrumentation.model_validate(doc)
@@ -640,14 +791,21 @@ def run_s35(ctx: Any) -> None:
             raw["amt_bp"].setdefault(f"{vid}__basicpitch", None)
         raw["amt_bp"] = dict(sorted(raw["amt_bp"].items()))
     gtr = [f for f in _raw_files(dd["amt_gtr"]) if f.name.endswith("__muscriptor.json")]
+    gtr_doc = atomic.read_json(gtr[0]) if len(gtr) == 1 else {}
     b0 = dd["amt_ms1"] / "raw" / "mix_mono__muscriptor.json"
+    pres = dd["amt_ms1"] / "presence.json"
     resid_wav = dd["resid1"] / "repeat_resid_pass1.wav"
     doc = {
         "format": "gtab.s35/1",
         "instrumentation": _rel(job_dir, dd["instr"] / "instrumentation.json"),
         "raw": raw,
+        # raw guitar view: may hold notes labelled with a present keys/synth class (guitar+present mask); S4+ read
+        # notes/guitar_all.json, which keeps the guitar classes only
         "guitar_pass": _rel(job_dir, gtr[0]) if len(gtr) == 1 else None,
-        "b0": _rel(job_dir, b0) if b0.is_file() else None,
+        "guitar_pass_mask": (gtr_doc.get("backend") or {}).get("instruments") if gtr_doc else None,
+        "guitar_pass_non_guitar": non_guitar_counts(gtr_doc),
+        "b0": _rel(job_dir, b0) if b0.is_file() else None,  # eval profile only
+        "presence": _rel(job_dir, pres) if pres.is_file() else None,
         "vocal_activity": _rel(job_dir, dd["vocal"] / "vocal_activity.json"),
         "repeat_resid_pass1": {"wav": _rel(job_dir, resid_wav) if resid_wav.is_file() else None,
                                "json": _rel(job_dir, dd["resid1"] / "resid1.json")},
@@ -658,6 +816,15 @@ def run_s35(ctx: Any) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- notes
+
+
+def non_guitar_counts(doc: Mapping[str, Any]) -> dict[str, int]:
+    """{class: notes} of a guitar-pass NoteSet's notes outside the guitar classes, in MT3 order."""
+    out: dict[str, int] = {}
+    for n in doc.get("notes") or []:
+        if n.get("instrument") not in I.GUITAR_CLASSES:
+            out[str(n.get("instrument"))] = out.get(str(n.get("instrument")), 0) + 1
+    return {c: out[c] for c in sorted(out, key=lambda c: (I.MT3_GROUPS.get(c, 99), c))}
 
 
 def _only(doc: Mapping[str, Any], classes: tuple[str, ...]) -> dict[str, Any]:
@@ -677,7 +844,10 @@ def run_notes(ctx: Any) -> None:
     if len(gtr_files) != 1:
         raise AmtStageError(f"amt_gtr 단계의 기타 전사 파일을 찾지 못했습니다: {[f.name for f in gtr_files]}")
     gtr = atomic.read_json(gtr_files[0])
+    # Only guitar classes reach guitar_all: the guitar pass may label stem bleed with a present keys/synth class
+    # (guitar+present mask), and those notes must not end up in the guitar MIDI.
     guitar_all = _only(gtr, I.GUITAR_CLASSES)
+    dropped = non_guitar_counts(gtr)
     validate_noteset(guitar_all)
     atomic.write_json(out_dir / "guitar_all.json", guitar_all)
 
@@ -693,7 +863,7 @@ def run_notes(ctx: Any) -> None:
     files["midi/bass_raw.mid"] = {"n_notes": s["n_notes"], "tracks": [t[0] for t in btracks]}
 
     mix_path = dd["amt_ms1"] / "raw" / "mix_mono__muscriptor.json"
-    if mix_path.is_file():  # quality profile: baseline B0 (mix transcription, guitar classes, one track)
+    if mix_path.is_file():  # eval profile: baseline B0 (mix transcription, guitar classes, one track)
         b0 = midi.merged_track(atomic.read_json(mix_path), I.GUITAR_CLASSES, "b0_guitar", 27)
         s = midi.write_performance_midi(out_dir / "midi" / "b0_guitar.mid", [b0], grid)
         files["midi/b0_guitar.mid"] = {"n_notes": s["n_notes"], "tracks": ["b0_guitar"]}
@@ -708,6 +878,13 @@ def run_notes(ctx: Any) -> None:
     counts: dict[str, int] = {}
     for n in guitar_all["notes"]:
         counts[n["instrument"]] = counts.get(n["instrument"], 0) + 1
+    n_view = len(gtr.get("notes") or [])
+    n_drop = sum(dropped.values())
+    if n_view and n_drop / n_view >= DROPPED_WARN_SHARE:
+        names = ", ".join(f"{c} {k}" for c, k in sorted(dropped.items(), key=lambda kv: -kv[1]))
+        _notifier(ctx, "warning")(
+            f"기타 전사 음의 {100.0 * n_drop / n_view:.0f}%({n_drop}/{n_view})가 기타가 아닌 악기로 표시되어 "
+            f"guitar_all 에서 뺐습니다({names}). 기타 스템에 다른 악기가 많이 섞였을 수 있으니 들어 보세요.")
     summary = {
         "format": "gtab.notes_summary/1",
         "guitar_view": gtr.get("view"),
@@ -715,7 +892,9 @@ def run_notes(ctx: Any) -> None:
         "midi_bar_offset": summ["midi_bar_offset"],
         "midi_lead_in": summ["lead_in"],
         "ticks_per_beat": summ["ticks_per_beat"],
+        "guitar_view_notes": n_view,
         "guitar_classes": {c: counts[c] for c in I.GUITAR_CLASSES if c in counts},
+        "non_guitar_dropped": dropped,
         "files": files,
         "basic_pitch": not bp_skipped(dd["amt_bp"]),
         "s35": s35.get("format"),
@@ -727,15 +906,21 @@ def run_notes(ctx: Any) -> None:
 
 
 STAGES: dict[str, dict] = {
-    "amt_ms1": {"run": run_amt_ms1, "code_version": "1", "params": amt_ms1_params, "device": "gpu",
+    # code versions (2026-10-04): amt_ms1 2 = profiles, presence windows, strings in the piano+other mask;
+    # 3 = review fixes (window gap/home section/stem coverage, sampled presence in eval too, eval's extra full
+    # view). instr 3 = presence source + renormalised weights; 4 = guards (sections, stem agreement), stem
+    # attribution, bass pass evidence, mix pass reported only, guitar+present back to keys/synth. amt_gtr 2.
+    # s35 3 = presence entry; 4 = guitar_pass_mask / guitar_pass_non_guitar. notes 2 = non_guitar_dropped;
+    # 3 = guitar_view_notes + dropped-share warning.
+    "amt_ms1": {"run": run_amt_ms1, "code_version": "3", "params": amt_ms1_params, "device": "gpu",
                 "models": ms_models},
     "amt_bp": {"run": run_amt_bp, "code_version": "1", "params": bp_params, "device": "cpu", "models": bp_models},
-    "instr": {"run": run_instr, "code_version": "2", "params": instr_params, "device": "cpu",
+    "instr": {"run": run_instr, "code_version": "4", "params": instr_params, "device": "cpu",
               "models": lambda cfg: {}},
-    "amt_gtr": {"run": run_amt_gtr, "code_version": "1", "params": amt_gtr_params, "device": "gpu",
+    "amt_gtr": {"run": run_amt_gtr, "code_version": "2", "params": amt_gtr_params, "device": "gpu",
                 "models": ms_models},
-    "s35": {"run": run_s35, "code_version": "2", "params": lambda cfg: {}, "device": "cpu",
+    "s35": {"run": run_s35, "code_version": "4", "params": lambda cfg: {}, "device": "cpu",
             "models": lambda cfg: {}},
-    "notes": {"run": run_notes, "code_version": "1", "params": lambda cfg: {}, "device": "cpu",
+    "notes": {"run": run_notes, "code_version": "3", "params": lambda cfg: {}, "device": "cpu",
               "models": lambda cfg: {}},
 }

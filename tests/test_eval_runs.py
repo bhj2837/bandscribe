@@ -62,14 +62,14 @@ def test_metrics_csv_is_sorted_and_stable(tmp_path):
 
 @pytest.fixture
 def registry(tmp_path):
-    p = tmp_path / "decisions.md"
-    shutil.copyfile(paths.GTAB_ROOT / "docs" / "decisions.md", p)
-    return p
+    from tests.fixtures.registry import fresh_registry
+
+    return fresh_registry(tmp_path / "decisions.md")
 
 
 def test_real_registry_has_every_cli_id_preregistered():
     reg = experiments.load_registry()
-    for eid in ("E1", "E2", "E3", "E23", "E24-sep", "E24-amt", "gate-m2", "latency", "stereo-preservation"):
+    for eid in ("E1", "E2", "E3", "E3b", "E23", "E24-sep", "E24-amt", "gate-m2", "latency", "stereo-preservation"):
         assert eid in reg, eid
         assert reg[eid].status in (experiments.STATE_PRE, experiments.STATE_RUNNING) or reg[eid].decided
         assert reg[eid].spec.get("rule"), eid

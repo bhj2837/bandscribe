@@ -147,6 +147,40 @@ def test_bp_line_named_after_single_gt_line(tmp_path, monkeypatch):
     assert np.isfinite(res.summary["aggregates"]["note_f1_onset50"]["value"])
 
 
+def test_b0_plans_with_the_eval_profile_and_finds_the_mix_pass(tmp_path, monkeypatch):
+    """The default profile has no mix pass (2026-10-04): B0 asks for the eval profile's amt_ms1 and, without a
+    planned match, takes the newest amt_ms1 dir that has the mix file."""
+    monkeypatch.setattr(paths, "JOBS", tmp_path / "jobs")
+    cfg = config.load_config()
+    assert cfg.run.profile == "quality"
+    bsys = suites.make_system("b0", cfg)
+    assert bsys.cfg.run.profile == "eval" and cfg.run.profile == "quality"  # a copy, the caller's cfg untouched
+    assert suites.make_system("no_split", cfg).cfg.run.profile == "quality"
+    assert suites.with_profile({"run": {"profile": "fast"}, "amt": {}}, "eval") == {"run": {"profile": "eval"},
+                                                                                     "amt": {}}
+    key = "f-00aa11bb22cc33ee"
+    d = paths.JOBS / key / "stages" / "amt_ms1"
+    import os
+
+    for name, with_mix, mtime in (("aaaaaaaaaaaa", True, 1000), ("bbbbbbbbbbbb", False, 2000)):
+        sd = d / name
+        (sd / "raw").mkdir(parents=True)
+        (sd / "manifest.json").write_text("{}", encoding="utf-8")
+        atomic.write_text(sd / "raw" / "bass_mono__muscriptor.json", _noteset("bass_mono", [40]).model_dump_json())
+        if with_mix:
+            atomic.write_text(sd / "raw" / "mix_mono__muscriptor.json", _noteset("mix_mono", [52, 55]).model_dump_json())
+        os.utime(sd, (mtime, mtime))
+    bsys._planned[key] = {}  # nothing planned for this fake job
+    assert bsys._stage_dir(key, "amt_ms1", suites.B0_FILE).name == "aaaaaaaaaaaa"  # older, but has the mix pass
+    assert bsys._stage_dir(key, "amt_ms1").name == "bbbbbbbbbbbb"
+    item = suites.EvalItem(item="song:verse", dataset="tierA", group="song", scenario="A", gt=None, lines=["L1"],
+                           song_key=key)
+    pred = bsys.predict(item)
+    assert pred is not None and len(pred.notes) == 2
+    (d / "aaaaaaaaaaaa" / "raw" / "mix_mono__muscriptor.json").unlink()
+    assert suites.make_system("b0", cfg).predict(item) is None  # no eval run: B0 skipped (Korean hint logged)
+
+
 def test_tier_a_report_includes_b0_and_no_split_baselines(tmp_path, monkeypatch):
     """DESIGN 8.5: B0 and no-split come from the same job's amt_ms1 / amt_gtr stages and sit next to the system."""
     from gtab.schema.gt import GtNote, GtNotes

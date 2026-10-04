@@ -17,7 +17,10 @@ E23 (dev = official train clips, test = official test clips; amp renders, DI exc
 (estimate on players 00-02, report on 03-05) and as the Tier C GT set of E24-amt.
 
 E3 note: experiments run outside jobs, so there is no Beat This! grid; the instrumentation estimator gets
-pseudo-bars of 2 s (``PSEUDO_BAR_S``) and stem energy computed here at 10 Hz. E2 transcribes every candidate view
+pseudo-bars of 2 s (``PSEUDO_BAR_S``) and stem energy computed here at 10 Hz. E3 (decided 2026-10-04) estimated
+presence from the full-mix pass (the M2 estimator, ``mix_as_evidence``); E3b measures what ``gtab run`` does since
+the 2026-10-04 speed/presence change: the sampled piano+other presence pass (``gtab.amt.presence`` windows on the
+pseudo-bars, no sections) and the ``guitar+present+strings`` policy, with a strings family row. E2 transcribes every candidate view
 with the guitar-only mask so that only the input changes.
 
 Missing data raises ``ExperimentDataMissing`` with the Korean steps to get it (nothing is downloaded here).
@@ -49,6 +52,8 @@ TIER_B = ("cambridge_mt", "medleydb")
 E1_ARMS: tuple[tuple[str, Any], ...] = (("off", "off"), ("-14", -14.0), ("-16", -16.0))
 E2_VIEWS = ("guitar_mono", "mix_mono", "nonvox_mono", "guitar_other_mono")
 E3_POLICIES = ("guitar+present", "guitar_only", "all")
+E3B_POLICIES = ("guitar+present", "guitar_only", "all", "guitar+present+strings")
+E3_FAMILY_ROWS = ("keys", "synth", "strings")
 E3_THRESHOLDS = (0.3, 0.4, 0.5, 0.6, 0.7)
 E3_DEFAULT_THRESHOLD = 0.5
 E23_FRAMES = (3, 4, 5, 6, 7, 12)
@@ -442,10 +447,40 @@ def _e3_items(args: Mapping[str, Any]) -> list[dict[str, Any]]:
     return items
 
 
+def _e3_presence(stems: Mapping[str, Path], energy: Mapping[str, np.ndarray], bars: list, dur: float,
+                 params: Mapping[str, Any], cfg: Any, work: Path, top: str) -> dict[str, Any]:
+    """E3b: the production presence source (``gtab run`` quality settings) for one experiment item."""
+    from gtab.amt import presence as P
+
+    settings = S.presence_settings(cfg, "quality")
+    sel = P.select_windows(bars=bars, sections=None, energy=energy, fps=10.0, song_s=dur,
+                           **{k: settings[k] for k in P.DEFAULTS})
+    segs = P.spans(sel)
+    out: dict[str, Any] = {"mode": "sampled", "skipped": None if segs else (sel.get("reason") or "no_window"),
+                           "notes": [], "spans": segs or None,
+                           "window_sections": [w["section"] for w in sel["windows"]] or None,
+                           "summary": {"windows": segs, "transcribed_s": sel.get("transcribed_s")}}
+    if segs:
+        mode = str(S.amt_value(cfg, "amt.piano_other_instruments"))
+        po = _stem_views(stems, ["piano_other_mono"], work / "views", {"piano_other_mono": I.mask_piano_other(mode)})
+        raws, _info = _ms([dict(po[0], id=P.PRESENCE_VIEW, segments=segs)], params, cfg,
+                          work_dir=work / "ms_presence" / "_worker", cache=_eval_cache(), force_rung=top)
+        out["notes"] = raws[P.PRESENCE_VIEW].get("notes") or []
+    return out
+
+
 def run_e3(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
-    """Guitar-view hard mask policy (+ instrumentation threshold) on keys-containing items; b13 family table."""
+    """Guitar-view hard mask policy (+ instrumentation threshold) on keys-containing items; b13 family table.
+
+    ``args["presence"]``: ``mix`` (E3: presence from the full-mix pass, the M2 estimator) or ``sampled`` (E3b: the
+    production presence pass); ``args["policies"]`` overrides the arm list (E3b adds ``guitar+present+strings``).
+    """
     from gtab.amt import instrumentation as INS
 
+    presence_src = str(args.get("presence") or "mix")
+    if presence_src not in ("mix", "sampled"):
+        raise ValueError(f"E3 presence source must be mix | sampled, not {presence_src!r}")
+    policies = tuple(args.get("policies") or E3_POLICIES)
     params = S.ms_params(cfg)
     top, sep_rung = ms_rung(params), sep_top_rung(cfg)
     thresholds = tuple(float(t) for t in (args.get("thresholds") or E3_THRESHOLDS))
@@ -484,18 +519,22 @@ def run_e3(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
             energy[name] = energy_db(x, sr)
             dur = len(x) / sr
         bars = pseudo_bars(dur)
-        pass1 = _stem_views(stems, ["mix_mono", "guitar_mono"], work / "views", {"mix_mono": None})
-        mix_raw, _info = _ms([pass1[0]], params, cfg, work_dir=work / "ms_mix" / "_worker", cache=_eval_cache(),
-                             force_rung=top)
-        mix_notes = mix_raw["mix_mono"].get("notes") or []
-        gview = pass1[1]
+        if presence_src == "mix":
+            pass1 = _stem_views(stems, ["mix_mono", "guitar_mono"], work / "views", {"mix_mono": None})
+            mix_raw, _info = _ms([pass1[0]], params, cfg, work_dir=work / "ms_mix" / "_worker", cache=_eval_cache(),
+                                 force_rung=top)
+            est_src: dict[str, Any] = {"mix_notes": mix_raw["mix_mono"].get("notes") or [], "mix_as_evidence": True}
+            gview = pass1[1]
+        else:
+            gview = _stem_views(stems, ["guitar_mono"], work / "views", {})[0]
+            est_src = {"mix_notes": None, "presence": _e3_presence(stems, energy, bars, dur, params, cfg, work, top)}
         rung_sep = sep.rung.get("label")
-        for policy in E3_POLICIES:
+        for policy in policies:
             thr_list = thresholds if policy == "guitar+present" else (E3_DEFAULT_THRESHOLD,)
             for thr in thr_list:
                 prm = dict(base_prm, threshold=thr)
-                inst = INS.estimate(profile="quality", bars=bars, mix_notes=mix_notes, energy=energy, sections=[],
-                                    hint="auto", params=prm, guitar_mask=policy)
+                inst = INS.estimate(profile="quality", bars=bars, energy=energy, sections=[], hint="auto", params=prm,
+                                    guitar_mask=policy, **est_src)
                 mask = inst["masks"]["guitar_pass"]
                 raws, info = _ms([dict(gview, instruments=mask)], params, cfg, work_dir=work / "ms_gtr" / "_worker",
                                  cache=_eval_cache(), force_rung=top)
@@ -512,7 +551,7 @@ def run_e3(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
                                 value=INS.guitar_class_omissions(inst)))
                 if policy == "guitar+present":
                     est_f = INS.estimated_families(inst)
-                    for fam in ("keys", "synth"):
+                    for fam in E3_FAMILY_ROWS:
                         rows.append(row(system=arm, dataset=dataset, item=item, group=group, scenario=scen,
                                         section=section, rung=rung, metric=f"{fam}_presence_correct",
                                         value=int((fam in est_f) == (fam in gt_families)),
@@ -767,6 +806,8 @@ EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E1": run_e1,
     "E2": run_e2,
     "E3": run_e3,
+    "E3b": lambda out_dir, cfg, args: run_e3(out_dir, cfg, {**args, "presence": "sampled",
+                                                             "policies": args.get("policies") or E3B_POLICIES}),
     "E23": run_e23,
     "E24-sep": run_e24_sep,
     "E24-amt": run_e24_amt,

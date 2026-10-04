@@ -48,7 +48,8 @@ def test_cache_hit_on_rerun_and_from_cascades(job, fakes):
     assert fakes.calls == [] and set(events_of(ev, "stage_cached")) == set(graph.NAMES)
     fakes.calls.clear()
     runner.run(key, None, store=store, force={"sections"})
-    assert set(fakes.calls) == {"sections", "resid1", "instr", "amt_gtr", "s35", "notes"}
+    # amt_ms1 follows sections (presence windows); its unchanged views come from the transcription cache
+    assert set(fakes.calls) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes"}
     items = runner.plan(key, None, store=store)
     assert all(it.cached for it in items)
 

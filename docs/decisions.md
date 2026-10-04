@@ -139,6 +139,29 @@
     조건은 건반이 실제로 검출되는 Tier B 곡을 더 넣고, SW 가 기타로 분리하는 합성 장면을 쓰거나 합성 장면을 빼는 것이다.
     근거: `data/runs/20261004-000848_1e422dc_exp-e3/`.
 
+## E3b
+- 제목: 표본 존재 패스 기준의 `instruments` 하드 마스크 정책 + 존재 문턱 (E3 재등록)
+- 상태: 사전 등록
+- 질문: 2026-10-04 속도·존재 수정 이후 `gtab run` 이 실제로 쓰는 편성 근거(표본 piano+other 존재 패스, 믹스 패스 없음)에서
+  기타 뷰 마스크를 무엇으로 하고 문턱을 얼마로 할 것인가? 현악기를 마스크에 넣는 것(`guitar+present+strings`)이 도움이 되는가?
+- 선택지: `amt.guitar_mask` = `guitar+present`(기준, 건반·신스만) | `guitar_only` | `all` | `guitar+present+strings`;
+  `instr.threshold` ∈ {0.3, 0.4, 0.5, 0.6, 0.7} (`guitar+present` 만; arm 이름은 E3 와 같은 규칙)
+- 주 지표: 건반·신스가 있는 항목에서 기타 클래스 onset F1(50 ms). **제약: 기타 클래스 누락 = 0건**. 함께 보고: b13 표
+  (keys·synth·strings 가족 추정 vs `families_present`).
+- MDE: +1.0점
+- 데이터(세트, 분할, 창 정의): E3 와 같다(건반 포함 Tier B 곡, 합성 `full_band` 장면, 분할 = 항목 id 해시 seed 20260930).
+  존재 패스 창은 `gtab run` quality 설정(최대 6 × 10 s, 60 s, 곡의 20 %)을 2 s 의사 마디에서 고른다(구간 정보 없음).
+  E3 에서 합성 장면 7/8 이 SW 기타 스템 0음이라 정보가 없었다: 실행 전에 건반이 실제로 검출되는 Tier B 곡을 더 넣는다.
+- 분석: E3 와 같다(dev 에서 제약을 지킨 최대 F1 선택지 하나를 test 에서 `guitar+present` 와 쌍 비교, 곡 블록 부트스트랩 10k).
+- 결정 규칙: DESIGN 8.1 채택 규칙 + 누락 제약. dev 최적이 기본값이면 기각(기본값 유지).
+- 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=guitar+present; mde=1.0; constraint=guitar_class_omissions==0; split_col=section; select=dev; split=test`
+- 비용: 항목마다 piano+other 존재 창 전사(최대 60 s 오디오) + 정책·문턱마다 기타 뷰 전사. GPU 30분을 넘으면 사용자에게 먼저 묻는다.
+- 실행 명령: `gtab eval exp E3b`
+- 등록 근거(2026-10-04 리뷰): E3 는 믹스 패스로 편성을 추정해 지금의 `gtab run` 을 재지 않는다. 실곡 3곡에서 현악기를 넣은
+  마스크는 백킹 대조 오검출을 줄이지 못했고(怪獣の花唄 17.7 → 17.7 %, 青と夏 15.3 → 20.2 %) 기타 하위 클래스 라벨만 뒤섞었다.
+  그래서 기본값은 `guitar+present`(건반·신스)로 되돌렸고, 현악기 변형은 이 실험이 정답 데이터로 판정할 때까지 켜지 않는다.
+- 결과: (아직 없음)
+
 ## E23
 - 제목: Basic Pitch 최소 음 길이·문턱 튜닝
 - 상태: 결정: 채택 (f7_o0.6_fr0.4: onset 0.6, frame 0.4, min_note_frames 7; test Δ +6.6점 [+3.8, +9.9]; 12 프레임은 등록대로 비교용)

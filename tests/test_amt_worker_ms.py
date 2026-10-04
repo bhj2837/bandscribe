@@ -111,3 +111,21 @@ def test_lean_loader_parity(tmp_path, clip):
     assert lean.output["loader"] == "lean" and lean.output["vram"]["rung_label"] == "medium-lean"
     assert atomic.read_json(tmp_path / "up.json")["notes"] == atomic.read_json(tmp_path / "lean.json")["notes"]
     assert lean.result["cuda"]["max_reserved_mb"] < up.result["cuda"]["max_reserved_mb"]
+
+
+def test_segments_are_transcribed_separately_in_view_time(tmp_path, clip):
+    """S3.5 presence windows: two segments of the clip -> one NoteSet, notes inside the segments, view times."""
+    out_json = tmp_path / "raw" / "piano_other_presence__muscriptor.json"
+    req = _req(clip, out_json)
+    req["views"][0].update(id="piano_other_presence", segments=[[1.0, 4.0], [6.0, 9.5]])
+    res = _run(req, tmp_path / "_worker")
+    assert res.ok, res.error
+    o = res.output
+    assert o["status"] == "ok" and o["views"][0]["audio_s"] == pytest.approx(6.5, abs=1e-3)
+    doc = atomic.read_json(out_json)
+    assert doc["segments"] == [[1.0, 4.0], [6.0, 9.5]] and doc["audio_duration_s"] == pytest.approx(10.0)
+    assert doc["notes"], "the clip has notes in both segments"
+    for n in doc["notes"]:
+        assert any(a - 1e-6 <= n["onset_s"] <= b + 1e-6 for a, b in doc["segments"]), n
+    assert any(n["onset_s"] >= 6.0 for n in doc["notes"])  # the second segment is shifted to view time
+    S.validate_noteset(doc)

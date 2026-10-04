@@ -34,6 +34,11 @@ re-reports them from the installed package without loading weights):
 - MT3_FULL_PLUS group table: 35 entries, ids 0-33 + drums 36 (= ``gtab.schema.instrumentation.MT3_GROUPS``).
 - Times may carry a constant lag of up to ~25 ms (model bias, upstream docstring); raw NoteSets keep backend
   times (``time_offset_applied_s: 0``) and the core subtracts ``amt.latency_s``.
+- **Segments** (S3.5 presence windows, 2026-10-04): a view may carry ``segments: [[start_s, end_s], ...]``. Each
+  segment is transcribed by its own ``transcribe`` call (fresh decoder state: no prelude carried over from
+  another part of the song), its note times are shifted back by the segment start, and the NoteSet records
+  ``segments`` and the full view's ``audio_duration_s``. Progress, watchdog and realtime factor count only the
+  transcribed audio.
 - **bfloat16 is refused** (RTX 2060 = sm_75, no native bf16). ``dtype: "fp16"`` (E24-amt only) = fp16 weights
   except the conditioners, i.e. ``load_model(..., dtype=float16)`` which re-floats ``condition_provider``.
 
@@ -153,13 +158,54 @@ def assemble_notes(events: Iterable[Any], audio_s: float, *, on_progress: Any = 
     return notes
 
 
+def segment_bounds(segments: Iterable[Iterable[float]] | None, sr: int, n_samples: int) -> list[tuple[int, int]]:
+    """Sample ranges ``[(a, z), ...]`` of ``segments`` (seconds) in a view of ``n_samples``; None = whole view.
+
+    Segments are clipped to the view; empty ones are dropped. They must be sorted and disjoint (the core sends
+    them that way; checked here because the NoteSet schema requires it)."""
+    if segments is None:
+        return [(0, int(n_samples))]
+    out: list[tuple[int, int]] = []
+    prev = 0
+    for seg in segments:
+        a_s, z_s = (float(x) for x in seg)
+        a = max(0, min(int(n_samples), int(round(a_s * sr))))
+        z = max(0, min(int(n_samples), int(round(z_s * sr))))
+        if a < prev:
+            raise ValueError(f"segments must be sorted and disjoint: {list(segments)}")
+        if z > a:
+            out.append((a, z))
+            prev = z
+    return out
+
+
+def offset_notes(notes: Iterable[dict[str, Any]], offset_s: float) -> list[dict[str, Any]]:
+    """Notes of a segment moved to view time (``+ offset_s``), rounded like every raw time."""
+    off = float(offset_s)
+    out = []
+    for n in notes:
+        m = dict(n)
+        m["onset_s"] = _r6(float(n["onset_s"]) + off)
+        m["offset_s"] = _r6(max(float(n["offset_s"]) + off, m["onset_s"]))
+        out.append(m)
+    return out
+
+
 def noteset_doc(*, view_id: str, view_sha256: str | None, backend: dict[str, Any], instruments: list[str] | None,
-                audio_s: float, notes: list[dict[str, Any]]) -> dict[str, Any]:
-    """A ``gtab.notes/1`` document (schema §6.1): raw times, fixed key order, no timestamps."""
+                audio_s: float, notes: list[dict[str, Any]],
+                segments: list[tuple[float, float]] | None = None) -> dict[str, Any]:
+    """A ``gtab.notes/1`` document (schema §6.1): raw times, fixed key order, no timestamps.
+
+    ``segments`` (seconds, view time) is written only for a segmented view, so whole-view documents keep their
+    M2 bytes."""
     be = dict(backend)
     be["instruments"] = None if instruments is None else list(instruments)
-    return {"format": "gtab.notes/1", "view": view_id, "view_sha256": view_sha256, "backend": be,
-            "time_offset_applied_s": 0.0, "audio_duration_s": _r6(audio_s), "notes": notes}
+    doc = {"format": "gtab.notes/1", "view": view_id, "view_sha256": view_sha256, "backend": be,
+           "time_offset_applied_s": 0.0, "audio_duration_s": _r6(audio_s)}
+    if segments is not None:
+        doc["segments"] = [[_r6(a), _r6(z)] for a, z in segments]
+    doc["notes"] = notes
+    return doc
 
 
 def build_rungs(model_req: dict[str, Any], loader: str) -> list[dict[str, Any]]:
@@ -329,13 +375,20 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
         vram["start_nvml_used_mb"] = snap.get("nvml_used_mb")
         gpu_common.apply_cap(request)
 
-    # Views: masks re-sorted, audio read once (CPU tensors; the model moves them to its device).
+    # Views: masks re-sorted, audio read once (CPU tensors; the model moves them to its device). A segmented
+    # view keeps one slice per segment; "audio_s" is the transcribed audio, "view_s" the whole view.
     prepared: list[dict[str, Any]] = []
     for v in views:
-        tensor, sr, audio_s = _read_view(Path(v["wav"]))
+        tensor, sr, view_s = _read_view(Path(v["wav"]))
+        segs = v.get("segments")
+        bounds = segment_bounds(segs, sr, int(tensor.shape[-1]))
+        pieces = [{"offset_s": a / float(sr), "audio_s": (z - a) / float(sr),
+                   "tensor": tensor if segs is None else tensor[:, a:z].contiguous()} for a, z in bounds]
         prepared.append({"id": str(v["id"]), "out": Path(v["out"]), "view_sha256": v.get("view_sha256"),
-                         "instruments": sort_instruments(v.get("instruments")), "tensor": tensor, "sr": sr,
-                         "audio_s": audio_s})
+                         "instruments": sort_instruments(v.get("instruments")), "pieces": pieces, "sr": sr,
+                         "view_s": view_s, "audio_s": sum(pc["audio_s"] for pc in pieces),
+                         "segments": None if segs is None else [(a / float(sr), z / float(sr))
+                                                                for a, z in bounds]})
     audio_total = sum(p["audio_s"] for p in prepared)
 
     medium_weights = model_req.get("weights_path")
@@ -384,24 +437,29 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
             done_s = 0.0
             for p in prepared:
                 t = time.perf_counter()
-                base = done_s
+                notes: list[dict[str, Any]] = []
+                for pc in p["pieces"]:
+                    base = done_s
 
-                def progress(completed: int, total: int, _base: float = base, _dur: float = p["audio_s"]) -> None:
-                    if total > 0 and completed > 0:
-                        wd.check(_base + _dur * completed / total)
+                    def progress(completed: int, total: int, _base: float = base,
+                                 _dur: float = pc["audio_s"]) -> None:
+                        if total > 0 and completed > 0:
+                            wd.check(_base + _dur * completed / total)
 
-                with warnings.catch_warnings(record=True) as caught, torch.inference_mode():
-                    warnings.simplefilter("always", RuntimeWarning)
-                    events = state["tm"].transcribe((p["tensor"], p["sr"]), instruments=p["instruments"],
-                                                    **decode_kw)
-                    notes = assemble_notes(events, p["audio_s"], on_progress=progress)
-                if rung["device"] == "cuda":
-                    torch.cuda.synchronize()
-                for w in caught:
-                    msg = str(w.message)
-                    if "EOS" in msg:
-                        warn.append(f"{p['id']}: {msg}")
-                done_s += p["audio_s"]
+                    with warnings.catch_warnings(record=True) as caught, torch.inference_mode():
+                        warnings.simplefilter("always", RuntimeWarning)
+                        events = state["tm"].transcribe((pc["tensor"], p["sr"]), instruments=p["instruments"],
+                                                        **decode_kw)
+                        piece = assemble_notes(events, pc["audio_s"], on_progress=progress)
+                    if rung["device"] == "cuda":
+                        torch.cuda.synchronize()
+                    for w in caught:
+                        msg = str(w.message)
+                        if "EOS" in msg:
+                            warn.append(f"{p['id']}: {msg}")
+                    notes += offset_notes(piece, pc["offset_s"]) if p["segments"] is not None else piece
+                    done_s += pc["audio_s"]
+                notes.sort(key=note_sort_key)
                 results.append({"notes": notes, "process_s": time.perf_counter() - t})
             return {"results": results, "load_s": load_s, "loader": used_loader}
         except BaseException:
@@ -459,7 +517,8 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
     process_total = 0.0
     for p, r in zip(prepared, result["results"]):
         doc = noteset_doc(view_id=p["id"], view_sha256=p["view_sha256"], backend=nb_backend,
-                          instruments=p["instruments"], audio_s=p["audio_s"], notes=r["notes"])
+                          instruments=p["instruments"], audio_s=p["view_s"], notes=r["notes"],
+                          segments=p["segments"])
         data = (json.dumps(doc, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
         atomic.write_bytes(p["out"], data)
         key = str(p["out"])

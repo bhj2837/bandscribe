@@ -103,3 +103,52 @@ def test_rung_labels_and_ladder():
     rungs = W.build_rungs(model, "upstream")
     assert rungs[-1]["label"] == "medium@cpu" and rungs[-1]["device"] == "cpu"
     assert W.rung_labels({"size": "medium", "fallback": []}, "upstream") == ["medium"]
+
+
+# ------------------------------------------------------------------- segments (S3.5 presence windows)
+
+
+def test_segment_bounds_clip_sort_and_whole_view():
+    assert W.segment_bounds(None, 100, 1000) == [(0, 1000)]
+    assert W.segment_bounds([[1.0, 2.5], [3.0, 20.0]], 100, 1000) == [(100, 250), (300, 1000)]  # clipped to view
+    assert W.segment_bounds([[12.0, 13.0]], 100, 1000) == []  # entirely outside: dropped
+    with pytest.raises(ValueError):
+        W.segment_bounds([[3.0, 4.0], [1.0, 2.0]], 100, 1000)
+
+
+def test_offset_notes_moves_segment_notes_to_view_time():
+    piece = W.assemble_notes(_stream(), 3.0)
+    moved = W.offset_notes(piece, 40.0)
+    assert [n["onset_s"] for n in moved] == [round(n["onset_s"] + 40.0, 6) for n in piece]
+    assert all(m["offset_s"] >= m["onset_s"] for m in moved)
+    assert piece[0]["onset_s"] == 0.25  # input untouched
+    assert {k for n in moved for k in n} == {"onset_s", "offset_s", "pitch", "instrument"}
+
+
+def test_noteset_doc_records_segments_only_for_segmented_views():
+    from gtab.schema.notes import NoteSet
+
+    be = {"name": "muscriptor", "version": "0.3.0"}
+    notes = W.offset_notes(W.assemble_notes(_stream(), 3.0), 10.0)
+    seg = W.noteset_doc(view_id="piano_other_presence", view_sha256="a" * 64, backend=be, instruments=["organ"],
+                        audio_s=200.0, notes=notes, segments=[(10.0, 20.0), (50.0, 60.0)])
+    assert list(seg) == ["format", "view", "view_sha256", "backend", "time_offset_applied_s", "audio_duration_s",
+                         "segments", "notes"]
+    ns = NoteSet.model_validate(seg)
+    assert ns.segments == [(10.0, 20.0), (50.0, 60.0)] and ns.audio_duration_s == 200.0
+    whole = W.noteset_doc(view_id="bass_mono", view_sha256=None, backend=be, instruments=None, audio_s=3.0,
+                          notes=W.assemble_notes(_stream(), 3.0))
+    assert "segments" not in whole  # whole-view documents keep their M2 bytes
+    NoteSet.model_validate(whole)
+
+
+def test_noteset_schema_rejects_overlapping_segments():
+    from pydantic import ValidationError
+
+    from gtab.schema.notes import NoteSet
+
+    base = {"view": "x", "backend": {"name": "muscriptor"}, "notes": []}
+    NoteSet.model_validate({**base, "segments": [[0.0, 10.0], [10.0, 20.0]]})  # touching is fine
+    for bad in ([[0.0, 10.0], [5.0, 20.0]], [[3.0, 3.0]], [[5.0, 2.0]]):
+        with pytest.raises(ValidationError):
+            NoteSet.model_validate({**base, "segments": bad})

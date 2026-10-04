@@ -165,3 +165,25 @@ def test_apply_latency_clamps_and_records_offset():
     assert out["notes"][0]["onset_s"] == 0.0 and out["notes"][0]["offset_s"] == 0.0
     assert out["notes"][1]["onset_s"] == pytest.approx(0.975) and out["notes"][1]["offset_s"] == pytest.approx(1.475)
     assert doc["notes"][1]["onset_s"] == 1.0  # input untouched
+
+
+def test_segmented_view_has_its_own_cache_entry_and_sends_its_segments(tmp_path, fake_weights):
+    """Presence windows (2026-10-04): segments enter that view's key; whole-view keys keep the M2 form."""
+    cache = C.AmtCache(tmp_path / "cache")
+    whole = {"id": "piano_other_mono", "wav": tmp_path / "c.wav", "pcm_sha256": "c" * 64, "instruments": ["organ"]}
+    seg_a = dict(whole, id="piano_other_presence", segments=[[1.0, 11.0], [30.0, 40.0]])
+    seg_b = dict(whole, id="piano_other_presence", segments=[[1.0, 11.0], [50.0, 60.0]])
+    run = FakeRunner()
+    S.transcribe_views_ms([whole, seg_a], PARAMS, {}, work_dir=tmp_path / "w1" / "_worker", cache=cache,
+                          model_sha256="m" * 64, job=None, run_gpu_stage=run)
+    sent = {v["id"]: v for v in run.calls[0][2]["views"]}
+    assert "segments" not in sent["piano_other_mono"]
+    assert sent["piano_other_presence"]["segments"] == [[1.0, 11.0], [30.0, 40.0]]
+    run2 = FakeRunner()
+    _r, info = S.transcribe_views_ms([seg_a, seg_b], PARAMS, {}, work_dir=tmp_path / "w2" / "_worker", cache=cache,
+                                     model_sha256="m" * 64, job=None, run_gpu_stage=run2)
+    assert [v["segments"] for v in run2.calls[0][2]["views"]] == [[[1.0, 11.0], [50.0, 60.0]]]  # only the new windows
+    # the whole-view key is unchanged by the segments feature (M2 cache entries stay valid)
+    cp = S._ms_cache_params(PARAMS)
+    assert S._view_cparams(cp, whole) == cp
+    assert S._view_cparams(cp, seg_a) == {**cp, "segments": [[1.0, 11.0], [30.0, 40.0]]}

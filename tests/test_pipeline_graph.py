@@ -15,7 +15,7 @@ EXPECTED = {
     "stems": {"sep"},
     "vocal": {"stems", "grid", "sep"},
     "resid1": {"stems", "grid", "sections"},
-    "amt_ms1": {"stems"},
+    "amt_ms1": {"stems", "grid", "sections"},  # presence windows start on bars, spread over sections
     "amt_bp": {"stems"},
     "instr": {"amt_ms1", "stems", "sections", "grid"},
     "amt_gtr": {"stems", "instr"},
@@ -61,7 +61,7 @@ def test_until_notes_includes_s35_parts():
     assert "vocal" in sel and "resid1" in sel and "s35" in sel
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
-    assert graph.descendants({"sections"}) == {"sections", "resid1", "instr", "amt_gtr", "s35", "notes"}
+    assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes"}
 
 
 def test_missing_stage_module_korean_error(monkeypatch):
@@ -117,11 +117,12 @@ def test_grid_params_come_from_the_validated_config():
         stage.grid_params(42)
 
 
-def test_fast_profile_drops_mix_view():
+def test_only_the_eval_profile_runs_the_mix_view():
     amt = pytest.importorskip("gtab.amt.stage")
     impl = getattr(amt, "STAGES", {}).get("amt_ms1")
     if impl is None:
         pytest.skip("amt_ms1 not implemented yet")
     quality = impl["params"]({"run": {"profile": "quality"}})
     fast = impl["params"]({"run": {"profile": "fast"}})
-    assert "mix_mono" in quality["views"] and "mix_mono" not in fast["views"]
+    ev = impl["params"]({"run": {"profile": "eval"}})
+    assert "mix_mono" not in quality["views"] and "mix_mono" not in fast["views"] and "mix_mono" in ev["views"]

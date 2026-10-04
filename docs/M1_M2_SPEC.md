@@ -206,7 +206,7 @@ All new sections use `extra="forbid"`. Values are defaults **[잠정]** unless s
 
 ```toml
 [run]
-profile = "quality"            # fast | quality   (max = later milestones)
+profile = "quality"            # fast | quality | eval   (max = later milestones; eval added 2026-10-04, §3.2)
 
 [hints]                        # user hints; CLI flags write these via --set
 instruments = "auto"           # "auto" or comma list of families: guitar,keys,synth,bass,strings,brass,winds,vocals
@@ -472,18 +472,30 @@ GPU stage and, if `degraded`, prints `"<stage>: 낮은 칸(<label>)으로 만든
 | 5 | `stems` | SEP | sep | cpu / core | `sep.leftover_warn_db` | `nonvox.wav`, `leftover.wav` (stereo), `practice/mix_minus_guitar.wav`, `practice/mix_minus_bass.wav` (stereo), `views/{mix,guitar,bass,piano_other,nonvox,guitar_other}_mono.wav`, `views.json`, `stem_stats.json`, `energy.npz` (§6.4) |
 | 6 | `vocal` | GRID | stems, grid, sep (reads `stems/vocals.wav`; integration 2026-10-03) | cpu / core | `s35.vocal_active_rel_db` | `vocal_activity.json` (§6.6) |
 | 7 | `resid1` | GRID | stems, grid, sections | cpu / core | `s35.resid_min_occurrences` | `repeat_resid_pass1.wav` (mono f32), `resid1.json` (§6.6) |
-| 8 | `amt_ms1` | AMT | stems | gpu / gpu env / `amt_muscriptor` | `amt.*` MuScriptor keys (`muscriptor_model`, `revision`, `fallback`, `loader`, `dtype`, decode keys, `piano_other_instruments`), `run.profile`, view list; models: medium sha | `raw/{mix_mono,bass_mono,piano_other_mono}__muscriptor.json` (NoteSet; `mix_mono` only in `quality`), `gpu_run.json` |
+| 8 | `amt_ms1` | AMT | stems, grid, sections (2026-10-04: presence windows) | gpu / gpu env / `amt_muscriptor` | `amt.*` MuScriptor keys (`muscriptor_model`, `revision`, `fallback`, `loader`, `dtype`, decode keys, `piano_other_instruments`), `run.profile`, view list, `presence` (mode + window budget `amt.presence_*`, `instr.active_rel_db`); models: medium sha | `raw/bass_mono__muscriptor.json`; `raw/piano_other_presence__muscriptor.json` (NoteSet with `segments`; every profile) or, with `amt.presence_pass = "full"`, `raw/piano_other_mono__muscriptor.json`; `eval` extras (read by no later stage): `raw/mix_mono__muscriptor.json` (= B0) and the full-length `raw/piano_other_mono__muscriptor.json`; `presence.json` (`gtab.presence/1`: mode, windows with home section / covered stems, evidence classes, skipped reason); `gpu_run.json` |
 | 9 | `amt_bp` | AMT | stems | cpu / bp310 / `amt_basicpitch` (no GPU lock) | `amt.bp_*` incl. `bp_threads`; models: bundled ONNX sha, or `{"basic_pitch": "absent"}` when the bp310 env is missing (key changes once it is installed) | `raw/{guitar_mono,bass_mono}__basicpitch.json` (NoteSet with bends); **optional**: without bp310 it writes `skipped.json` (`{"reason":"bp310 env missing"}`) and a Korean warning, and downstream stages treat Basic Pitch outputs as absent (DESIGN: auxiliary) |
-| 10 | `instr` | AMT | amt_ms1, stems, sections, grid | cpu / core | `instr.*`, `hints.instruments`, `run.profile` | `instrumentation.json` (§6.5) |
+| 10 | `instr` | AMT | amt_ms1, stems, sections, grid | cpu / core | `instr.*` (incl. `presence_min_notes`), `hints.instruments`, `run.profile` | `instrumentation.json` (§6.5; evidence: piano+other presence pass, bass pass, stem energy, hints; eval's mix pass reported with weight 0 — identical estimate in every profile) |
 | 11 | `amt_gtr` | AMT | stems, instr | gpu / gpu env / `amt_muscriptor` | MuScriptor keys + `amt.guitar_view` + `amt.guitar_mask` (the policy only; the mask *content* comes from `instr`'s output and is covered by the `instr` dep key, not by params) | `raw/<amt.guitar_view>__muscriptor.json` (default `guitar_mono`), `gpu_run.json` |
 | 12 | `s35` | AMT | instr, vocal, resid1, amt_ms1, amt_gtr, amt_bp | cpu / core | – | `s35.json`: index of the S3.5 artifacts (paths relative to the **job dir**, e.g. `stages/amt_gtr/<key12>/raw/...`; deterministic because keys are; Basic Pitch entries `null` when skipped); later stages (S4+) depend on this one stage |
-| 13 | `notes` | AMT | amt_gtr, amt_ms1, amt_bp, grid, s35 | cpu / core | – | `guitar_all.json` (NoteSet: guitar classes of the `amt.guitar_view` transcription), `midi/guitar_all.mid`, `midi/bass_raw.mid`, `midi/b0_guitar.mid` (quality only), `midi/guitar_basicpitch.mid` (only if Basic Pitch ran), `notes_summary.json` (incl. `midi_bar_offset`, §9.2 item 7) |
+| 13 | `notes` | AMT | amt_gtr, amt_ms1, amt_bp, grid, s35 | cpu / core | – | `guitar_all.json` (NoteSet: guitar classes of the `amt.guitar_view` transcription), `midi/guitar_all.mid`, `midi/bass_raw.mid`, `midi/b0_guitar.mid` (eval only), `midi/guitar_basicpitch.mid` (only if Basic Pitch ran), `notes_summary.json` (incl. `midi_bar_offset`, §9.2 item 7; `guitar_view_notes`; `non_guitar_dropped`: notes of the guitar view labelled with a non-guitar class, left out of `guitar_all`; Korean warning when ≥ 10 %) |
 
 Notes:
 - `vocal`/`resid1` are not needed for MIDI but are S3.5 deliverables; routing them through `s35` makes
   `--until notes` produce them (DESIGN M2 "S3.5 v0").
-- `fast` profile: `amt_ms1` drops the `mix_mono` view (no B0); `instr` then uses stem energy + hints only
-  (DESIGN §2 fast). `quality` is the default.
+- **Profiles (revised 2026-10-04; speed + the 怪獣の花唄 misrouting bug):** `quality` (default) and `fast` run
+  **no** `mix_mono` view (no B0) and a **sampled** piano+other presence pass (`gtab.amt.presence`: up to
+  `amt.presence_max_windows` = 6 windows of `amt.presence_window_s` = 10 s starting on bars, at most
+  `presence_max_total_s` = 60 s and `presence_max_fraction` = 20 % of the song, at least one; `fast` halves the
+  windows and the 60 s cap). `eval` adds the `mix_mono` B0 pass and the full-length piano+other pass as **extra
+  outputs**: its `instr` uses the same sampled presence pass as `quality`, so its guitar mask and guitar pass are
+  the system under test, not a variant (review 2026-10-04). `amt.presence_pass = auto (sampled) | sampled |
+  full` overrides the presence source in every profile. Evaluation that needs B0
+  (`gtab eval ... --system b0`, the Tier A baselines) plans `amt_ms1` with `run.profile = "eval"`
+  (`gtab.eval.suites.JobStage`) and skips B0 with a Korean hint when the job has no eval run. S7's bleed penalty
+  (M6) needs full-length piano+other notes: M6 requests the full pass or adds an on-demand pass.
+- Segmented views: a request view may carry `segments: [[start_s, end_s], ...]` (sorted, disjoint); the worker
+  transcribes each segment separately, returns notes in view time and writes `segments` into the NoteSet
+  (§6.1 optional field). Segments enter that view's cache params; whole-view keys are unchanged.
 - **Transcription cache (shared S3.5 ↔ S6, DESIGN §9.3):** `gtab/amt/cache.py`:
   `amt_key(backend, backend_version, model_sha256, view_pcm_sha256, instruments: list[str]|None, params: dict,
   code_version, rung_label) -> str` (sha256 of canonical JSON). `instruments` is **sorted by MT3 id**
@@ -614,6 +626,9 @@ class NoteSet(_Model):
     backend: BackendInfo
     time_offset_applied_s: float = 0.0     # already added to onset/offset (MuScriptor: -latency)
     audio_duration_s: Seconds | None = None
+    segments: list[tuple[Seconds, Seconds]] | None = None  # 2026-10-04: only these parts of the view were
+                                           # transcribed (S3.5 presence windows; sorted, disjoint; note times
+                                           # stay in view time). None = whole view; absent from whole-view files.
     notes: list[NoteEvent]                 # sorted by (onset_s, pitch, offset_s, instrument or "")
 def notes_to_arrays(ns: NoteSet, *, instruments: set[str] | None = None) -> tuple[np.ndarray, np.ndarray]  # (n,2) s, (n,) midi
 ```
@@ -705,7 +720,9 @@ FAMILIES: dict[str, tuple[str, ...]] = {
  "winds": ("soprano_and_alto_sax","tenor_sax","baritone_sax","oboe","english_horn","bassoon","clarinet","flutes"),
  "vocals": ("voice",), "drums": ("drums","timpani")}
 GUITAR_CLASSES = FAMILIES["guitar"]; BASS_CLASSES = FAMILIES["bass"]
-class ClassEvidence(_Model): p: Prob; present: bool; sources: dict[str, dict]   # "mix_transcription" | "stem_energy" | "hint"
+class ClassEvidence(_Model): p: Prob; present: bool; sources: dict[str, dict]
+    # "presence_transcription" (piano+other pass, 2026-10-04) | "bass_transcription" | "stem_energy" | "hint"
+    # | "guitar_stem_rule" | "mix_transcription" (eval: reported, w = 0, used = false)
 class Instrumentation(_Model):
     format: Literal["gtab.instrumentation/1"]; profile: str
     classes: dict[str, ClassEvidence]          # every MT3 group, deterministic order = MT3_GROUPS order
@@ -713,6 +730,8 @@ class Instrumentation(_Model):
     masks: dict[str, list[str] | None]         # {"guitar_mono": [...], "mix_mono": None, "bass_mono": [...], "piano_other_mono": [...]}
     per_section: list[dict]                    # [{"section","family_active": {family: ratio}}]
     thresholds: dict; hints: dict; warnings: list[str]
+    presence: dict | None = None               # summary of the piano+other presence pass (mode, windows,
+                                               # window_sections, class_notes, rejected {class: sections|stem}, present)
 ```
 
 ### 6.6 S3.5 CPU artifacts (GRID)
@@ -1165,19 +1184,38 @@ ballast launcher with a fake worker that writes `ready.json`).
    unknown family → Korean ConfigError), `sort_mt3(classes) -> list[str]` (MT3 id order; used for every request and
    cache key), mask builders: `mask_bass()`, `mask_piano_other(mode)`, `mask_guitar_view(instrumentation, policy)`
    with policy `amt.guitar_mask`: `guitar_only` = 3 guitar classes; `guitar+present` (default) = 3 guitar classes ∪
-   present keys/synth classes; `all` = `None`. A guitar class is never dropped.
+   present keys/synth classes; `guitar+present+strings` (E3b only) also the present violin/viola/cello/
+   string_ensemble (never orchestral_harp / contrabass); `all` = `None`. A guitar class is never dropped. (Strings
+   were in `guitar+present` for a day on 2026-10-04 and were taken out after the real-song check: no bleed removed,
+   guitar sub-class labels reshuffled.)
+   `mask_piano_other(mode)` = keys/synth/strings (+ guitar for `keys+guitar`).
 5. `gtab/amt/instrumentation.py` — S3.5 v0 estimator (hand rules **[잠정]**, E3 calibrates):
-   - mix transcription evidence per class: `active_ratio` = fraction of bars (from sections/grid bars via
+   - mix transcription evidence per class (experiments only, `mix_as_evidence`; `eval` reports it with
+     weight 0): `active_ratio` = fraction of bars (from sections/grid bars via
      `sections.json` bar times) with ≥2 notes of that class; `e = clip(active_ratio / 0.1, 0, 1)` if ≥
      `mix_class_min_notes` notes else 0.
+   - **presence transcription evidence (2026-10-04)** for the non-guitar classes of the piano+other mask
+     (keys/synth/strings): the same rule on the bars the pass covered (≥ half inside a window), saturation 0.25
+     for sampled windows and 0.1 for the full pass, ≥ `instr.presence_min_notes` notes; without grid bars the
+     windows are the units. Guards (review 2026-10-04): a sampled class needs ≥ 4 notes in windows of
+     ≥ `min(2, sampled sections)` distinct sections, and one of its stems (keys → piano, strings → other, organ
+     and synth → either) active in ≥ 10 % of the bars; otherwise `e = 0` and `presence.rejected` names the guard.
+   - **bass transcription evidence**: the full-length bass pass for the two bass classes, like the mix rule.
+   - Passes of the same model form **one** transcription term (`max`).
+   - **stem attribution**: when a pass covered a class and saw the class's stem active in ≥ 4 covered bars, the
+     stem term counts only for classes that pass found (`e > 0`); else it stays (`attributed`,
+     `covered_active_bars`, `uncovered_active_ratio` per stem).
    - stem energy evidence: fraction of bars whose stem RMS is above `active_rel_db` relative to the mix: piano stem
      → keys classes; other stem → synth/organ/strings/brass/winds (weak, ×0.5); guitar stem → guitar classes.
-   - noisy-OR `p = 1 − Π(1 − w_s e_s)` with `w_mix = 0.9`, `w_stem = 0.6` **[잠정]**; hints: listed families
-     `p = max(p, 0.99)`; with an explicit list, unlisted families `p = min(p, 0.05)` (guitar excepted).
+   - noisy-OR `p = 1 − Π(1 − w_s e_s)` with `w_transcription = 0.9`, `w_stem = 0.6` **[잠정]**; when a class has
+     no evidence of one type because **no pass can cover it** (voice, drums, brass, winds; everything when no pass
+     ran), the remaining weights are scaled by `1.5 / Σ available`, capped at 0.9 (a skipped presence pass counts
+     as coverage with `e = 0`); hints: listed families `p = max(p, 0.99)`; with an explicit list, unlisted families
+     `p = min(p, 0.05)` (guitar excepted).
    - present = `p ≥ instr.threshold` (`guitar_threshold` for guitar classes). **If the guitar stem is active in
      ≥ `guitar_stem_active_ratio` of bars, all three guitar classes are present** (DESIGN S3.5 start value).
    - `per_section` family activity; `warnings` (e.g. "건반 에너지는 있는데 믹스 전사에 건반 음이 없음").
-   - `fast` profile: mix evidence absent.
+   - every profile: no mix evidence; the presence pass and the bass pass replace it.
 6. Stages `amt_ms1`, `amt_bp`, `instr`, `amt_gtr`, `s35`, `notes` (`gtab/amt/stage.py`) with the cache (§3.2); GPU
    stages via `gtab.vram.run_gpu_stage` and `write_gpu_run`. `amt_bp` is optional (§3.2 row 9); `s35`/`notes`
    treat its outputs as absent when `skipped.json` exists.
@@ -1214,7 +1252,9 @@ ballast launcher with a fake worker that writes `ready.json`).
     SW stems against reftx. E23 uses `amt_basicpitch` mode `sweep` (one model pass per track). Every metric row
     carries `rung` (§6.10).
 
-Tests: `test_amt_events.py` (event stream fixture → NoteSet; unterminated notes; sorting), `test_amt_cache.py`
+Tests: `test_amt_presence.py` (window selection: deterministic, bounded by the budget, spread over labels/sections,
+active regions only, quiet stem → none), `test_amt_events.py` (event stream fixture → NoteSet; unterminated notes;
+sorting; segments → view time), `test_amt_cache.py`
 (key sensitivity incl. rung label and instrument order — `["b","a"]` and `["a","b"]` give the same key because both
 are sorted; only missing views sent — fake `run_worker`), `test_amt_masks.py` (guitar classes never dropped under
 all three `guitar_mask` policies; hint parsing; `sort_mt3`; E3 threshold edges), `test_amt_instrumentation.py`
@@ -1570,7 +1610,8 @@ backend. The ids below are the `## <id>` headings in `docs/decisions.md` and the
 |---|---|---|---|---|---|---|
 | **E1** | SW input: original vs −14 vs −16 LUFS (`sep.input_lufs`; gain before SW, inverse after) | onset F1 (50 ms) of MuScriptor on the SW guitar and bass stems vs the **reference transcription of the true tracks** (reftx) | +1.0 | Tier B songs remixed to a commercial master (`tierb_mix(master_lufs=-8)`, deterministic limiter §9.4); Tier A GP songs descriptive | DESIGN 8.1 adopt rule; SDR diagnostic only | AMT `E1` (calls `gtab.sep.run.separate`) |
 | **E2** | MuScriptor input (`amt.guitar_view`): mix / guitar stem / nonvox / guitar+other | guitar note F1 (50 ms onset) vs reftx (Tier B) and vs GT (Tier A, descriptive) | +1.0 (+1.5 if the option adds a pass) | Tier B, Tier A 2–3 | reftx is MuScriptor-derived: valid for comparing inputs, not for absolute claims | AMT `E2` |
-| **E3** | `instruments` mask (`amt.guitar_mask`): guitar-only / +present keys-synth / all; S3.5 threshold | guitar-class F1 on keys-containing items; constraint: guitar-class omission = 0; b13 table: estimated families vs `families_present` | +1.0 | Tier B with keys, synthetic keys-bleed scenes, Tier A | pick the threshold maximizing F1 under the constraint on dev, confirm on test | AMT `E3` |
+| **E3** | `instruments` mask (`amt.guitar_mask`): guitar-only / +present keys-synth / all; S3.5 threshold | guitar-class F1 on keys-containing items; constraint: guitar-class omission = 0; b13 table: estimated families vs `families_present` | +1.0 | Tier B with keys, synthetic keys-bleed scenes, Tier A | pick the threshold maximizing F1 under the constraint on dev, confirm on test | AMT `E3` (decided 2026-10-04; presence from the mix pass = the M2 estimator) |
+| **E3b** | as E3 on the **production** presence source (sampled piano+other windows, no mix pass) + `guitar+present+strings` | as E3, b13 table with keys/synth/strings | +1.0 | as E3 (add Tier B songs where keys are actually detected) | as E3 | AMT `E3b` (pre-registered 2026-10-04, not run) |
 | **E23** | Basic Pitch shortest kept note `bp_min_note_frames` {3, 4, 5, 6, 7, 12} (= keep notes ≥ 35/46/58/70/81/139 ms; 12 = upstream 127.7 ms default) × onset {0.3,0.4,0.5,0.6} × frame {0.2,0.3,0.4} | onset-only F1 (50 ms) | – (tuning); confirm tuned ≥ default on test | EGDB (not in Basic Pitch training — verified, §facts) dev/test split by track group | `amt_basicpitch` mode `sweep`: one model pass per track, 72 postprocessing settings; choose argmax on dev; record params in manifest and `defaults.toml`; test result reported with CI | AMT `E23` |
 | **E24-sep** | SW dtype: upstream (fp32 + AMP) vs fp16 weights | downstream MuScriptor stem transcription F1 vs reftx | non-inferiority margin −0.5; adopt fp16 only if CI lower bound > −0.5 **and** reserved peak −20 % or RTF +20 % | Tier B/C subset | default stays upstream | AMT `E24-sep` (calls `separate(dtype=...)`) |
 | **E24-amt** | MuScriptor dtype: upstream (fp32 + built-in fp16 autocast) vs fp16 weights (conditioners fp32) | note F1 (50 ms onset) | as E24-sep | Tier B/C subset | default stays upstream; bf16 never | AMT `E24-amt` |
@@ -1616,9 +1657,9 @@ backend. The ids below are the `## <id>` headings in `docs/decisions.md` and the
 | b10 | 지연 보정 후 onset 잔차 중앙값이 10 ms 미만 | `gtab eval exp latency` → constant estimated on the dev split (GuitarSet players 00–02), `summary.json` `median_abs_residual_ms < 10` measured on **held-out** players 03–05 (with CI); `amt.latency_s` updated |
 | b11 | E23 [판정]: Basic Pitch 최소 음 길이·문턱을 학습 밖 dev 세트에서 튜닝하고 manifest에 남긴다 | `gtab eval exp E23` → decisions.md 결정; `amt_bp` manifest params show the tuned values |
 | b12 | 게이트 [판정]: 디스토션 부분집합에서 MuScriptor가 Basic Pitch보다 onset F1이 5점 이상 높지 않으면 재검토 | `gtab eval exp gate-m2` → decisions.md entry; if MuScriptor × EGDB is `학습 포함`/`불명` in contamination.md the recorded status is `판단 보류 (오염 불명)` — never a pass (pre-registered, §10) |
-| b13 | S3.5 [판정/서술]: 편성 추정이 Tier B·Tier A 곡의 실제 편성(건반·신스 유무)을 맞히는지 곡별 보고; 기타 클래스를 마스크에서 빠뜨린 경우 0건 | `gtab eval exp E3` report table per song: estimated `families` vs ground-truth `families_present` (gt.yaml / DatasetTrack / lines.yaml); `tests/test_amt_instrumentation.py` property test |
+| b13 | S3.5 [판정/서술]: 편성 추정이 Tier B·Tier A 곡의 실제 편성(건반·신스 유무)을 맞히는지 곡별 보고; 기타 클래스를 마스크에서 빠뜨린 경우 0건 | `gtab eval exp E3` report table per song: estimated `families` vs ground-truth `families_present` (gt.yaml / DatasetTrack / lines.yaml); since 2026-10-04 `gtab run` estimates from the sampled presence pass, so the table that describes production is **E3b**'s (keys/synth/strings rows; E3's is the M2 estimator); brass/winds are reportable only through `families` p (never "present" from stems alone); `tests/test_amt_instrumentation.py` property tests |
 | b14 | 캐시로 재실행하면 2분 안에 끝난다 | models fetched beforehand (`gtab models fetch beat_this.final0`), then the second `gtab run <곡> --until notes` → all stages `캐시` (no key changed: nothing downloads during a run), wall time < 120 s (`Measure-Command`) |
-| b15 | 산출물: `sep_msst`, `amt_muscriptor`; S3.5 v0(편성, 원시 전사, 보컬 활동, 반복 잔차 1차, B0); `gtab run --until notes` → 6 스템, nonvox, leftover, instrumentation.json, guitar_all.mid, bass_raw.mid; 연습용 반주; `gtab bench gpu`, VRAM 사전 점검·대기, Shared Usage 감시; Tier B 참조 전사; 지연 상수; E1–E3, E23, E24 결정 (E24 = `E24-sep` + `E24-amt`) | `gtab run <곡> --until notes` on a real song → `export/` listing (incl. `practice/bass_stem.wav` from `sep`); decisions for `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`; `gtab eval reftx cambridge_mt`; decisions.md entries (E1/E2/E3 need Tier B data **[사용자]**; otherwise `판단 보류 (데이터 대기)` is the honest status) |
+| b15 | 산출물: `sep_msst`, `amt_muscriptor`; S3.5 v0(편성, 원시 전사, 보컬 활동, 반복 잔차 1차, B0 = `--profile eval` 에서만); `gtab run --until notes` → 6 스템, nonvox, leftover, instrumentation.json, guitar_all.mid, bass_raw.mid; 연습용 반주; `gtab bench gpu`, VRAM 사전 점검·대기, Shared Usage 감시; Tier B 참조 전사; 지연 상수; E1–E3, E23, E24 결정 (E24 = `E24-sep` + `E24-amt`) | `gtab run <곡> --until notes` on a real song → `export/` listing (incl. `practice/bass_stem.wav` from `sep`); B0 evidence: `gtab run <곡> --profile eval --until notes` → `midi/b0_guitar.mid`; decisions for `E1`, `E2`, `E3`, `E23`, `E24-sep`, `E24-amt`; `gtab eval reftx cambridge_mt`; decisions.md entries (E1/E2/E3 need Tier B data **[사용자]**; otherwise `판단 보류 (데이터 대기)` is the honest status) |
 
 Plus (both milestones): full `pytest -q` green (M0's 370 + new), and `gtab doctor` still passes.
 
