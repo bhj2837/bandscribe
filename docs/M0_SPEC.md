@@ -6,14 +6,14 @@ This file fixes the *interfaces* so modules can be implemented in parallel. Engl
 ## 0. Ground rules (all modules)
 
 - Python 3.12, `from __future__ import annotations`, full type hints, `logging.getLogger(__name__)`, no `print` outside `cli.py`.
-- Repo root `D:\gtab` (= `paths.ROOT`). Package `bandscribe/` (flat layout). Tests in `tests/`.
+- Repo root `D:\bandscribe` (= `paths.ROOT`). Package `bandscribe/` (flat layout). Tests in `tests/`.
 - **Two environments.**
-  - core: `D:\gtab\.venv` — orchestrator/CLI. **Never import torch** anywhere under `bandscribe/` except `bandscribe/workers/*`.
-  - gpu: `D:\gtab\envs\gpu\.venv` — torch 2.11.0+cu128; has `bandscribe` installed editable (light deps only: numpy, soundfile, filelock, pydantic) plus nvidia-ml-py.
+  - core: `D:\bandscribe\.venv` — orchestrator/CLI. **Never import torch** anywhere under `bandscribe/` except `bandscribe/workers/*`.
+  - gpu: `D:\bandscribe\envs\gpu\.venv` — torch 2.11.0+cu128; has `bandscribe` installed editable (light deps only: numpy, soundfile, filelock, pydantic) plus nvidia-ml-py.
   - Modules imported by workers (`bandscribe/workers/*`, `bandscribe/sysmon.py`, `bandscribe/paths.py`, `bandscribe/atomic.py`) may only import stdlib + numpy/soundfile/filelock/pydantic (+ torch/pynvml inside workers, lazily).
-- Commands: run tests with `D:\gtab\.venv\Scripts\python.exe -m pytest -q`. Sync envs with `D:\gtab\tools\uvw.cmd sync --extra core --group dev` run *from* `D:\gtab` (the wrapper keeps uv's python/cache on D:). Do **not** use the global Python 3.10 or plain `pip`.
+- Commands: run tests with `D:\bandscribe\.venv\Scripts\python.exe -m pytest -q`. Sync envs with `D:\bandscribe\tools\uvw.cmd sync --extra core --group dev` run *from* `D:\bandscribe` (the wrapper keeps uv's python/cache on D:). Do **not** use the global Python 3.10 or plain `pip`.
 - Windows pitfalls (from DESIGN §9.8 + user memory): console is cp949 → every subprocess gets `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`; open text files with `encoding="utf-8"`; wrap `sys.stdout` for UTF-8 **only once**, in `cli.main()`; all paths we create are ASCII; no `shell=True`; subprocess text I/O uses `encoding="utf-8", errors="replace"`; std `wave` cannot read float32 WAV → use `soundfile`.
-- The Claude desktop app sandbox redirects writes under `%APPDATA%`/`%LOCALAPPDATA%` for processes it launches. Never place durable state there; everything lives under `D:\gtab`.
+- The Claude desktop app sandbox redirects writes under `%APPDATA%`/`%LOCALAPPDATA%` for processes it launches. Never place durable state there; everything lives under `D:\bandscribe`.
 - Atomicity: any file others may read is written via `bandscribe.atomic.write_bytes/write_text/write_json` (temp file in same dir + `os.replace`). Directories via `JobStore.stage_writer` (temp dir + rename).
 - Every module gets unit tests. Tests must not need network or GPU unless marked `@pytest.mark.network` / `@pytest.mark.gpu` (they are skipped automatically when unavailable — see `tests/conftest.py`).
 
@@ -242,7 +242,7 @@ typer app `main()`:
 - `bandscribe config show [--set ...]` → effective config TOML.
 - `bandscribe gc` → `JobStore.gc_temp()`.
 `main()` does: UTF-8 stdout wrap (once), `paths.apply_process_env()`, `paths.ensure_dirs()`, `config.ensure_user_config()`, `log.setup_logging()`.
-Launcher `D:\gtab\bandscribe.cmd`: `@"%~dp0.venv\Scripts\python.exe" -m bandscribe.cli %*`.
+Launcher `D:\bandscribe\bandscribe.cmd`: `@"%~dp0.venv\Scripts\python.exe" -m bandscribe.cli %*`.
 
 ## 15. Tests (each owner writes their own; integrator runs all)
 

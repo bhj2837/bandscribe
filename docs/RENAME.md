@@ -1,7 +1,7 @@
 # Rename: gtab → bandscribe (2026-10-04)
 
 The project is now **bandscribe** everywhere (GitHub: `bhj2837/bandscribe`). The new name covers the planned
-drum and piano scores. The folder is still `D:\gtab`; moving it is a separate step (see the last section).
+drum and piano scores. The folder moved from `D:\gtab` to `D:\bandscribe` the same day (see the last section).
 
 ## New names
 
@@ -58,17 +58,40 @@ params, dep keys plus input hashes, and model shas. No params contain `gtab`.
 - All 176 existing manifests still recompute to their recorded key.
 - File content keys of the two test songs and a golden AMT cache key are unchanged.
 
-## Left for the folder move (`D:\gtab` → new folder)
+## Folder move: `D:\gtab` → `D:\bandscribe` (done 2026-10-04)
 
-The code no longer hard-codes `D:\gtab`:
+The folder was renamed in place (`Move-Item`, same volume: instant, hard links and file ids kept). The code finds
+its root from the package location (`paths.ROOT`), and `tools\uvw.cmd` / `tools\hf-login.cmd` from their own
+location, so no code changed. Evidence: `data\scratch\move\`.
 
-- `tools\uvw.cmd` and `tools\hf-login.cmd` find the root from their own location.
-- Korean hints print `paths.ROOT`.
+| Artefact | Absolute path inside? | Handling |
+|---|---|---|
+| Venvs (`pyvenv.cfg` home, `Scripts\*.exe` launchers, `activate*`, editable `.pth`, `direct_url.json`) | yes | All three `.venv` folders deleted and re-created with `uvw.cmd sync --locked --offline` (packages from `data\uv-cache`, no downloads), then `--compile-bytecode` (see PROGRESS "Envs": without `.pyc` files the CLI start-up doubles). Package lists identical before/after (core 86, gpu 61, bp310 47); torch 2.11.0+cu128, CUDA available. |
+| `tools\python\cpython-3.1x-windows-x86_64-none` | yes: uv's minor-version **junctions** store an absolute target | Both junctions re-created (`mklink /J`) to the new folder. The interpreters themselves are relocatable. |
+| Windows registry `HKCU\Software\Python\Astral\CPython3.10.21` (uv registers the 3.10 install, PEP 514) | yes | `ExecutablePath` / `WindowedExecutablePath` pointed at the new folder (uv warned about the dead path otherwise). |
+| HF cache `data\hf` (MuScriptor weights, login token) | no (plain files, no symlinks) | Nothing. `HF_HOME` is derived from `paths.ROOT`; `hf auth whoami` still answers with the same account. |
+| `data\jobs\index.json`, stage keys | no | Index is keyed by content key, stage keys by name/version/params/deps/model shas: 1,755 planned keys and all 176 manifests unchanged. |
+| `meta.json` `source.ref`, `_worker\request.json` / `result.json` / `stderr.log` in jobs, eval, bench and runs | yes (provenance only) | Left as is: never read back for loading or keys, and the manifests pin their sha256. |
+| `export\` WAV hard links | – | Kept by the same-volume rename (27/27 still linked to their stage file). |
+| `models.lock.json`, `datasets.lock.json`, Tier A `songs.yaml`, `vram_table.json` | no (root-relative) | Nothing. |
+| `data\models\.sha_cache.json` | yes (keys are absolute paths) | Rehashed on first use (same shas); entries for paths that no longer exist were pruned. |
+| `data\config.toml` | only the `위치` comment | Comment updated; values unchanged. |
+| Docs, `envs\bp310\pyproject.toml` comment, fake paths in tests | yes | Updated to `D:\bandscribe`. |
+| Logs, `data\scratch`, `data\runs` | yes (history) | Left as is. |
 
-Still absolute and to redo after the move:
+**Stage params read package versions from the worker envs** (`muscriptor_version` from the gpu env,
+`basic_pitch_version` from bp310, via their dist-info). While an env is missing or half-installed those params
+change and so do the keys: a snapshot taken during the gpu re-sync showed 5 changed keys on the first job. Never run
+`bandscribe` while an env is being re-created; after the sync, keys were identical again.
 
-- **Venvs:** the editable `.pth` files point at `D:\gtab`, and the base interpreters live under
-  `D:\gtab\tools\python`. Re-create or re-sync all three envs.
-- **Model sha cache:** its entries are keyed by absolute path, so the first run after the move rehashes the models
-  once (seconds). The sha values, and therefore the keys, stay the same.
-- **Docs:** `D:\gtab` paths in the docs and the `위치` comment in `data\config.toml`.
+**Checks after the move** (`data\scratch\move\`):
+
+- `keys_snapshot.py` (copied from the rename): 1,755 planned keys, 0 changed; all manifests recompute to their key;
+  file content keys of the 5 `D:\backing` originals unchanged.
+- `bandscribe doctor`: 22 checks, 0 failed (1 warning: VRAM budget, other apps).
+- Tests: 1198 passed, 1 skipped.
+- Cached `bandscribe run`: SC, KH, aotonat through `notes` (13/13 cached, export up to date) and AIZO, AZ through
+  `resid1` (their last cached stage at the current stage versions), 0.6–0.8 s each. Cached YouTube URLs are cache
+  hits with no download.
+- Uncached GPU step: AIZO `amt_ms1` (MuScriptor medium-lean from the moved HF cache, 68.6 s) and `amt_bp`
+  (bp310 env, 8.2 s), at their planned keys.

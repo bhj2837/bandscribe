@@ -1,7 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-04 (renamed gtab → bandscribe, see `docs/RENAME.md`; speed fix + review fixes measured, see
-"Speed and presence fix" below).
+Last updated: 2026-10-04 (renamed gtab → bandscribe and moved the folder `D:\gtab` → `D:\bandscribe`, see
+`docs/RENAME.md`; speed fix + review fixes measured, see "Speed and presence fix" below).
 
 ## Where things stand
 
@@ -11,7 +11,7 @@ Last updated: 2026-10-04 (renamed gtab → bandscribe, see `docs/RENAME.md`; spe
 | M1a+M2 spec (`docs/M1_M2_SPEC.md`) | ✅ done (30-point critique applied) |
 | P0 contracts + 5 owners (SEP, AMT, GRID, EVAL, DATA) | ✅ implemented |
 | Integration | ✅ 1174 tests passed (1 skipped) after the 2026-10-04 speed/presence fix; all 5 `D:\backing` songs + 1 Cambridge-MT mix run end to end |
-| Rename gtab → bandscribe | ✅ done in place (`docs/RENAME.md`): 0 stage keys changed, old files load as is. Folder move `D:\gtab` → new folder: not done |
+| Rename gtab → bandscribe | ✅ done (`docs/RENAME.md`): 0 stage keys changed, old files load as is. Folder moved to `D:\bandscribe`, all three venvs re-created: keys again unchanged, 1198 tests passed (1 skipped) |
 | Experiments | 🟡 mostly done (see table below) |
 | Review → Fix → Acceptance | ⬜ not started |
 
@@ -124,7 +124,7 @@ mask the backing used:
 
 ## Next steps (in order)
 
-1. `git checkout wip/m1a-m2`. Quick check: `D:\gtab\bandscribe.cmd doctor` and `D:\gtab\.venv\Scripts\python.exe -m pytest -q`.
+1. `git checkout wip/m1a-m2`. Quick check: `D:\bandscribe\bandscribe.cmd doctor` and `D:\bandscribe\.venv\Scripts\python.exe -m pytest -q`.
 2. ~~Speed work~~ done 2026-10-04 (profiles + presence windows, reviewed and fixed, above). Optional: time `--profile fast` on SC.mp3.
 3. Review (correctness + GPU/Windows), fix, then check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on the user.
 4. Merge `wip/m1a-m2` into `main` and commit the milestone.
@@ -132,11 +132,22 @@ mask the backing used:
 
 ## Facts worth keeping
 
-- The Claude desktop app sandbox redirects `%APPDATA%`/`%LOCALAPPDATA%` writes, so everything lives under `D:\gtab`. Use uv only through `D:\gtab\tools\uvw.cmd`.
+- The Claude desktop app sandbox redirects `%APPDATA%`/`%LOCALAPPDATA%` writes, so everything lives under `D:\bandscribe`. Use uv only through `D:\bandscribe\tools\uvw.cmd`.
 - **Envs:**
   - core `.venv`: no torch.
   - gpu `envs\gpu\.venv`: torch 2.11.0+cu128.
   - bp310 `envs\bp310\.venv`: Basic Pitch / onnxruntime.
+  - Re-create an env with `uvw.cmd sync --locked --offline --compile-bytecode` from its folder (all packages are
+    in `data\uv-cache`). `--compile-bytecode` matters: the Claude app sets `PYTHONDONTWRITEBYTECODE=1`, so a fresh
+    venv used only from Claude never gets `.pyc` files, and CLI start-up doubles (cache hit 0.58 s → 1.1 s, which
+    fails `test_cli_cache_hit_on_a_large_wav_is_under_1s`). On this USB disk a full re-create took core 24 min,
+    gpu 6 min, bp310 3 min.
+  - Stage params read `muscriptor` / `basic-pitch` versions from the gpu / bp310 envs' metadata. Never run
+    `bandscribe` while an env is being re-created, or the keys change and stages recompute.
+- **Cache state at current stage versions (2026-10-04, `quality`):** SC, KH, aotonat and the KH / aotonat backings
+  are cached through `notes`. AIZO and AZ are cached only up to `resid1` (AIZO also `amt_ms1` + `amt_bp`, run
+  10-04 as the post-move GPU check), SC_backing 8 of 13 stages, AIZO/AZ backings 2 of 13. A full `bandscribe run`
+  on AIZO or AZ still costs roughly 5–7 min of GPU time.
 - **VRAM per stage:**
   - SW: 1.2–1.7 GB reserved.
   - MuScriptor lean: 1.74 GB.
@@ -165,5 +176,7 @@ mask the backing used:
 - Delete the HF token that was pasted into chat (https://huggingface.co/settings/tokens). The login uses a separate OAuth token.
 - Guitar Pro files (.gp/.gp5) for any song in `D:\backing`, to use as scored ground truth (Tier A).
 - Listen to KH/aotonat backings vs originals: do they really still contain guitar?
-- NVIDIA Control Panel: check the "CUDA - Sysmem Fallback Policy" setting (needed for bench items b1/b3).
+- NVIDIA Control Panel: check the "CUDA - Sysmem Fallback Policy" setting (needed for bench items b1/b3). A
+  per-program setting must target `D:\bandscribe\tools\python\cpython-3.12-windows-x86_64-none\python.exe`; one made
+  on the path from before the folder move no longer applies.
 - Close VRAM-heavy apps (Chrome, games) before GPU runs.

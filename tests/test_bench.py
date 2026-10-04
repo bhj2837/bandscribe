@@ -256,12 +256,12 @@ def test_cli_bench_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fake_run(opts: Any, cfg: Any, **kw: Any) -> dict:
         seen["opts"] = opts
-        return {"gpu": "RTX 2060", "driver": "610.47", "run_dir": "D:/gtab/data/bench/x",
+        return {"gpu": "RTX 2060", "driver": "610.47", "run_dir": "D:/bandscribe/data/bench/x",
                 "processes_at_start": [{"pid": 1, "name": r"C:\x\claude.exe"}],
                 "rows": [{"run": "sep-chunk588800-r1", "rung_label": "chunk=588800", "status": "ok",
                           "max_reserved_mb": 1688.0, "nvml_delta_peak_mb": 1777.0, "pdh_self_shared_growth_mb": 2.0,
                           "rtf": 5.48, "load_s": 4.4, "ctx_mb": 89.0}],
-                "vram_table": "D:/gtab/data/bench/vram_table.json",
+                "vram_table": "D:/bandscribe/data/bench/vram_table.json",
                 "calibration": {"shared_growth_noise_mb": 20.0, "recommended_shared_growth_fail_mb": 64.0}}
 
     monkeypatch.setattr(bench, "run_bench", fake_run)

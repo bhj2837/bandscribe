@@ -1,7 +1,7 @@
 """bandscribe.ingest: decode, loudness, flags and the cached, atomic ingest of local files (M0_SPEC 12, 15).
 
 Audio fixtures are synthesised and encoded with ffmpeg at test time (tests/fixtures/synth_audio.py).
-Every test uses its own JobStore under tmp_path; nothing touches D:\\gtab\\data.
+Every test uses its own JobStore under tmp_path; nothing touches D:\\bandscribe\\data.
 """
 
 from __future__ import annotations

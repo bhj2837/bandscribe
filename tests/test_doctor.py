@@ -54,8 +54,8 @@ GOOD_SELFTEST = {
         "passed": True,
     },
     "error": None,
-    "python": r"D:\gtab\envs\gpu\.venv\Scripts\python.exe",
-    "base_executable": r"D:\gtab\tools\python\cpython-3.12\python.exe",
+    "python": r"D:\bandscribe\envs\gpu\.venv\Scripts\python.exe",
+    "base_executable": r"D:\bandscribe\tools\python\cpython-3.12\python.exe",
     "pid": 222, "ppid": 111,
     "cuda": {"max_allocated_mb": 20.0, "max_reserved_mb": 44.0},
     "sysmon": {"nvml_used_peak_mb": 900, "pdh_self_dedicated_peak_mb": 300,
@@ -163,9 +163,10 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     monkeypatch.setattr(paths, "GPU_PYTHON", gpu_py)
     monkeypatch.setattr(paths, "YTDLP_EXE", exe)
     monkeypatch.setattr(paths, "YTDLP_CONF", conf)
-    monkeypatch.setattr(paths, "ROOT", Path(r"D:\gtab"))
+    monkeypatch.setattr(paths, "ROOT", Path(r"D:\bandscribe"))
     monkeypatch.setattr(paths, "child_env", lambda extra=None: {
-        "HF_HOME": r"D:\gtab\data\hf", "TORCH_HOME": r"D:\gtab\data\torch", "UV_CACHE_DIR": r"D:\gtab\data\uv-cache"})
+        "HF_HOME": r"D:\bandscribe\data\hf", "TORCH_HOME": r"D:\bandscribe\data\torch",
+        "UV_CACHE_DIR": r"D:\bandscribe\data\uv-cache"})
 
     from bandscribe.eval import node as gnode
 
@@ -464,7 +465,7 @@ def test_selftest_error_from_stderr_tail(tmp_path: Path) -> None:
 
 
 def test_not_a_launcher(env: SimpleNamespace) -> None:
-    same = r"D:\gtab\envs\gpu\.venv\Scripts\python.exe"
+    same = r"D:\bandscribe\envs\gpu\.venv\Scripts\python.exe"
     env.gpu.next = _worker_result(dict(GOOD_SELFTEST, python=same, base_executable=same.lower()))
     report = doctor.run_doctor(env.cfg)
     launcher = report.get("gpu.launcher")
@@ -496,7 +497,7 @@ def test_ffprobe_missing(env: SimpleNamespace) -> None:
 def test_disk_low_and_cache_on_other_drive(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
     env.disk["usage"] = DiskUsage(1000 * 2**30, 990 * 2**30, 10 * 2**30)
     monkeypatch.setattr(paths, "child_env", lambda extra=None: {
-        "HF_HOME": r"C:\Users\someone\.cache\huggingface", "TORCH_HOME": r"D:\gtab\data\torch",
+        "HF_HOME": r"C:\Users\someone\.cache\huggingface", "TORCH_HOME": r"D:\bandscribe\data\torch",
         "UV_CACHE_DIR": r"D:\elsewhere\uv"})
     report = doctor.run_doctor(env.cfg)
     assert report.get("disk.free").status == "fail"
@@ -600,7 +601,7 @@ def test_selftest_dirs_are_fresh_and_pruned(env: SimpleNamespace, monkeypatch: p
 
 def test_smoke_real_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Non-GPU checks against the real machine: must return a report, never crash."""
-    monkeypatch.setattr(paths, "DATA", tmp_path / "data")  # baseline file goes to tmp, not D:\gtab\data
+    monkeypatch.setattr(paths, "DATA", tmp_path / "data")  # baseline file goes to tmp, not D:\bandscribe\data
     report = doctor.run_doctor(None, skip={"gpu"})
     assert isinstance(report, DoctorReport) and report.checks
     assert all(isinstance(c, Check) and isinstance(c.detail, str) and c.detail for c in report.checks)

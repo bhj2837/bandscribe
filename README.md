@@ -10,12 +10,12 @@ Windows 10 + RTX 2060(6 GB)에서 돌도록 만들었다. 결과물과 중간 �
 ## 빠른 시작
 
 ```bat
-D:\gtab\bandscribe.cmd doctor                                   :: 환경 점검 (GPU 셀프테스트 포함, 필수 항목 실패 시 종료 코드 1)
-D:\gtab\bandscribe.cmd ingest "D:\녹음\합주 2026-09-30.wav"      :: 로컬 파일 입력
-D:\gtab\bandscribe.cmd ingest "https://www.youtube.com/watch?v=..."  :: YouTube 링크 입력 (기본 켜짐, 아래 고지 참고)
-D:\gtab\bandscribe.cmd status                                   :: 작업 목록 / bandscribe status <작업 키> 로 하나 자세히
-D:\gtab\bandscribe.cmd config show                              :: 지금 적용되는 설정 전체
-D:\gtab\bandscribe.cmd gc                                       :: 중단된 작업이 남긴 임시 폴더 정리
+D:\bandscribe\bandscribe.cmd doctor                                   :: 환경 점검 (GPU 셀프테스트 포함, 필수 항목 실패 시 종료 코드 1)
+D:\bandscribe\bandscribe.cmd ingest "D:\녹음\합주 2026-09-30.wav"      :: 로컬 파일 입력
+D:\bandscribe\bandscribe.cmd ingest "https://www.youtube.com/watch?v=..."  :: YouTube 링크 입력 (기본 켜짐, 아래 고지 참고)
+D:\bandscribe\bandscribe.cmd status                                   :: 작업 목록 / bandscribe status <작업 키> 로 하나 자세히
+D:\bandscribe\bandscribe.cmd config show                              :: 지금 적용되는 설정 전체
+D:\bandscribe\bandscribe.cmd gc                                       :: 중단된 작업이 남긴 임시 폴더 정리
 ```
 
 설정 우선순위: `bandscribe/defaults.toml` → `data/config.toml`(사용자) → 작업 `hints.toml` → 명령줄 `--set 키=값`.
@@ -54,7 +54,7 @@ bandscribe가 하는 것과 하지 않는 것:
   format_id·abr·코덱을 `meta.json`에 적는다. 다운로드 사이에는 5초 이상 쉰다(명령을 따로 실행해도 적용).
 - `youtube.timeout_s`(기본 600초)가 지나면 yt-dlp 프로세스 전체를 끝낸다.
 - 이미 받은 동영상은 네트워크 없이 캐시에서 돌려준다.
-- 실패하면 `D:\gtab\tools\yt-dlp.exe --update-to nightly` 후 다시 시도하고, 그래도 안 되면 **로컬 파일을 넣는다.**
+- 실패하면 `D:\bandscribe\tools\yt-dlp.exe --update-to nightly` 후 다시 시도하고, 그래도 안 되면 **로컬 파일을 넣는다.**
 
 **YouTube 입력 끄기:** `data/config.toml`에 아래를 넣는다. 그러면 URL 입력을 거부한다.
 
@@ -80,9 +80,9 @@ enabled = false
 
 ## 폴더와 환경
 
-- 코드와 데이터는 모두 `D:\gtab` 아래에 있다. `data\`에 작업(`jobs`), 다운로드, 로그(`logs\bandscribe.log`), 사용자 설정,
+- 코드와 데이터는 모두 `D:\bandscribe` 아래에 있다. `data\`에 작업(`jobs`), 다운로드, 로그(`logs\bandscribe.log`), 사용자 설정,
   모델 캐시(`hf`, `torch`), uv 캐시가 있다. `%APPDATA%`/`%LOCALAPPDATA%`에는 아무것도 두지 않는다.
-- 두 가상환경: core `D:\gtab\.venv`(Python 3.12, CLI·분석, torch 없음)와 gpu `D:\gtab\envs\gpu\.venv`(torch 2.11.0+cu128,
+- 두 가상환경: core `D:\bandscribe\.venv`(Python 3.12, CLI·분석, torch 없음)와 gpu `D:\bandscribe\envs\gpu\.venv`(torch 2.11.0+cu128,
   GPU 워커 전용). GPU 작업은 Job Object 안의 자식 프로세스로 한 번에 하나만 돌고, `data\gpu.lock`이 이를 지킨다.
-- 동기화: `D:\gtab\tools\uvw.cmd sync --extra core --group dev`(`D:\gtab`에서). 전역 Python 3.10은 건드리지 않는다.
-- 테스트: `D:\gtab\.venv\Scripts\python.exe -m pytest -q`. GPU·네트워크가 필요한 테스트는 없으면 자동으로 건너뛴다.
+- 동기화: `D:\bandscribe\tools\uvw.cmd sync --extra core --group dev`(`D:\bandscribe`에서). 전역 Python 3.10은 건드리지 않는다.
+- 테스트: `D:\bandscribe\.venv\Scripts\python.exe -m pytest -q`. GPU·네트워크가 필요한 테스트는 없으면 자동으로 건너뛴다.

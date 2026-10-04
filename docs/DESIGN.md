@@ -1160,7 +1160,7 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 ### 9.1 폴더 (코드와 데이터 모두 D:, 여유 317 GB)
 
 ```
-D:\gtab\
+D:\bandscribe\
   src\                          git 저장소
     bandscribe.toml                   기본 설정 + 프로필(fast/quality/max/eval)
     envs\{core,gpu,bp310,ymt3,clap}\   uv 프로젝트 + lockfile
@@ -1682,7 +1682,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 1. **설치 승인:**
    - uv, uv가 관리하는 Python 3.12. 전역 3.10은 그대로 두고, 3.10은 2026-10에 EOL이다.
    - torch 2.11.0+cu128(약 2.5–3.5 GB). 문제가 생기면 2.8.0+cu128로 내리는 것에 동의하는지, 또는 처음부터 2.14+cu130을 원하는지.
-   - 위치 `D:\gtab`.
+   - 위치 `D:\gtab`. (2026-10-04 이름 변경과 함께 `D:\bandscribe` 로 옮김, `docs/RENAME.md`.)
 2. **YouTube 경로 — 결정됨(2026-09-30 사용자 결정): 기본 켜짐.** 사용자가 아래 고지를 받고 기본 켜기를 요청했다. 당시 질문은 다음과 같았다.
    - 로컬 파일만 쓸지(권장), 아니면 YouTube 경로를 켤지.
    - 켜면: yt-dlp.exe nightly와 Node를 JS 런타임으로 쓴다. 이때 **기본 경로에서도 YouTube의 JS 챌린지를 푼다.** 독일 법원이 이것을 기술적 보호조치 우회로 판단했다는 보도가 있고, 한국법 적용은 미검증이다. 약관 위반 위험과 함께 본인 책임임에 동의하는지.

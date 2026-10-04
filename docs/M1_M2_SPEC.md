@@ -82,7 +82,7 @@ the installed wheels / real files / GPU probes by the critique pass, scripts in 
   ['bass','drums','other','vocals','guitar','piano']` (**this is the output stem order**), `training.use_amp true`,
   `inference: batch_size 1, num_overlap 2, normalize false`, `model.flash_attn: true`, `!!python/tuple` tags.
   The `.audiosep.yaml` differs only in `inference.dim_t 801` (audio-separator derives 441×(801−1)=352,800 from it).
-- MuScriptor medium is in `D:\gtab\data\hf\hub\models--MuScriptor--muscriptor-medium\snapshots\
+- MuScriptor medium is in `D:\bandscribe\data\hf\hub\models--MuScriptor--muscriptor-medium\snapshots\
   f32236969308476e01fd3aae67357de5feb05a2d\model.safetensors` (config: dim 1024, 24 layers).
 - ✔ Zenodo (sizes, md5 and licences re-checked via the API): GuitarSet `3371780` (CC BY 4.0; `annotation.zip` 39,132,574 B md5 `b39b78e63d3446f2e54ddb7a54df9b10`,
   `audio_mono-mic.zip` 656,927,981 B md5 `275966d6610ac34999b58426beb119c3`, `audio_mono-pickup_mix.zip`
@@ -170,7 +170,7 @@ of M1a/M2 (later changes = integration requests to the integrator).
 `librosa==0.11.*`, `mir_eval>=0.8,<0.9`, `synctoolbox==1.4.2`, `pyguitarpro==0.11`, `pretty_midi>=0.2.10`,
 `mido>=1.3`, `music21>=9.9,<10`, `jinja2>=3.1`, `matplotlib>=3.10`, `pyyaml>=6`, `scikit-learn>=1.5`
 (synctoolbox imports it without declaring it), `threadpoolctl>=3`, `pandas>=2.3,<3`. Then
-`D:\gtab\tools\uvw.cmd lock` + `sync --extra core --group dev` from `D:\gtab`.
+`D:\bandscribe\tools\uvw.cmd lock` + `sync --extra core --group dev` from `D:\bandscribe`.
 Expect numpy → 2.4.x (synctoolbox cap) and IPython 8 (via libfmp; harmless if imported lazily, §0). If numba has
 no wheel for py3.12 + that numpy, pin `numpy<2.4` and note it.
 
@@ -179,7 +179,7 @@ no wheel for py3.12 + that numpy, pin `numpy<2.4` and note it.
 `soxr`, `safetensors`, `huggingface-hub`, `filelock`. **Not** `omegaconf` / `ml_collections` (only MSST's settings
 loader needs them; we load the yaml ourselves, §9.1). muscriptor brings fastapi/uvicorn/python-multipart/typer —
 unused but harmless. torch/torchaudio **must stay `2.11.0+cu128`** (check `uv.lock`: no CPU torch sneaks in via
-muscriptor/beat-this; keep the `pytorch-cu128` index pins). `uvw.cmd lock` + `sync` from `D:\gtab\envs\gpu`.
+muscriptor/beat-this; keep the `pytorch-cu128` index pins). `uvw.cmd lock` + `sync` from `D:\bandscribe\envs\gpu`.
 Smoke: `envs\gpu\.venv\Scripts\python.exe -c "import torch,muscriptor,beat_this,einops,rotary_embedding_torch,
 beartype;print(torch.__version__, torch.cuda.is_available())"` → `2.11.0+cu128 True`.
 
@@ -1173,8 +1173,8 @@ ballast launcher with a fake worker that writes `ready.json`).
 2. **bp310 env** (M1a): `envs/bp310/pyproject.toml` (`requires-python = ">=3.10,<3.11"`, `[tool.uv] package =
    false`, deps `basic-pitch==0.4.0`, `onnxruntime`, `soundfile`, `numpy`, `filelock`, `pydantic`; a comment notes
    the 3.10 resolution `onnxruntime<=1.23.2`, `numpy<=2.2.6`, `scipy<=1.15.3`); install Python 3.10 with
-   `tools\uvw.cmd python install 3.10` (goes to `D:\gtab\tools\python`, the global 3.10 is never touched); lock +
-   sync from `D:\gtab\envs\bp310`. bandscribe is **not** installed there (requires 3.12); workers import it through the
+   `tools\uvw.cmd python install 3.10` (goes to `D:\bandscribe\tools\python`, the global 3.10 is never touched); lock +
+   sync from `D:\bandscribe\envs\bp310`. bandscribe is **not** installed there (requires 3.12); workers import it through the
    `PYTHONPATH` that `gpu.run_worker` sets. Record the bundled ONNX model (`basic_pitch/saved_models/icassp_2022/
    nmp.onnx` in the bp310 site-packages) as `basic_pitch.icassp2022` in `models.lock.json`; `amt_bp`'s `models()`
    hashes that file, or returns `{"basic_pitch": "absent"}` if `paths.BP310_PYTHON` does not exist (§3.2 row 9).
