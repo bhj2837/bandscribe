@@ -1,0 +1,19 @@
+# tuttut baseline environment for experiment E12 (docs/decisions.md; DESIGN 6.3 "기준선: tuttut(MIT)").
+# Python 3.10 because tuttut 0.0.6 pins numpy==1.23.2 / matplotlib==3.5.3 / networkx==2.8.6 / pretty-midi==0.2.9,
+# which have no cp312 wheels. Runs `bandscribe/tab/tuttut_runner.py` (stdlib + tuttut only; bandscribe is NOT
+# installed or imported here).
+#
+# Manage with ..\..\tools\uvw.cmd lock / sync, run from this directory (keeps python + cache in the project folder).
+[project]
+name = "bandscribe-tuttut-env"
+version = "0.1.0"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "tuttut==0.0.6",
+    # pretty-midi 0.2.9 does `import pkg_resources` at import time; uv venvs have no setuptools, and
+    # setuptools >= 81 no longer ships pkg_resources.
+    "setuptools<81",
+]
+
+[tool.uv]
+package = false

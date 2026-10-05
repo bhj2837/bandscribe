@@ -29,6 +29,8 @@ CORE_PYTHON: Path = ROOT / ".venv" / "Scripts" / "python.exe"
 GPU_PYTHON: Path = ROOT / "envs" / "gpu" / ".venv" / "Scripts" / "python.exe"
 # Basic Pitch env (Python 3.10, onnxruntime). bandscribe is not installed there; workers import it via PYTHONPATH.
 BP310_PYTHON: Path = ROOT / "envs" / "bp310" / ".venv" / "Scripts" / "python.exe"
+# tuttut baseline env (E12): Python 3.10 with tuttut 0.0.6's pinned dependencies
+TUTTUT_PYTHON: Path = ROOT / "envs" / "tuttut" / ".venv" / "Scripts" / "python.exe"
 NODE_DIR: Path = ROOT / "node"  # package.json + node_modules (alphaTab) for GT import / render
 
 # M1a/M2 data layout (M1_M2_SPEC 1.2).

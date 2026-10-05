@@ -476,3 +476,66 @@
     (라우터 특징은 거의 보존), 반면 bin 단위 Δcoherence 0.26·ΔILD 5.3 dB·S/M +4.7 dB·지연 특징 −29 로 bin 단위 큐는 흔들린다.
     결론(서술): 창 단위 라우터 특징은 A 장면에서 보존됐지만 근거가 1장면뿐이다. M6 go/no-go 는 합성 장면이 아니라 실제 멀티트랙
     (distractors 의 Cambridge-MT 곡)으로 다시 잰다.
+
+## E12
+- 제목: 운지(줄/프렛 배정) — 자체 Viterbi(DP) vs tuttut (M3 운지 [판정])
+- 상태: 사전 등록
+- 질문: M3 의 자체 Viterbi 운지기(`bandscribe.tab.fretting`)가 GuitarSet 줄 정답에서 줄/프렛 일치 75 % 이상이고 tuttut 이상인가
+  (DESIGN 10 M3 "운지 [판정]")? 손 이동(`shift`)과 높이(`height`) 가중치는 dev 에서 고른다.
+- 선택지: `tuttut`(0.0.6 기본 가중치, `envs/tuttut`, MIT; 기준) | `dp_s{shift}_h{height}`, shift ∈ {0.3, 0.6, 1.2} ×
+  height ∈ {0.05, 0.15, 0.4} (9 arm). 나머지 가중치는 이 등록 커밋의 `fretting.DEFAULT_WEIGHTS`(`dp_s0.6_h0.15` = 기본값).
+- 주 지표: `string_agreement` = 정답 음 중 예측 (줄, 프렛)이 정답과 같은 비율(점, ×100), 트랙 평균(트랙마다 같은 무게).
+  입력은 정답 음(음높이·onset·offset; "음높이가 맞은 음에서")이고 튜닝은 표준(E2–E4)이다. 이벤트 = onset 이 그 이벤트 첫 음에서
+  50 ms 안인 음들(스트럼 화음)이며 두 시스템에 같은 이벤트를 준다(tuttut 에는 이벤트의 모든 음을 첫 onset 에 둔 MIDI). tuttut 가 낸
+  이벤트에 그 음높이 위치가 없으면(범위 밖 옥타브 이동, 같은 음높이 중복) 그 음은 틀린 것으로 센다. tuttut 가 예외로 실패한
+  트랙은 두 arm 모두에서 빼고 수를 보고한다.
+- MDE: 해당 없음(dev 선택 + test 에서 기준 이상 확인).
+- 데이터(세트, 분할, 창 정의): GuitarSet 1.1.0 전 360트랙(6명 × 30곡 × comp/solo). 분할(결과 보기 전 고정): **dev = 진행 1**
+  (트랙 id `NN_<스타일>1-…`, 120트랙), **test = 진행 2·3**(240트랙). 블록 = 곡(스타일+진행+템포+조, 예 `BN2-131-B`; test 20블록).
+  같은 곡을 6명이 쳤으므로 블록은 곡이다.
+- 분석: dev 에서 10 arm 의 트랙 평균. dev 최고 arm 하나만 test 에서 tuttut 와 비교(곡 블록 부트스트랩 10k, seed 20260930,
+  쌍 Δ 95 % CI). 함께 보고: comp/solo 별 값, 연주 가능성 불변식(프렛 0–24, 스팬 ≤ 5, 줄 중복 없음) 위반 수(0 이어야 함), 트랙당 시간.
+- 결정 규칙: (러너 `tuning` 규칙) dev 최고가 tuttut 이면 기각(자체 DP 를 쓰되 M3 운지 [판정] 실패로 기록). 아니면 test 에서
+  Δ(dev 최고 − tuttut) ≥ 0 이면 채택 후보이고, **그 arm 의 test 일치가 75.0점 이상이어야** 채택(M3 운지 [판정] 통과, 기본 가중치를
+  그 arm 으로). Δ ≥ 0 이지만 75점 미만이면 `판단 보류 (목표 미달)` 로 기록하고 M3 한계로 남긴다.
+- 판정 설정: `rule=tuning; metric=string_agreement; baseline=tuttut; split_col=section`
+- 비용: CPU 약 10–20분(tuttut 360트랙, 트랙당 1–5 s), dp 9 arm 수 분.
+- 실행 명령: `bandscribe eval exp E12`
+- 등록 메모(2026-10-05, 실행 전): 개발은 합성 예(음계·개방 코드·분산화음)로만 했고 GuitarSet 결과는 아직 보지 않았다. tuttut 는
+  `envs/tuttut`(Python 3.10, 고정 의존성) 에서 `bandscribe/tab/tuttut_runner.py` 로 돌린다.
+- 결과: (아직 없음)
+
+## E14
+- 제목: 양자화 설정 — 타이밍 잡음 σ, 수준 벌점, 24 vs 48 tick, 이분/삼분 전환 벌점, 셔플·12/8 판정 문턱
+- 상태: 사전 등록
+- 질문: `bandscribe.tab.quantize` 의 잠정 설정(σ 30 ms, `LEVEL_PEN`, switch 1.0, swing 문턱)이 실제 곡에서 기보 일치(8.4 #2)와
+  MUSTER식 onset 오류를 가장 좋게 하는가? 32분음표·16분 셋잇단(48 tick)을 허용하는 것이 24 tick 격자보다 나은가?
+- 선택지: σ ∈ {22, 26, 30, 35} ms × 격자 {48, 24} (24 = 32분음표·16분 셋잇단 금지) × switch ∈ {0.5, 1.0, 2.0}. 기준 = 잠정 기본값
+  (σ 30, 48, 1.0).
+- 주 지표: Tier A 기보 일치(정답 템포맵으로 마디를 맞춘 뒤 (마디, tick, 음높이) 정확 일치 비율, 8.4 #2), 점.
+- MDE: 1.0점.
+- 데이터: Tier A 곡(사용자 Guitar Pro 정답, M1b). dev/test = gt.yaml 구간 분할.
+- 분석·결정 규칙: `select=dev; split=test` 우월성(DESIGN 8.1).
+- 판정 설정: `rule=superiority; metric=notation_exact; baseline=s30_t48_w1.0; mde=1.0; select=dev; split=test`
+- 비용: CPU 수 분(양자화만).
+- 실행 명령: `bandscribe eval exp E14`
+- 등록 메모(2026-10-05): σ 30 ms 잠정 기본값은 정답 없이 정했다 — 합성(±20 ms) 정확 (마디, tick) 0.990(22 ms: 0.994)이고, 실제
+  5곡의 p90 onset 잔차가 23–36 ms 라 22 ms 는 기타 음의 6–18 % 를 32분음표로 보냈다(30 ms: 0–11 %). Tier A 정답이 생기면 이 실험이
+  정한다(데이터 대기).
+- 결과: (아직 없음)
+
+## E16
+- 제목: A4 varispeed — 기준음이 어긋난 녹음을 분석 전에 A440 으로 되돌릴 문턱
+- 상태: 사전 등록
+- 질문: 녹음의 기준음 오프셋(`a4.json`)이 클 때 분석용 사본을 varispeed 로 A440 에 맞춘 뒤 전사하면 기타·베이스 음표 F1 이
+  오르는가? 어느 문턱부터 켜야 하는가?
+- 선택지: `off`(기준, 현재) | `t15`, `t25`, `t35`(|cents| ≥ 문턱이면 분리·전사 전에 varispeed, 음 시각은 원래 시간축으로 되돌림).
+- 주 지표: 기타 onset F1(`note_f1_onset50`), 정답 대비.
+- MDE: 1.0점.
+- 데이터: GuitarSet 트랙(음 정답)을 +25, −30, +45 cents 로 재렌더(resample)한 사본 + 원본(0 cents), 곡 블록.
+- 분석·결정 규칙: 우월성(DESIGN 8.1), 오프셋 크기별 하위 세트 보고. 0 cents 하위 세트에서 손해(CI 상한 < −2)면 기각.
+- 판정 설정: `rule=superiority; metric=note_f1_onset50; baseline=off; mde=1.0`
+- 비용: GPU 약 20–30분(MuScriptor, 4 오프셋 × 트랙 표본).
+- 실행 명령: `bandscribe eval exp E16`
+- 등록 메모(2026-10-05): M3 는 오프셋을 재고(`a4` 단계) 25 cents 부터 경고만 한다. 사용자 5곡은 +2–4 cents 로 적용 대상이 아니다.
+- 결과: (아직 없음)
