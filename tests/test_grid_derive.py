@@ -295,6 +295,76 @@ def test_every_beat_a_downbeat_is_not_a_one_beat_meter():
     assert all(b["n_beats"] == 4 for b in full_bars(g))
 
 
+# ------------------------------------------------------------------------------- beats tracked twice (step 1a)
+
+
+def acts_with(beat_peaks, downbeats, duration):
+    """Beat This!-like logits at 50 fps: -5 everywhere, ``(time, logit)`` beat peaks, +4 at each downbeat."""
+    n = int(duration * 50) + 2
+    beat, down = np.full(n, -5.0), np.full(n, -5.0)
+    for x, v in beat_peaks:
+        beat[int(round(x * 50))] = v
+    for x in downbeats:
+        down[int(round(x * 50))] = 4.0
+    return {"beat": beat, "downbeat": down, "fps": 50.0}
+
+
+@pytest.mark.parametrize("stronger", ["real", "double"])
+def test_downbeat_80_ms_from_the_beat_it_doubles_becomes_one_beat(stronger):
+    """青と夏 122.44 / 122.52 s: one beat came out of Beat This! as two beats 80 ms apart (a double-humped
+    activation; its peak picking keeps maxima within +-3 frames only), the downbeat snapped to the earlier one.
+    The pair becomes the beat with the higher activation, a downbeat if either was; no beat is added or lost."""
+    t = 1.0 + np.arange(48) * 0.6  # 100 BPM, 12 bars of 4/4
+    doubles = [t[16] - 0.08, t[32] - 0.08, t[22] + 0.1]  # before the downbeats of bars 5 and 9, after a beat
+    tracked = np.sort(np.concatenate([t, doubles]))
+    downs = [x for x in t[::4] if x not in (t[16], t[32])] + doubles[:2]
+    hi, lo = (4.0, 1.5) if stronger == "real" else (1.5, 4.0)
+    acts = acts_with([(x, hi) for x in t] + [(x, lo) for x in doubles], downs, 31.0)
+    g = G.derive_grid(beats_raw(tracked, downs, 30.0), acts, onsets_from(t, None, 31.0), {})
+    dc = g["hypotheses"]["downbeat_check"]
+    assert dc["doubles_merged"] == 3 and dc["exact"] == 12
+    assert any("두 번" in w for w in g["hypotheses"]["warnings"])
+    assert len(g["beats"]) == 48 and [b["n_beats"] for b in full_bars(g)] == [4] * 12
+    ivals = np.diff([b["t_s"] for b in g["beats"]])
+    assert ivals.min() > 0.5 * np.median(ivals)
+    kept = [b["t_raw_s"] for b in g["beats"]]
+    if stronger == "real":
+        assert kept == pytest.approx(q20(t), abs=1e-6)
+        assert [b["start_s"] for b in full_bars(g)] == pytest.approx(list(t[::4]), abs=1e-6)
+        assert [b["t_s"] for b in g["beats"] if b["is_downbeat"]] == pytest.approx(list(t[::4]), abs=1e-6)
+    else:
+        assert sorted(set(kept) - set(q20(t))) == pytest.approx(sorted(q20(doubles)), abs=1e-6)
+
+
+def test_without_activations_the_double_that_keeps_the_beats_even_stays():
+    t = 1.0 + np.arange(40) * 0.5
+    tracked = np.sort(np.concatenate([t, [t[12] - 0.08, t[25] + 0.1]]))
+    g = grid_of(tracked, t[::4], t)
+    assert g["hypotheses"]["downbeat_check"]["doubles_merged"] == 2
+    assert [b["t_raw_s"] for b in g["beats"]] == pytest.approx(q20(t), abs=1e-6)
+
+
+def test_downbeat_off_every_beat_never_adds_a_beat():
+    """A downbeat 80 ms from the nearest tracked beat (beyond ``downbeat_snap_ms``; Beat This! itself never
+    gives one) is dropped and counted; the grid does not insert a beat for it."""
+    t = 1.0 + np.arange(40) * 0.5
+    downs = list(t[::4])
+    downs[3] = t[12] + 0.08
+    g = grid_of(t, downs, t)
+    dc = g["hypotheses"]["downbeat_check"]
+    assert dc["dropped"] == 1 and dc["doubles_merged"] == 0
+    assert len(g["beats"]) == 40 and [b["n_beats"] for b in full_bars(g)] == [4] * 10
+
+
+def test_runs_of_short_intervals_are_not_doubles():
+    """A fill tracked in sixteenths (AZ 114-119 s) or an off-beat between two beats (two short intervals in a
+    row, SC 68 s) is a level question for step 1b, not one beat tracked twice."""
+    t = 1.0 + np.arange(40) * 0.6
+    extra = list(t[21] + np.arange(1, 4) * 0.15) + [t[30] + 0.24]
+    g = grid_of(np.sort(np.concatenate([t, extra])), t[::4], t)
+    assert g["hypotheses"]["downbeat_check"]["doubles_merged"] == 0
+
+
 # ----------------------------------------------------------------- one metrical level (step 1b) and meter DP
 
 

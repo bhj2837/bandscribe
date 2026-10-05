@@ -269,7 +269,7 @@ def run_resid1(ctx: Any) -> None:
 STAGES: dict[str, dict] = {
     "beats": {"run": run_beats, "code_version": "1", "params": beats_params, "device": "gpu",
               "models": beats_models},
-    "grid": {"run": run_grid, "code_version": "2", "params": grid_params, "device": "cpu",
+    "grid": {"run": run_grid, "code_version": "3", "params": grid_params, "device": "cpu",
              "models": lambda cfg: {}},
     "sections": {"run": run_sections, "code_version": "2", "params": sections_params, "device": "cpu",
                  "models": lambda cfg: {}},

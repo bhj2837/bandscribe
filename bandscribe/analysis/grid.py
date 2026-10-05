@@ -8,6 +8,15 @@ in this order:
    so this only verifies that each downbeat coincides with a beat (±1 ms). A violation (e.g. a future DBN
    option) is snapped within ``downbeat_snap_ms`` or dropped; both are counted in the downbeat confidence.
 
+   1a. **Beats tracked twice** (added 2026-10-05). Beat This!'s peak picking keeps every frame that is the
+   maximum of its ±3 frames (60 ms) and above 0.5, so a beat whose activation has two humps 4-6 frames apart
+   comes out as two beats 80-120 ms apart, the downbeat (if any) snapped to either of them (青と夏 22 such
+   pairs, AIZO 10, AZ 3; SC, KH none). An interval shorter than ``DOUBLE_MAX_RATIO`` (0.42, the lower edge of
+   1b's half-level band) x *both* neighbouring intervals is neither a level switch nor a phase jump, so its two
+   beats become one: the one with the higher beat activation stays (then the one leaving the outer intervals
+   more even, then the earlier) and is a downbeat if either was. A run of short intervals (a fill tracked in
+   sixteenths) is left to 1b.
+
    1b. **One metrical level per song** (added after the first real songs, 2026-10-03). Beat This! switches
    level *within* a song: on three of the five Tier A candidates (AIZO, 絶対零度, 青と夏) the inter-beat
    intervals form two clusters at a 2:1 ratio (sections tracked at 2x or 1/2x the tempo of the rest), which a
@@ -79,6 +88,8 @@ REFINE_MEDIAN_S = 1.0
 # step 1b (one metrical level)
 LEVEL_TOL_OCT = 0.25  # an interval is at level L if |log2(interval / reference) - L| < this (±19 %)
 MIN_FAST_RUN = 2  # a single half-length interval is a phase jump of the tracker, not a level switch
+# step 1a (beats tracked twice): an interval below the half-level band relative to both neighbours (0.42)
+DOUBLE_MAX_RATIO = 2.0 ** -(1.0 + LEVEL_TOL_OCT)
 # step 5 (meter DP)
 P_DOWN_CLIP = 0.02  # downbeat probabilities are clipped to [0.02, 0.995] (bounded per-beat evidence)
 P_DOWN_MAX = 0.995
@@ -198,6 +209,36 @@ def _check_downbeats(beats: np.ndarray, downbeats: Sequence[float], snap_s: floa
             continue
         is_down[j] = True
     return is_down, stats
+
+
+def _merge_doubles(beats: np.ndarray, is_down: np.ndarray, act: _Act) -> tuple[np.ndarray, np.ndarray, int]:
+    """Beats tracked twice (module doc, step 1a) -> (beats, downbeat flags, number of pairs joined)."""
+    n = int(beats.size)
+    if n < 3:
+        return beats, is_down, 0
+    d = np.diff(beats)
+    keep = np.ones(n, dtype=bool)
+    down = is_down.copy()
+    joined = 0
+    for i in range(d.size):
+        prev = float(d[i - 1]) if i > 0 else math.inf
+        nxt = float(d[i + 1]) if i + 1 < d.size else math.inf
+        # two chosen intervals are never adjacent (each would be < 0.42 x the other), so the pairs are disjoint
+        if not float(d[i]) < DOUBLE_MAX_RATIO * min(prev, nxt):
+            continue
+        cand = []
+        for j in (i, i + 1):
+            a = act.beat_at(float(beats[j]))
+            uneven = (abs(math.log((beats[j] - beats[i - 1]) / (beats[i + 2] - beats[j])))
+                      if i > 0 and i + 2 < n else 0.0)
+            cand.append((a if a is not None else 0.0, -round(float(uneven), 9), -j))
+        win = -max(cand)[2]
+        keep[i + 1 if win == i else i] = False
+        down[win] = bool(is_down[i] or is_down[i + 1])
+        joined += 1
+    if not joined:
+        return beats, is_down, 0
+    return beats[keep], down[keep], joined
 
 
 def _fill_gaps(beats: np.ndarray, is_down: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
@@ -653,15 +694,20 @@ def derive_grid(beats_raw: dict[str, Any], activations: dict[str, Any] | None, o
         warnings.append("다운비트가 없어 첫 비트부터 4박으로 마디를 나눴습니다")
         is_down[0::4] = True
 
-    # 1b. one metrical level, then fill missed beats
+    # 1a. beats tracked twice, 1b. one metrical level, then fill missed beats
     level_info: dict[str, Any] = {"reference_bpm": None, "fast_runs": 0, "slow_runs": 0, "dropped": 0,
                                   "inserted": 0}
+    n_doubles = 0
     if not fallback:
+        raw, is_down, n_doubles = _merge_doubles(raw, is_down, act)
+        if n_doubles:
+            warnings.append(f"비트 추적기가 한 박을 두 번 잡은 곳 {n_doubles}군데를 한 비트로 합쳤습니다")
         raw, is_down, level_info = _unify_level(raw, is_down, act)
         if level_info["dropped"] or level_info["inserted"]:
             warnings.append(f"비트 추적기가 곡 중간에 박 단위를 바꿔 한 단위로 맞췄습니다 "
                             f"(뺀 비트 {level_info['dropped']}개, 넣은 비트 {level_info['inserted']}개)")
     raw, is_down, n_filled = _fill_gaps(raw, is_down) if not fallback else (raw, is_down, 0)
+    db_stats["doubles_merged"] = n_doubles
     db_stats["beats_filled"] = n_filled
 
     # 2. tempo octave (doubling is never offered when the tracked beats already divide in three)
