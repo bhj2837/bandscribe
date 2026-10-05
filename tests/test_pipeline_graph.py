@@ -22,6 +22,11 @@ EXPECTED = {
     "s35": {"instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"},
     "notes": {"amt_gtr", "amt_ms1", "amt_bp", "grid", "s35"},
 }
+M2_STAGES = set(EXPECTED)
+EXPECTED.update({  # M3 (CPU only)
+    "a4": {"stems"},
+    "quant": {"notes", "amt_ms1", "grid", "sections"},
+})
 GPU = {"beats", "sep", "amt_ms1", "amt_gtr"}
 
 
@@ -48,7 +53,7 @@ def test_acyclic_and_gpu_order(monkeypatch):
     fake_impls(monkeypatch)
     stages = graph.build_stages(None, "notes")
     order = topo_order(stages)  # raises CycleError on a cycle
-    assert set(order) == set(EXPECTED)
+    assert set(order) == M2_STAGES
     gpu = [n for n in order if n in GPU]
     assert gpu == ["beats", "sep", "amt_ms1", "amt_gtr"]
     for st in stages:
@@ -61,7 +66,8 @@ def test_until_notes_includes_s35_parts():
     assert "vocal" in sel and "resid1" in sel and "s35" in sel
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
-    assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes"}
+    assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes",
+                                               "quant"}
 
 
 def test_missing_stage_module_korean_error(monkeypatch):

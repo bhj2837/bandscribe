@@ -44,6 +44,9 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("amt_gtr", ("stems", "instr"), "bandscribe.amt.stage"),
     ("s35", ("instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"), "bandscribe.amt.stage"),
     ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35"), "bandscribe.amt.stage"),
+    # M3 (CPU only): A4 reference, quantisation
+    ("a4", ("stems",), "bandscribe.tab.stage"),
+    ("quant", ("notes", "amt_ms1", "grid", "sections"), "bandscribe.tab.stage"),
 )
 
 NAMES: tuple[str, ...] = tuple(n for n, _, _ in STAGE_TABLE)
