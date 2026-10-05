@@ -220,9 +220,102 @@ def _transition(a: _Cands, b: _Cands, ev_a: Event, ev_b: Event, w: Mapping[str, 
     return t
 
 
-def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, float] | None = None
-           ) -> list[Assignment]:
-    """Fingering of every note of ``events`` (one Assignment per pitch, events in order)."""
+def _base_transition(a: _Cands, b: _Cands, ev_a: Event, ev_b: Event, w: Mapping[str, float]) -> np.ndarray:
+    """``_transition`` without the hand-shift term (string moves of single notes, cut ringing notes)."""
+    t = np.zeros((len(a.fings), len(b.fings)))
+    both_single = (a.single[:, None] > 0) & (b.single[None, :] > 0)
+    t = t + w["string_move"] * np.where(both_single, np.abs(a.single[:, None] - b.single[None, :]), 0)
+    ringing = [ev_a.offsets_s[i] > ev_b.onset_s + RING_TOL_S for i in range(len(ev_a.pitches))]
+    if any(ringing):
+        ring_frets = -np.ones_like(a.frets)
+        for ci, f in enumerate(a.fings):
+            for (s, x), pi in zip(f, a.kept):
+                if ringing[pi]:
+                    ring_frets[ci, s - 1] = x
+        rf, bf = ring_frets[:, None, :], b.frets[None, :, :]
+        t = t + w["cut"] * ((rf >= 0) & (bf >= 0) & (rf != bf)).sum(axis=2)
+    return t
+
+
+def _window_states(c: _Cands, w: Mapping[str, float], prev_pos: np.ndarray | None
+                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """States (fingering index, hand position, inherits?, static cost) of one event for the ``window`` model.
+
+    The hand covers frets p..p+3 (one finger per fret): a fingering whose fretted notes span <= 3 frets can be
+    played from any p in [max - 3, min]; a wider stretch only from p = min. Height is charged on p. An all-open
+    fingering does not move the hand: it gets one state per hand position of the previous event (``prev_pos``;
+    -1 = no position yet) and keeps it."""
+    fi, pos, inh, st = [], [], [], []
+    for k, f in enumerate(c.fings):
+        fr = [x for _s, x in f if x > 0]
+        base = c.static[k] - (w["height"] * min(fr) if fr else 0.0)  # c.static carries v1's height term
+        if not fr:
+            for p in (prev_pos if prev_pos is not None and prev_pos.size else np.array([-1])):
+                fi.append(k), pos.append(int(p)), inh.append(True), st.append(base)
+            continue
+        lo, hi = min(fr), max(fr)
+        ps = range(max(1, hi - 3), lo + 1) if hi - lo <= 3 else [lo]
+        for p in ps:
+            fi.append(k), pos.append(int(p)), inh.append(False), st.append(base + w["height"] * p)
+    return np.array(fi), np.array(pos), np.array(inh, dtype=bool), np.array(st, dtype=float)
+
+
+def _assign_window(events: Sequence[Event], cands: list[_Cands | None], runs: list[list[int]],
+                   w: Mapping[str, float]) -> dict[int, tuple[int, float]]:
+    chosen: dict[int, tuple[int, float]] = {}
+    for run in runs:
+        states, trans = [], []
+        prev_pos: np.ndarray | None = None
+        for j, i in enumerate(run):
+            s = _window_states(cands[i], w, prev_pos)
+            states.append(s)
+            prev_pos = np.unique(s[1])
+            if j:
+                a, b = run[j - 1], i
+                pa, sb = states[j - 1], s
+                base = _base_transition(cands[a], cands[b], events[a], events[b], w)[pa[0][:, None], sb[0][None, :]]
+                gap = max(0.0, events[b].onset_s - max(events[a].onset_s, max(events[a].offsets_s,
+                                                                                default=events[a].onset_s)))
+                known = (pa[1][:, None] >= 0) & (sb[1][None, :] >= 0)
+                shift = np.where(known, np.abs(pa[1][:, None] - sb[1][None, :]), 0.0)
+                moved = base + w["shift"] * shift / (1.0 + gap / w["shift_gap_s"])
+                same = pa[1][:, None] == sb[1][None, :]
+                # an inheriting (all-open) state only continues the previous state at its own hand position
+                trans.append(np.where(sb[2][None, :], np.where(same, base, np.inf), moved))
+        fwd = [states[0][3].copy()]
+        back: list[np.ndarray] = []
+        for t, s in zip(trans, states[1:]):
+            tot = fwd[-1][:, None] + t
+            back.append(np.argmin(tot, axis=0))
+            fwd.append(tot.min(axis=0) + s[3])
+        bwd = [np.zeros(len(states[-1][3]))]
+        for t, s in zip(reversed(trans), reversed(states[1:])):
+            bwd.append((t + (s[3] + bwd[-1])[None, :]).min(axis=1))
+        bwd.reverse()
+        k = int(np.argmin(fwd[-1]))
+        path = [k]
+        for bk in reversed(back):
+            path.append(int(bk[path[-1]]))
+        path.reverse()
+        for j, (i, st) in enumerate(zip(run, path)):
+            mm = fwd[j] + bwd[j]
+            per_f: dict[int, float] = {}
+            for f, v in zip(states[j][0], mm):
+                per_f[int(f)] = min(per_f.get(int(f), np.inf), float(v))
+            srt = sorted(per_f.values())
+            margin = srt[1] - srt[0] if len(srt) > 1 and np.isfinite(srt[1]) else 10.0
+            chosen[i] = (int(states[j][0][st]), 1.0 - math.exp(-max(margin, 0.0) / w["conf_scale"]))
+    return chosen
+
+
+def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, float] | None = None, *,
+           model: str = "v1") -> list[Assignment]:
+    """Fingering of every note of ``events`` (one Assignment per pitch, events in order).
+
+    ``model``: ``v1`` (E12: a fingering's hand is its mean fretted fret, every change of it is a shift) or
+    ``window`` (E12b: hand-position states, see ``_window_states``)."""
+    if model not in ("v1", "window"):
+        raise ValueError(f"unknown fretting model {model!r}")
     w = {**DEFAULT_WEIGHTS, **(weights or {})}
     cands: list[_Cands | None] = []
     drops: list[list[int]] = []
@@ -241,6 +334,9 @@ def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, floa
         else:
             runs.append([i])
     chosen: dict[int, tuple[int, float]] = {}
+    if model == "window":
+        chosen = _assign_window(events, cands, runs, w)
+        runs = []
     for run in runs:
         trans = [_transition(cands[a], cands[b], events[a], events[b], w) for a, b in zip(run, run[1:])]
         fwd = [cands[run[0]].static.copy()]

@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 SEP_IDS = frozenset({"stereo-preservation"})
 AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
-TAB_IDS = frozenset({"E12"})
+TAB_IDS = frozenset({"E12", "E12b"})
 ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS | TAB_IDS))
 
 STATE_PRE = "사전 등록"

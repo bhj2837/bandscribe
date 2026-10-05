@@ -31,8 +31,23 @@ EVENT_TOL_S = 0.05
 _ID = re.compile(r"^(\d+)_([A-Za-z]+)(\d)-([^_]+)_(comp|solo)$")
 
 
+E12B_SHIFTS = (0.5, 1.0, 2.0)
+E12B_HEIGHTS = (0.0, 0.05, 0.15)
+E12B_OPEN = (0.0, 0.3)
+
+
 def e12_arms() -> dict[str, dict[str, float]]:
     return {f"dp_s{s}_h{h}": {"shift": s, "height": h} for s in E12_SHIFTS for h in E12_HEIGHTS}
+
+
+def e12b_arms() -> dict[str, tuple[str, dict[str, float]]]:
+    """{arm: (model, weights)}: E12's dev-best v1 setting (the baseline) and the window-model grid."""
+    arms = {"v1_s1.2_h0.05": ("v1", {"shift": 1.2, "height": 0.05})}
+    for s in E12B_SHIFTS:
+        for h in E12B_HEIGHTS:
+            for o in E12B_OPEN:
+                arms[f"win_s{s}_h{h}_o{o}"] = ("window", {"shift": s, "height": h, "open": o})
+    return arms
 
 
 def track_meta(track_id: str) -> dict[str, str]:
@@ -89,7 +104,8 @@ def run_tuttut(tracks: list[dict[str, Any]], work: Path, *, tuning: Sequence[int
     return out
 
 
-def run_e12(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
+def run_e12(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None,
+            arms: dict[str, tuple[str, dict[str, float]]] | None = None) -> list[dict]:
     from bandscribe import datasets
 
     ids = sorted(datasets.track_ids("guitarset"))
@@ -132,12 +148,13 @@ def run_e12(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         row("tuttut", tid, meta, "seconds", float(tt[tid].get("seconds") or 0.0))
 
     # bandscribe Viterbi arms
-    for arm, w in e12_arms().items():
+    table = arms if arms is not None else {a: ("v1", w) for a, w in e12_arms().items()}
+    for arm, (model, w) in table.items():
         if progress:
             progress(arm)
         for tid, meta, _notes, gt, events in keep:
             t1 = time.monotonic()
-            res = F.assign(events, inst, w)
+            res = F.assign(events, inst, w, model=model)
             dt = time.monotonic() - t1
             pred = {a.note_id: (a.string, a.fret) for a in res if a.string is not None}
             chk = F.playable(res, events, inst)
@@ -150,4 +167,18 @@ def run_e12(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
     return rows
 
 
-EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {"E12": run_e12}
+def run_e12b(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
+    rows = run_e12(out_dir, cfg, args, arms=e12b_arms())
+    # descriptive: note-pooled agreement per arm and split (DESIGN 6.3's 75 % is per note)
+    pooled: dict[str, dict[str, float]] = {}
+    for r in rows:
+        if r["metric"] == "string_agreement" and r.get("n"):
+            d = pooled.setdefault(f"{r['system']}|{r['section']}", {"hit": 0.0, "n": 0.0})
+            d["hit"] += float(r["value"]) * float(r["n"]) / 100.0
+            d["n"] += float(r["n"])
+    atomic.write_json(Path(out_dir) / "pooled_agreement.json",
+                      {k: round(100.0 * v["hit"] / v["n"], 2) for k, v in sorted(pooled.items()) if v["n"]})
+    return rows
+
+
+EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {"E12": run_e12, "E12b": run_e12b}
