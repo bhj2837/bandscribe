@@ -276,6 +276,12 @@ class S35Cfg(_Section):
     resid_min_occurrences: int = Field(3, ge=2)
 
 
+class TabCfg(_Section):
+    # M3: 0 = auto (the merged guitar is written as staff + MIDI only, DESIGN 4.2; part splitting comes in M7a),
+    # 1 = the guitars are one part: fret the merged guitar into a tab track (`bandscribe run --parts 1`)
+    guitar_parts: int = Field(0, ge=0, le=1)
+
+
 class EvalCfg(_Section):
     tpb: int = Field(48, ge=1)
     onset_tol_s: float = Field(0.05, gt=0.0)
@@ -318,6 +324,7 @@ class Config(BaseModel):
     grid: GridCfg = Field(default_factory=GridCfg)
     sections: SectionsCfg = Field(default_factory=SectionsCfg)
     s35: S35Cfg = Field(default_factory=S35Cfg)
+    tab: TabCfg = Field(default_factory=TabCfg)
     eval: EvalCfg = Field(default_factory=EvalCfg)
     datasets: DatasetsCfg = Field(default_factory=DatasetsCfg)
     # Unknown top-level sections, kept verbatim (see module docstring).

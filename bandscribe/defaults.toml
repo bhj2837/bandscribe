@@ -141,6 +141,9 @@ align_max_offset_ms = 50.0
 vocal_active_rel_db = -30.0
 resid_min_occurrences = 3
 
+[tab]                          # M3 tabs
+guitar_parts = 0               # 0 = auto (merged guitar: staff + MIDI only), 1 = fret it as one part (--parts 1)
+
 [eval]
 tpb = 48
 onset_tol_s = 0.05

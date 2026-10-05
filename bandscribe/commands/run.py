@@ -42,6 +42,9 @@ def run_cmd(
                           "추가 결과로 더해 훨씬 느리다(편성·기타 전사는 quality 와 같다).")] = None,
     instruments: Annotated[str | None, typer.Option(
         "--instruments", help='편성 힌트: auto 또는 "guitar,keys" 처럼 악기군 목록')] = None,
+    parts: Annotated[int | None, typer.Option(
+        "--parts", help="기타 파트 수. 1 이면 합친 기타를 한 대로 보고 탭(줄·프렛)까지 만든다. "
+                        "기본(자동)은 M3 에서 오선보·MIDI 만(파트 나누기는 M7a).")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="실행하지 않고 단계별 캐시 여부만 보여 준다.")] = False,
     set_: Annotated[list[str] | None, typer.Option(
         "--set", "-s", metavar="KEY=VALUE", help="설정 덮어쓰기(여러 번 가능). 예: --set grid.refine_window_ms=30")] = None,
@@ -63,6 +66,10 @@ def run_cmd(
         if profile not in config.RUN_PROFILES:
             fail(f"--profile 은 fast, quality, eval 중 하나입니다: {profile}", 2)
         overrides.append(f"run.profile={profile}")
+    if parts is not None:
+        if parts != 1:
+            fail("--parts 는 지금 1 만 됩니다(여러 파트 나누기는 M7a). 자동은 옵션을 빼세요.", 2)
+        overrides.append("tab.guitar_parts=1")
     if instruments is not None:
         # a JSON string literal is a valid TOML basic string, so quotes/backslashes in the value cannot break
         # the override; the family names are checked by the instr stage's params (Korean ConfigError, exit 2)

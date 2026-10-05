@@ -60,3 +60,34 @@ def test_a4_stage_without_views_fails_in_korean(tmp_path):
     ctx = _ctx(tmp_path, {"stems": tmp_path / "stems"}, T.a4_params(None), "a4")
     with pytest.raises(T.TabStageError, match="기준음"):
         T.run_a4(ctx)
+
+
+def test_tab_stage_frets_the_bass_and_the_guitar_only_as_one_part(tmp_path):
+    from bandscribe.tab import quantize as Q
+
+    from test_tab_tuning import E_STD, bass_line, song
+
+    times = beat_times(40 * 4 + 4, warp=False)
+    tm_grid = grid_doc(times)
+
+    def notes_of(events):
+        return [{"onset_s": e.onset_s, "offset_s": off, "pitch": p} for e in events for p, off in zip(e.pitches, e.offsets_s)]
+
+    q = Q.quantize({"guitar_all": notes_of(song(E_STD, n_bars=8)), "bass_raw": notes_of(bass_line((28, 33, 38, 43)))},
+                   tm_grid)
+    d = {"quant": tmp_path / "quant", "a4": tmp_path / "a4"}
+    atomic.write_json(d["quant"] / "quant.json", q)
+    atomic.write_json(d["a4"] / "a4.json", {"cents": 2.0, "a4_hz": 440.5, "confidence": 0.5})
+    for parts in (0, 1):
+        params = T.tab_params(None)
+        params["guitar_parts"] = parts
+        ctx = _ctx(tmp_path, d, params, f"tab{parts}")
+        T.run_tab(ctx)
+        doc = atomic.read_json(ctx.out_dir / "tab.json")
+        assert doc["tuning"]["guitar"]["label"] == "E standard" and doc["tuning"]["bass"]["label"] == "E standard"
+        bass = doc["tracks"]["bass_raw"]
+        assert bass["fretted"] and bass["check"]["bad_events"] == [] and bass["check"]["dropped"] == 0
+        assert all(n["string"] is not None for n in bass["notes"])
+        assert doc["tracks"]["guitar_all"]["fretted"] is (parts == 1)
+        assert (ctx.out_dir / "text" / "bass_raw.txt").is_file()
+        assert (ctx.out_dir / "text" / "guitar_all.txt").is_file() is (parts == 1)

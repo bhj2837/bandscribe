@@ -7,7 +7,8 @@
 1. refuses ids that are missing or already decided (a decided experiment needs a new pre-registered id);
 2. flips ``사전 등록`` to ``실행 중`` (reruns stay allowed while undecided);
 3. calls ``EXPERIMENTS[id](out_dir, cfg, args) -> list[dict]`` (metrics.csv rows with ``rung`` filled) from
-   ``bandscribe.sep.experiments`` (``stereo-preservation``) or ``bandscribe.amt.experiments`` (all others);
+   ``bandscribe.sep.experiments`` (``stereo-preservation``), ``bandscribe.tab.experiments`` (``E12``) or
+   ``bandscribe.amt.experiments`` (all others);
 4. computes the decision with ``bandscribe.eval.stats`` against the pre-registration, writes the run dir and appends a
    result line to the entry. The final ``결정:`` status is set by a person (``--record``), not silently.
 
@@ -37,7 +38,8 @@ log = logging.getLogger(__name__)
 
 SEP_IDS = frozenset({"stereo-preservation"})
 AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
-ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS))
+TAB_IDS = frozenset({"E12"})
+ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS | TAB_IDS))
 
 STATE_PRE = "사전 등록"
 STATE_RUNNING = "실행 중"
@@ -549,7 +551,8 @@ def evaluate(rows: Sequence[Mapping[str, Any]], spec: Mapping[str, str], *, n: i
 
 
 def experiment_fn(exp_id: str) -> Callable[[Path, Any, dict], list[dict]]:
-    mod_name = "bandscribe.sep.experiments" if exp_id in SEP_IDS else "bandscribe.amt.experiments"
+    mod_name = ("bandscribe.sep.experiments" if exp_id in SEP_IDS else
+                "bandscribe.tab.experiments" if exp_id in TAB_IDS else "bandscribe.amt.experiments")
     try:
         mod = importlib.import_module(mod_name)
     except ImportError as e:
