@@ -1,6 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-05 (**M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
+Last updated: 2026-10-05 (**grid fix after M4a**: beats that Beat This! tracked twice are joined, see "Grid: beats
+tracked twice" below. **M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
 After M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
 **M3 done with known gaps**: first tabs, see "M3 (2026-10-05)" below and
 `docs/acceptance/M3.md`. Before that: M1a accepted and tagged `m1a`; M2 tagged `m2` with known gaps, see
@@ -52,7 +53,66 @@ reusable `fret_tracks` / `write_score` / `score_doc` / `title_for` (stage output
   after real ones** (8.4 / 10.0 / 3.5 % of intervals shorter than half the median; SC and KH 0 %). The pairs are
   already in `t_raw_s`. Inside such bars the cursor is up to ~300 ms off and the quantisation is bent. Fixed in a
   separate session (grid stage); its first finding: the downbeat snap adds no beat, Beat This!'s activation is
-  two-peaked there and the peak picking turns one beat into two beats 80–120 ms apart.
+  two-peaked there and the peak picking turns one beat into two beats 80–120 ms apart. **Fixed** (grid step 1a,
+  "Grid: beats tracked twice" below): short intervals 8.4 → 0.5 % on aotonat (bars with a beat > 50 ms off the
+  cursor 22 → 2), AIZO 10.0 → 3.5 %, AZ 3.5 → 2.7 %; what is left there is the tracker following double time.
+
+## Grid: beats tracked twice (2026-10-05)
+
+Follow-up of the drift measurement in "M4a" (commit `ba04242`). Code: `bandscribe/analysis/grid.py` step 1a
+(`_merge_doubles`), grid stage code version 2 → 3; 5 new tests in `tests/test_grid_derive.py` (the three that build
+doubles fail on the old code, which made bars of 6 and 5 beats out of the 青と夏-shaped one).
+
+- **Cause (checked on the stored `beats` outputs).** Not `downbeat_snap_ms`: the grid's downbeat check never adds a
+  beat, and every downbeat of aotonat / AIZO / AZ (139 / 113 / 128) sits exactly on a tracked beat (0 snapped,
+  0 dropped). The pairs come from Beat This! itself: its minimal postprocessing keeps every frame that is the maximum
+  of its ±3 frames (60 ms; its comment says ±70 ms) and above 0.5, so a beat whose activation has two humps gives two
+  beats 80–120 ms apart (aotonat 122.44 / 122.52 s: the activation stays ≥ 0.72 between the two maxima). When the
+  downbeat activation has the same double hump, both beats are downbeats (6 of aotonat's 22 pairs), which looked like
+  a downbeat added next to a beat. On aotonat the later beat of a pair has the higher activation in all 22 pairs and
+  the stronger percussive onset in 19 (80 ms is a sixteenth at the real 185 BPM, so the early peak is probably a
+  push before the beat).
+- **Fix (step 1a, before the one-level step 1b).** An interval shorter than 0.42 × *both* neighbouring intervals
+  (below 1b's half-level band, so never a level switch or a phase jump) joins its two beats: the one with the higher
+  beat activation stays (then the one leaving the outer intervals more even, then the earlier) and is a downbeat if
+  either was. Runs of short intervals (fills tracked in sixteenths: AZ 105–120 s, SC 68 s) are left alone. New
+  warning `비트 추적기가 한 박을 두 번 잡은 곳 N군데를 한 비트로 합쳤습니다`, new field
+  `hypotheses.downbeat_check.doubles_merged`. Joined: aotonat 22, AIZO 10, AZ 3, SC 0, KH 0.
+- **Results** (grid stage output before → after; "off > 50 ms" = a beat more than 50 ms from the viewer cursor's
+  linear position inside its bar, computed from `grid.json` at every beat):
+
+  | Song | intervals < ½ median | median IBI (BPM) | bars | bars with a beat off > 50 ms | in-bar offset p95 / max |
+  |---|---|---|---|---|---|
+  | aotonat (青と夏) | 8.4 % (37) → **0.5 % (2)** | 644.5 → 649.8 ms (93.1 → 92.3) | 111 → 103 | 22 → **2** | 241 / 425 → 31 / 334 ms |
+  | AIZO | 10.0 % (36) → 3.5 % (12) | 630.1 → 634.0 ms (95.2 → 94.6) | 92 → 87 | 14 → 10 | 147 / 334 → 167 / 350 ms |
+  | AZ | 3.5 % (13) → 2.7 % (10) | 540.0 → 540.0 ms (111.1) | 92 → 90 | 22 → 18 | 150 / 421 → 151 / 281 ms |
+  | SC | 0 → 0 | 316.6 ms, unchanged | 158 | 0 → 0 | 26 / 49 ms |
+  | KH | 0 → 0 | 400.0 ms, unchanged | 138 | 0 → 0 | 27 / 45 ms |
+
+  - SC and KH: `grid.json` identical apart from the new `doubles_merged: 0`; sections and presence windows identical;
+    every export file byte-identical (`score.json` apart from its creation time); the MuScriptor views came from
+    the transcription cache.
+  - **What is left is not doubles** but the tempo-level question (step 1b / octave, not touched here): aotonat 2
+    single half-level beats at 121–127 s where the tracker followed 185 BPM (the real tempo, per the user); AIZO
+    29–44 s, where the tracker follows double time with 240–380 ms jitter (outside 1b's ±19 % band) and puts four
+    weak peaks at 29.8–30.3 s; AZ, tracked in eighths and halved, where downbeats half a beat apart restart the
+    halving. These are the bars still off the cursor. AIZO's two bars at 54–59 s are fixed; its 29–44 s passage is
+    wrong before and after (10 → 8 bars off, worst beats a little further off, so the p95 rose).
+  - AZ odd bars 3 → 6: the intro (0–12 s) and 105–120 s have contradicting downbeats half a beat apart; joining the
+    doubled downbeats at 5.12 / 5.22 s and 122.40 / 122.52 s changed which of them the halving and the meter DP
+    follow. Neither version can be checked without ground truth.
+- **Re-run** (`bandscribe run <job>`, the five jobs): grid 24–35 s and sections 2–3 s per song on the CPU.
+  - SC and KH: everything else from the caches (MuScriptor views from the transcription cache, 0.2–0.7 s).
+  - aotonat, AIZO, AZ: the moved bar lines moved 1–2 presence windows (they start on bar lines), and the window list
+    is part of the MuScriptor cache key, so `amt_ms1` re-decoded their windows on the GPU (59 / 52 / 25 s). AIZO and
+    AZ kept their guitar mask (`amt_gtr` from the cache, note counts unchanged; MIDI and tabs change with the grid).
+  - **aotonat side effect:** the new windows found `synth_strings`, which joined the guitar mask, so `amt_gtr` ran
+    again (4:08 on the GPU) and MuScriptor's guitar output changed far more than the grid did: 4,796 → 6,083 view
+    notes (acoustic 691 → 2,310, distorted 1,105 → 496), `guitar_all` 3,996 → 4,978 after the silence gate. Without
+    ground truth neither version can be called better; it is the prompt sensitivity seen in "Speed and presence
+    fix". Presence windows on a fixed time grid instead of bar lines would keep grid fixes from reaching the guitar
+    mask (not done).
+  - GPU in total ~6.4 min.
 
 ## After M3 (2026-10-05, user feedback on seisyun complex)
 
@@ -394,8 +454,9 @@ mask the backing used:
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
 5. ~~M3~~ done 2026-10-05 (tag `m3`). ~~M4a~~ done 2026-10-05 (tag `m4a`, see "M4a" at the top; the NVML pre-check
    item 6 stays open: the editor never starts GPU runs). Next: **M5** (bass: octave anchors, slides — the user
-   confirmed SC bars 4–6 are one slide we write as separate notes), the grid's spurious beats (aotonat/AIZO/AZ, see
-   "M4a"), or first the M3 gaps (fretting toward 75 %: same fingering
+   confirmed SC bars 4–6 are one slide we write as separate notes), the grid's tempo level (~~spurious beats~~:
+   doubles joined 2026-10-05, see "Grid: beats tracked twice"; left: aotonat is 185 BPM but gridded at 93, AIZO
+   29–44 s and AZ tracked at double time), or first the M3 gaps (fretting toward 75 %: same fingering
    for repeated sections, chord-shape templates; E16 if a detuned song shows up). Original M3 item: **First task of M3 (done
    2026-10-05: `tick_prf` and `evaluate_item` now match over the whole song and give a section the pairs whose GT
    note is inside, the unmatched GT notes inside and the unmatched estimates starting inside; partition counts add
