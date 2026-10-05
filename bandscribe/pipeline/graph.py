@@ -48,12 +48,13 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("a4", ("stems",), "bandscribe.tab.stage"),
     ("quant", ("notes", "amt_ms1", "grid", "sections"), "bandscribe.tab.stage"),
     ("tab", ("quant", "a4"), "bandscribe.tab.stage"),
+    ("score", ("tab", "quant", "grid", "sections"), "bandscribe.tab.stage"),
 )
 
 NAMES: tuple[str, ...] = tuple(n for n, _, _ in STAGE_TABLE)
 DEPS: dict[str, tuple[str, ...]] = {n: d for n, d, _ in STAGE_TABLE}
 PROVIDER: dict[str, str] = {n: m for n, _, m in STAGE_TABLE}
-DEFAULT_UNTIL = "notes"
+DEFAULT_UNTIL = "score"  # M3: the full run ends with the written score
 
 
 class StageNotImplemented(RuntimeError):

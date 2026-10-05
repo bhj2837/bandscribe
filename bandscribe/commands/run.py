@@ -10,8 +10,9 @@ from typing import Annotated, Any
 
 import typer
 
-RUN_HELP = ("파이프라인을 실행한다. 기본은 --until notes: 6 스템, nonvox, leftover, 편성(instrumentation.json), "
-            "guitar_all.mid, bass_raw.mid, 연습용 반주(기타 뺀 믹스, 베이스 뺀 믹스). 끝난 단계는 캐시를 쓴다.")
+RUN_HELP = ("파이프라인을 실행한다. 기본은 --until score: 6 스템, 편성(instrumentation.json), 연주 MIDI·양자화 MIDI, "
+            "악보(tab/score.alphatex, 베이스 탭 tab/score.gp5), 연습용 반주(기타 뺀 믹스, 베이스 뺀 믹스). "
+            "끝난 단계는 캐시를 쓴다. 악보 보기: bandscribe view <작업>.")
 
 _DEVICE_KO = {"gpu": "GPU", "cpu": "CPU"}
 
@@ -33,7 +34,7 @@ def _dur(v: Any) -> str:
 def run_cmd(
     source: Annotated[str, typer.Argument(help="오디오 파일, YouTube URL 또는 작업 키(앞부분만 써도 됨)",
                                           show_default=False)],
-    until: Annotated[str, typer.Option("--until", help="이 단계까지만 실행한다")] = "notes",
+    until: Annotated[str, typer.Option("--until", help="이 단계까지만 실행한다")] = "score",
     from_: Annotated[str | None, typer.Option("--from", help="이 단계부터 다시 계산한다(뒤 단계도 모두)")] = None,
     force: Annotated[list[str] | None, typer.Option(
         "--force", help="캐시가 있어도 다시 계산할 단계(쉼표로 여러 개, 뒤 단계도 모두)")] = None,

@@ -128,6 +128,17 @@ def alphatab_import(path: Path, *, encoding: str | None = None, timeout_s: float
         return RefScore.model_validate_json(out.read_bytes())
 
 
+def alphatab_check_tex(path: Path, *, timeout_s: float = 300) -> dict:
+    """Parse an alphaTex file with alphaTab (the viewer's parser): {"ok", "error", "master_bars", "sync_points",
+    "sync_ms", "tracks": [{"name", "tabs", "score", "bars", "beats", "notes", "ties", "tuning", "capo"}]}."""
+    import json
+
+    with _scratch() as tmp:
+        out = Path(tmp) / "check.json"
+        run_score(["checktex", str(Path(path).resolve()), str(out)], timeout_s=timeout_s)
+        return json.loads(out.read_text(encoding="utf-8"))
+
+
 def alphatab_render(path: Path, out_wav: Path, *, timeout_s: float = 900, sample_rate: int = 44100) -> dict:
     """Render a score to a float32 stereo WAV with alphaTab's synthesizer (sonivox soundfont)."""
     r = run_score(["render", str(Path(path).resolve()), str(Path(out_wav).resolve()), "--sample-rate", str(sample_rate)],

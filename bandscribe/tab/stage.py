@@ -9,8 +9,12 @@
   (``bandscribe.tab.tuning``, fake low guitar notes left out of the evidence), the bass fretted
   (``bandscribe.tab.fretting``), the merged guitar fretted only with ``tab.guitar_parts = 1`` (otherwise staff +
   MIDI only, DESIGN 4.2).
+- ``score`` (CPU): ``tab/score.alphatex`` (every track; the guitar staff-only unless fretted; one ``\\sync`` per
+  bar on the recording's time), ``tab/score.gp5`` (fretted tracks), ``tab/<track>.txt``,
+  ``midi/<track>_quantized.mid`` and ``score.json`` (schema v0), all from the same spelled bars
+  (``bandscribe.tab.notation``).
 
-Stage functions read only their dep dirs and ``ctx.params`` (M1_M2_SPEC 3.1).
+Stage functions read only their dep dirs, the job input and ``ctx.params`` (M1_M2_SPEC 3.1).
 """
 
 from __future__ import annotations
@@ -20,9 +24,13 @@ from pathlib import Path
 from typing import Any
 
 from bandscribe import atomic
+from bandscribe.schema.grid import TempoMap
 from bandscribe.tab import a4 as A4
+from bandscribe.tab import alphatex as ATX
 from bandscribe.tab import ascii as ascii_tab
 from bandscribe.tab import fretting as F
+from bandscribe.tab import gp5 as GP5
+from bandscribe.tab import notation as N
 from bandscribe.tab import quantize as Q
 from bandscribe.tab import tuning as TU
 
@@ -165,9 +173,161 @@ def run_tab(ctx: Any) -> None:
         _warn(ctx, f"합친 기타에서 한 손으로 칠 수 없는 음 {chk['dropped']}개를 탭에서 뺐습니다(MIDI·오선보에는 남음).")
 
 
+# ---------------------------------------------------------------------------------------------- score
+
+GUITAR_INSTRUMENT = {"distorted_electric_guitar": "distortionguitar", "clean_electric_guitar": "electricguitarclean",
+                     "acoustic_guitar": "acousticguitarsteel"}
+TRACK_NAMES = {"guitar_all": ("Guitar (all parts)", "Gtr"), "bass_raw": ("Bass (raw)", "Bass")}
+
+
+def score_params(cfg: Any) -> dict[str, Any]:
+    return {"tempo_change_ratio": 0.04}
+
+
+def _job_meta(ctx: Any) -> dict[str, Any]:
+    try:
+        return atomic.read_json(Path(ctx.store.job_dir(ctx.song_key)) / "input" / "meta.json")
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _title(ctx: Any) -> str:
+    meta = _job_meta(ctx)
+    name = (meta.get("source") or {}).get("filename") or meta.get("title") or getattr(ctx, "song_key", "song")
+    return Path(str(name)).stem
+
+
+def _events(notes: list[dict[str, Any]], fretted: bool) -> list[tuple[int, int, list[N.WNote]]]:
+    """(gtick, duration, notes) per onset; one note per string in a tab chord, one per pitch on a staff."""
+    by: dict[int, list[dict[str, Any]]] = {}
+    for n in notes:
+        if fretted and n.get("string") is None:
+            continue  # dropped from the tab (kept in MIDI and score.json)
+        by.setdefault(int(n["gtick"]), []).append(n)
+    out = []
+    for g in sorted(by):
+        ns = sorted(by[g], key=lambda n: (-(n.get("string") or 0), int(n["pitch"])))
+        seen: set[int] = set()
+        uniq = []
+        for n in ns:
+            key = int(n["string"]) if fretted else int(n["pitch"])
+            if key not in seen:
+                seen.add(key)
+                uniq.append(N.WNote(int(n["pitch"]), n.get("string"), n.get("fret")))
+        out.append((g, max(int(n["dur"]) for n in ns), uniq))
+    return out
+
+
+def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: dict[str, Any],
+                sections: list[dict[str, Any]], params: dict[str, Any]) -> tuple[ATX.WScore, list[str]]:
+    """The written score of a job (shared bars, spelled tracks) and spelling problems (empty = consistent)."""
+    tm = TempoMap.from_dict(grid)
+    family_of = {int(b): str(f) for b, f in ((quant.get("beat_families") or {}).get("*") or [])}
+    tracks_src = []
+    for tid in ("guitar_all", "bass_raw"):
+        tr = (tab.get("tracks") or {}).get(tid)
+        qn = Q.notes_of(quant, tid)
+        if not qn:
+            continue
+        fretted = bool(tr and tr.get("fretted"))
+        tracks_src.append((tid, tr, fretted, tr["notes"] if fretted else qn))
+    if not tracks_src:
+        raise TabStageError("악보로 쓸 음이 없습니다(기타·베이스 모두 비어 있음)")
+    note_bars = [int(n["bar"]) for _t, _r, _f, ns in tracks_src for n in ns]
+    grid_first = min(int(b["bar"]) for b in quant["bars"])
+    bars = N.bars_from_quant(quant, tm, min(min(note_bars), grid_first), max(note_bars), sections)
+    tempi = ATX.written_tempi(bars, section_starts=[int(s["start_bar"]) for s in sections],
+                              change_ratio=float(params["tempo_change_ratio"]))
+    score = ATX.WScore(title=title, bars=bars, tempo_qpm=tempi)
+    problems: list[str] = []
+    for tid, tr, fretted, notes in tracks_src:
+        spelled = N.spell_track(_events(notes, fretted), bars, family_of)
+        for b, beats in zip(bars, spelled):
+            problems += N.check_bar(b, beats)
+        if tid == "bass_raw":
+            instrument = "electricbassfinger"
+        else:
+            classes = [n.get("instrument") for n in Q.notes_of(quant, tid)]
+            top = max(set(classes), key=classes.count) if classes else None
+            instrument = GUITAR_INSTRUMENT.get(str(top), "electricguitarclean")
+        name, short = TRACK_NAMES[tid]
+        score.tracks.append(ATX.WTrack(name=name, short=short, instrument=instrument, fretted=fretted,
+                                       tuning=(tr or {}).get("tuning") if fretted else None,
+                                       capo=int((tr or {}).get("capo") or 0) if fretted else 0, beats=spelled,
+                                       clef="f4" if tid == "bass_raw" and not fretted else None))
+    return score, problems
+
+
+def _score_json(ctx: Any, title: str, quant: dict[str, Any], tab: dict[str, Any], grid: dict[str, Any]) -> Any:
+    from bandscribe.schema.score import Confidence, Line, Note, Score, SongMeta
+
+    tm = TempoMap.from_dict(grid)
+    lines = []
+    for tid in ("guitar_all", "bass_raw"):
+        qn = Q.notes_of(quant, tid)
+        if not qn:
+            continue
+        tr = (tab.get("tracks") or {}).get(tid) or {}
+        fretted = bool(tr.get("fretted"))
+        frets = {int(n["i"]): n for n in tr.get("notes") or []} if fretted else {}
+        notes = []
+        for i, n in enumerate(qn):
+            on = max(0.0, float(tm.beat_to_time(int(n["gtick"]) / Q.TPB)))
+            off = max(on, float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB)))
+            f = frets.get(i) or {}
+            placed = f.get("string") is not None
+            notes.append(Note(onset_s=on, offset_s=off, pitch=int(f.get("pitch", n["pitch"])),
+                              string=f.get("string") if placed else None, fret=f.get("fret") if placed else None,
+                              confidence=Confidence(fret=f.get("conf") if placed else None), sources=["muscriptor"],
+                              flags={"octave": True} if f.get("octave_shift") else {}))
+        notes.sort(key=lambda x: (x.onset_s, x.pitch))
+        kind = "bass" if tid == "bass_raw" else ("guitar" if fretted else "reference")
+        lines.append(Line(id=tid, name=TRACK_NAMES[tid][0], kind=kind, tuning=tr.get("tuning") if fretted else None,
+                          capo=int(tr.get("capo") or 0) if fretted else None, notes=notes))
+    meta = _job_meta(ctx)
+    src = meta.get("source") or {}
+    return Score(song=SongMeta(song_key=str(getattr(ctx, "song_key", "song")), title=title,
+                               duration_s=float(meta.get("duration_s") or grid.get("duration_s") or 0.0),
+                               source_kind="youtube" if src.get("kind") == "youtube" else "file",
+                               source_ref=str(src.get("filename") or src.get("ref") or "")), lines=lines)
+
+
+def run_score(ctx: Any) -> None:
+    from bandscribe.amt import midi
+    from bandscribe.schema.score import save_score
+
+    dd = {k: Path(v) for k, v in ctx.dep_dirs.items()}
+    quant = atomic.read_json(dd["quant"] / "quant.json")
+    tab = atomic.read_json(dd["tab"] / "tab.json")
+    grid = atomic.read_json(dd["grid"] / "grid.json")
+    sections = atomic.read_json(dd["sections"] / "sections.json").get("sections") or []
+    title = _title(ctx)
+    score, problems = build_score(title, quant, tab, grid, sections, dict(ctx.params))
+    if problems:
+        raise TabStageError(f"리듬 표기 오류 {len(problems)}건(버그): {problems[:3]}")
+    out = Path(ctx.out_dir)
+    atomic.write_text(out / "tab" / "score.alphatex", ATX.write(score))
+    GP5.write(score, out / "tab" / "score.gp5")
+    for tid, tr in (tab.get("tracks") or {}).items():
+        src = dd["tab"] / "text" / f"{tid}.txt"
+        if tr.get("fretted") and src.is_file():
+            atomic.write_text(out / "tab" / f"{tid}.txt", src.read_text(encoding="utf-8"))
+    tm = TempoMap.from_dict(grid)
+    for tid in ("guitar_all", "bass_raw"):
+        qn = Q.notes_of(quant, tid)
+        notes = [{"onset_s": max(0.0, float(tm.beat_to_time(int(n["gtick"]) / Q.TPB))),
+                  "offset_s": max(0.0, float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB))),
+                  "pitch": int(n["pitch"])} for n in qn]
+        midi.write_performance_midi(out / "midi" / f"{tid}_quantized.mid",
+                                    [(TRACK_NAMES[tid][0], 33 if tid == "bass_raw" else 27, notes)], grid)
+    save_score(out / "score.json", _score_json(ctx, title, quant, tab, grid))
+
+
 STAGES: dict[str, dict] = {
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
     "quant": {"run": run_quant, "code_version": "1", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
     "tab": {"run": run_tab, "code_version": "3", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
+    "score": {"run": run_score, "code_version": "2", "params": score_params, "device": "cpu",
+              "models": lambda cfg: {}},
 }

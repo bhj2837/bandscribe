@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}} · bandscribe</title>
+<style>
+  :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --accent: #2f6f5e; --chip: #efeee9; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #1b1c1a; --fg: #ecebe6; --muted: #a3a29b; --line: #34352f; --accent: #7cc4ad; --chip: #2a2b27; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, "Malgun Gothic", sans-serif; }
+  header { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line);
+           padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; }
+  button, select { font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line);
+                   border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 84px; }
+  button[aria-pressed="false"] { opacity: .55; }
+  .time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 110px; }
+  .info { width: 100%; color: var(--muted); font-size: 13px; }
+  #status { color: var(--muted); padding: 24px 16px; }
+  /* notation is drawn in black: the score area stays white in dark mode too */
+  #at { background: #fff; color: #000; padding: 0 8px 64px; min-height: 60vh; }
+  .at-cursor-bar { background: rgba(47, 111, 94, .14); }
+  .at-cursor-beat { background: #2f6f5e; width: 3px; }
+  .at-highlight * { fill: #2f6f5e; stroke: #2f6f5e; }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{TITLE}}</h1>
+  <button id="play" class="primary" disabled>▶ 재생</button>
+  <span class="time" id="time">0:00 / 0:00</span>
+  <label>속도 <select id="speed"><option value="1">100%</option><option value="0.85">85%</option>
+    <option value="0.75">75%</option><option value="0.5">50%</option></select></label>
+  <span id="tracks"></span>
+  <div class="info">{{INFO}}</div>
+</header>
+<audio id="audio" src="/audio" preload="auto"></audio>
+<div id="status">악보를 불러오는 중…</div>
+<div id="at"></div>
+<script src="/alphatab/alphaTab.min.js"></script>
+<script>
+(() => {
+  const audio = document.getElementById("audio");
+  const playBtn = document.getElementById("play");
+  const timeEl = document.getElementById("time");
+  const status = document.getElementById("status");
+  const fmt = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
+
+  // absolute URLs: the render worker's importScripts() rejects a path-only URL
+  const abs = (p) => new URL(p, location.href).href;
+  const api = new alphaTab.AlphaTabApi(document.getElementById("at"), {
+    core: { fontDirectory: abs("/alphatab/font/"), scriptFile: abs("/alphatab/alphaTab.min.js"), engine: "svg" },
+    display: { layoutMode: alphaTab.LayoutMode.Page, scale: 0.95 },
+    player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia, enableCursor: true,
+              enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollMode: alphaTab.ScrollMode.Continuous },
+  });
+
+  // The recording is the time axis: alphaTab follows the <audio> element through the score's \sync points.
+  const handler = {
+    get backingTrackDuration() { return Number.isFinite(audio.duration) ? audio.duration * 1000 : 0; },
+    get playbackRate() { return audio.playbackRate; },
+    set playbackRate(v) { audio.playbackRate = v; },
+    get masterVolume() { return audio.volume; },
+    set masterVolume(v) { audio.volume = v; },
+    seekTo(ms) { audio.currentTime = ms / 1000; },
+    play() { audio.play(); },
+    pause() { audio.pause(); },
+  };
+  window.bandscribeViewer = { api, audio };  // for checks from the console
+  let raf = 0;
+  const tick = () => {
+    if (api.player) api.player.output.updatePosition(audio.currentTime * 1000);
+    timeEl.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration)}`;
+    if (!audio.paused) raf = requestAnimationFrame(tick);
+  };
+  const connect = () => { if (api.player && api.player.output) api.player.output.handler = handler; };
+  api.playerReady.on(() => { connect(); playBtn.disabled = false; });
+  connect();
+  audio.addEventListener("play", () => { playBtn.textContent = "⏸ 일시정지"; cancelAnimationFrame(raf); tick(); });
+  audio.addEventListener("pause", () => { playBtn.textContent = "▶ 재생"; tick(); });
+  audio.addEventListener("seeked", tick);
+  audio.addEventListener("loadedmetadata", tick);
+  audio.addEventListener("ended", () => api.stop());
+  playBtn.addEventListener("click", () => api.playPause());
+  document.getElementById("speed").addEventListener("change", (e) => { api.playbackSpeed = Number(e.target.value); });
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && e.target === document.body) { e.preventDefault(); api.playPause(); }
+  });
+
+  api.scoreLoaded.on((score) => {
+    status.remove();
+    const box = document.getElementById("tracks");
+    box.innerHTML = "";
+    let shown = score.tracks.map((t) => t.index);
+    score.tracks.forEach((t) => {
+      const b = document.createElement("button");
+      b.textContent = t.name;
+      b.setAttribute("aria-pressed", "true");
+      b.addEventListener("click", () => {
+        const on = shown.includes(t.index);
+        if (on && shown.length === 1) return;
+        shown = on ? shown.filter((i) => i !== t.index) : [...shown, t.index].sort((a, c) => a - c);
+        b.setAttribute("aria-pressed", String(!on));
+        api.renderTracks(score.tracks.filter((x) => shown.includes(x.index)));
+      });
+      box.appendChild(b);
+    });
+  });
+  api.error.on((e) => { status.textContent = "악보를 열지 못했습니다: " + (e && e.message ? e.message : e); });
+
+  fetch("/score.alphatex").then((r) => {
+    if (!r.ok) throw new Error(`score.alphatex: HTTP ${r.status}`);
+    return r.text();
+  }).then((tex) => api.tex(tex, "all")).catch((e) => { status.textContent = String(e); });
+})();
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@
 //
 //   node bandscribe_score.mjs import <in.gp|gpx|gp5|...> <out.json> [--encoding cp949]
 //   node bandscribe_score.mjs render <in> <out.wav> [--soundfont <sf2>] [--sample-rate 44100]
+//   node bandscribe_score.mjs checktex <in.alphatex> <out.json>
 //   node bandscribe_score.mjs version
 //
 // `import` writes the neutral RefScore JSON (format "bandscribe.refscore/1", see bandscribe/eval/refscore.py) with the
@@ -151,11 +152,42 @@ function cmdRender(input, output, soundfont, sampleRate) {
   process.stdout.write(JSON.stringify({ frames: total / 2, sample_rate: sampleRate, soundfont: basename(sf) }) + "\n");
 }
 
+// `checktex`: parse an alphaTex file with alphaTab's own importer (the viewer's parser) and report what it built:
+// master bars, sync points and per track bars / beats / notes / ties, or the parse error.
+function cmdCheckTex(input, output) {
+  const tex = readFileSync(input, "utf8");
+  const res = { format: "bandscribe.alphatex_check/1", alphatab: PKG.version, ok: false, error: null,
+                master_bars: 0, sync_points: 0, sync_ms: [], tracks: [] };
+  try {
+    const score = alphaTab.importer.ScoreLoader.loadAlphaTex(tex, new alphaTab.Settings());
+    res.ok = true;
+    res.master_bars = score.masterBars.length;
+    const sync = score.exportFlatSyncPoints();
+    res.sync_points = sync.length;
+    res.sync_ms = sync.map((p) => [p.barIndex, p.millisecondOffset]);
+    for (const tr of score.tracks) {
+      const st = tr.staves[0];
+      let beats = 0, notes = 0, ties = 0;
+      for (const b of st.bars) for (const v of b.voices) for (const be of v.beats) {
+        beats++;
+        notes += be.notes.length;
+        for (const n of be.notes) if (n.isTieDestination) ties++;
+      }
+      res.tracks.push({ name: tr.name, tabs: !!st.showTablature, score: !!st.showStandardNotation, bars: st.bars.length,
+                        beats, notes, ties, tuning: Array.from(st.tuning ?? []), capo: st.capo | 0 });
+    }
+  } catch (e) {
+    res.error = String(e && e.message ? e.message : e);
+  }
+  writeFileSync(output, JSON.stringify(res));
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 const { pos, opts } = parseArgs(rest);
 try {
   if (cmd === "import" && pos.length === 2) cmdImport(pos[0], pos[1], opts.encoding ?? null);
   else if (cmd === "render" && pos.length === 2) cmdRender(pos[0], pos[1], opts.soundfont ?? null, Number(opts["sample-rate"] ?? 44100));
+  else if (cmd === "checktex" && pos.length === 2) cmdCheckTex(pos[0], pos[1]);
   else if (cmd === "version") process.stdout.write(JSON.stringify({ alphatab: PKG.version, node: process.version }) + "\n");
   else { process.stderr.write("usage: bandscribe_score.mjs import <in> <out.json> | render <in> <out.wav> | version\n"); process.exit(2); }
 } catch (e) {

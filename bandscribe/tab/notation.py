@@ -210,6 +210,8 @@ def spell_bar(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, 
     beats: list[WBeat] = []
     compound = bar.beat_unit == "dotted_quarter"
     first_beat_g = bar.start_gtick // TPB
+    # a ternary beat is written in 16th sextuplets when any boundary inside it is a 16th-triplet point
+    fine_beat = {int(t // TPB) for a, b, _n, _c in segments for t in (a, b) if t % TPB and (t % TPB) % 16}
     for a, b, notes, cont in segments:
         pieces: list[tuple[int, int, int, int, tuple[int, int] | None]] = []
         t = a
@@ -231,12 +233,11 @@ def spell_bar(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, 
             fam = family_of.get(first_beat_g + k, "ter" if compound else "bin")
             ra, rb = t - beat_start, end - beat_start
             if compound:
-                sub = _spell_compound(ra, rb, binary=fam == "bin" and False)
+                sub = _spell_compound(ra, rb, binary=fam == "bin" and (ra % 8 or rb % 8) != 0)
             elif bar.beat_unit == "eighth":
                 sub = [(ra, rb - ra, 16 if rb - ra <= 24 else 8, 0, None)]
             elif fam == "ter":
-                fine = any(x % 16 for x in (ra, rb) if 0 < x < TPB)
-                sub = _spell_ternary(ra, rb, fine)
+                sub = _spell_ternary(ra, rb, k in fine_beat)
             else:
                 sub = _spell_binary(ra, rb)
             pieces += [(beat_start + s, d, v, dots, tu) for s, d, v, dots, tu in sub]
@@ -281,13 +282,22 @@ def spell_track(events: Sequence[tuple[int, int, list[WNote]]], bars: Sequence[W
             if b > a:
                 segs.append((a - a_bar, b - a_bar, notes, s < a_bar and notes is not None))
             k += 1
-        out.append(spell_bar(bar, _snap(segs), family_of))
+        out.append(spell_bar(bar, segs, family_of))
     return out
 
 
-def _snap(segs: list[tuple[int, int, list[WNote] | None, bool]]) -> list[tuple[int, int, list[WNote] | None, bool]]:
-    """Piece boundaries on the 2-tick lattice that every family shares (6- and 8-tick points, 16 and 32)."""
-    return [(a, b, n, c) for a, b, n, c in segs if b > a]
+def written_ticks(value: int, dots: int, tuplet: tuple[int, int] | None, beat_unit: str) -> int:
+    """Ticks of a written value in a bar of ``beat_unit`` (48 ticks per beat: a quarter is 48 ticks in quarter
+    beats, 32 in dotted-quarter beats, 96 in eighth beats)."""
+    quarter = {"quarter": TPB, "dotted_quarter": TPB * 2 // 3, "eighth": TPB * 2}[beat_unit]
+    t = quarter * 4 // value
+    if dots == 1:
+        t = t * 3 // 2
+    elif dots == 2:
+        t = t * 7 // 4
+    if tuplet:
+        t = t * tuplet[1] // tuplet[0]
+    return t
 
 
 def check_bar(bar: WBar, beats: Sequence[WBeat]) -> list[str]:
@@ -298,11 +308,8 @@ def check_bar(bar: WBar, beats: Sequence[WBeat]) -> list[str]:
         if be.start != t:
             errs.append(f"bar {bar.bar}: beat at {be.start}, expected {t}")
         t = be.start + be.dur
-        base = 4 * TPB // be.value if bar.beat_unit != "dotted_quarter" else 4 * TPB // be.value
-        want = base * (3 if be.dots == 1 else 2) // 2 if be.dots else base
-        if be.tuplet:
-            want = want * be.tuplet[1] // be.tuplet[0]
-        if bar.beat_unit == "quarter" and want != be.dur:
+        want = written_ticks(be.value, be.dots, be.tuplet, bar.beat_unit)
+        if want != be.dur:
             errs.append(f"bar {bar.bar}: value 1/{be.value}{'.' * be.dots} {be.tuplet} = {want} ticks, not {be.dur}")
     if t != bar.length:
         errs.append(f"bar {bar.bar}: beats fill {t} of {bar.length} ticks")

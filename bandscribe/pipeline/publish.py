@@ -1,7 +1,8 @@
 """Publish a finished run into ``jobs/<song_key>/export/`` (M1_M2_SPEC 3.3; DESIGN 7.1).
 
 ``export/`` holds what a user opens: ``midi/guitar_all.mid``, ``midi/bass_raw.mid``, ``midi/b0_guitar.mid``
-(if present), ``practice/mix_minus_guitar.wav``, ``practice/mix_minus_bass.wav`` (``stems`` stage),
+(if present), the M3 score (``tab/score.alphatex``, ``tab/score.gp5`` when a track is fretted, ``tab/*.txt``,
+``tab/tab.json``, ``midi/*_quantized.mid``, ``score.json``; ``bandscribe view`` reads these), ``practice/mix_minus_guitar.wav``, ``practice/mix_minus_bass.wav`` (``stems`` stage),
 ``practice/bass_stem.wav`` (``sep`` stage's ``stems/bass.wav``), ``instrumentation.json`` and ``export.json``
 (``{"format": "bandscribe.export/1", "files": {rel: {"stage", "key12", "sha256"}}}``).
 
@@ -44,6 +45,15 @@ EXPORT_MAP: tuple[tuple[str, str, str, bool, bool], ...] = (
     ("practice/mix_minus_bass.wav", "stems", "practice/mix_minus_bass.wav", True, True),
     ("practice/bass_stem.wav", "sep", "stems/bass.wav", True, True),
     ("instrumentation.json", "instr", "instrumentation.json", False, True),
+    # M3 (optional: `--until notes` publishes without them)
+    ("tab/score.alphatex", "score", "tab/score.alphatex", False, False),
+    ("tab/score.gp5", "score", "tab/score.gp5", False, False),
+    ("tab/bass_raw.txt", "score", "tab/bass_raw.txt", False, False),
+    ("tab/guitar_all.txt", "score", "tab/guitar_all.txt", False, False),
+    ("tab/tab.json", "tab", "tab.json", False, False),
+    ("midi/guitar_all_quantized.mid", "score", "midi/guitar_all_quantized.mid", False, False),
+    ("midi/bass_raw_quantized.mid", "score", "midi/bass_raw_quantized.mid", False, False),
+    ("score.json", "score", "score.json", False, False),
 )
 
 _RENAME_RETRIES = 8

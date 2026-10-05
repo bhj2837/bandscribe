@@ -27,6 +27,7 @@ EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},
     "quant": {"notes", "amt_ms1", "grid", "sections"},
     "tab": {"quant", "a4"},
+    "score": {"tab", "quant", "grid", "sections"},
 })
 GPU = {"beats", "sep", "amt_ms1", "amt_gtr"}
 
@@ -68,7 +69,7 @@ def test_until_notes_includes_s35_parts():
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
     assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes",
-                                               "quant", "tab"}
+                                               "quant", "tab", "score"}
 
 
 def test_missing_stage_module_korean_error(monkeypatch):

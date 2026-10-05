@@ -33,7 +33,7 @@ from bandscribe import __version__, atomic, config, log, paths
 logger = logging.getLogger(__name__)
 
 # Command modules owned by the M1a/M2 work packages (M1_M2_SPEC 1.7), loaded lazily by _RootGroup.
-OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "bench", "eval", "gt", "data", "models")
+OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "view", "bench", "eval", "gt", "data", "models")
 
 
 class _RootGroup(TyperGroup):

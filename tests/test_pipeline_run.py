@@ -49,7 +49,8 @@ def test_cache_hit_on_rerun_and_from_cascades(job, fakes):
     fakes.calls.clear()
     runner.run(key, None, store=store, force={"sections"})
     # amt_ms1 follows sections (presence windows); its unchanged views come from the transcription cache
-    assert set(fakes.calls) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes"}
+    assert set(fakes.calls) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes", "quant", "tab",
+                                "score"}
     items = runner.plan(key, None, store=store)
     assert all(it.cached for it in items)
 
@@ -101,8 +102,10 @@ def test_publish_copies_links_and_is_idempotent(job, fakes):
     export = store.job_dir(key) / "export"
     doc = atomic.read_json(export / "export.json")
     assert doc["format"] == "bandscribe.export/1"
+    # (the fake M3 stages write only <stage>.json: of the optional score files, tab/tab.json and score.json)
     assert set(doc["files"]) == {"midi/guitar_all.mid", "midi/bass_raw.mid", "practice/mix_minus_guitar.wav",
-                                 "practice/mix_minus_bass.wav", "practice/bass_stem.wav", "instrumentation.json"}
+                                 "practice/mix_minus_bass.wav", "practice/bass_stem.wav", "instrumentation.json",
+                                 "tab/tab.json", "score.json"}
     assert doc["files"]["practice/bass_stem.wav"]["stage"] == "sep"
     assert doc["files"]["midi/guitar_all.mid"]["key12"] == res["notes"].name
     # WAVs: read-only hardlinks; MIDI: independent copies
