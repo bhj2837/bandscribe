@@ -57,6 +57,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 import warnings
 from collections.abc import Iterable
@@ -120,6 +121,15 @@ def _kind(ev: Any) -> str:
 
 def note_sort_key(n: dict[str, Any]) -> tuple:
     return (n["onset_s"], n["pitch"], n["offset_s"], n.get("instrument") or "")
+
+
+def eos_warning(view_id: str, where: list[float | None]) -> str:
+    """One Korean warning per view for MuScriptor's "chunk ... did not emit EOS" RuntimeWarnings (one per chunk:
+    a degenerate view can emit dozens, which used to go out as English lines that never reached the console)."""
+    times = sorted(t for t in where if t is not None)
+    at = ", ".join(f"{t:.0f}" for t in times[:5]) + (" ..." if len(times) > 5 else "")
+    return (f"{view_id}: MuScriptor 가 {len(where)}개 구간에서 끝 토큰(EOS) 없이 생성 한도에 닿았습니다"
+            f"{f'({at} s 부근)' if at else ''}. 그 구간의 음이 반복되거나 빠졌을 수 있으니 들어 보세요.")
 
 
 def assemble_notes(events: Iterable[Any], audio_s: float, *, on_progress: Any = None) -> list[dict[str, Any]]:
@@ -424,6 +434,7 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
 
     def attempt(rung: dict[str, Any], wd: gpu_common.Watchdog) -> dict[str, Any]:
         state: dict[str, Any] = {"tm": None}
+        eos: dict[str, list[float | None]] = {}  # view id -> view times (s) of chunks that never emitted EOS
         try:
             t0 = time.perf_counter()
             state["tm"], used_loader = _load(rung, rung["params"]["weights_path"], dtype)
@@ -456,18 +467,23 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
                     for w in caught:
                         msg = str(w.message)
                         if "EOS" in msg:
-                            warn.append(f"{p['id']}: {msg}")
+                            m = re.search(r"seek=([0-9.]+)s", msg)
+                            eos.setdefault(p["id"], []).append(
+                                round(pc["offset_s"] + float(m.group(1)), 1) if m else None)
                     notes += offset_notes(piece, pc["offset_s"]) if p["segments"] is not None else piece
                     done_s += pc["audio_s"]
                 notes.sort(key=note_sort_key)
                 results.append({"notes": notes, "process_s": time.perf_counter() - t})
-            return {"results": results, "load_s": load_s, "loader": used_loader}
+            return {"results": results, "load_s": load_s, "loader": used_loader, "eos": eos}
         except BaseException:
             state["tm"] = None  # drop the model before the ladder frees the CUDA cache
             raise
 
+    # slow_can_fail=False: decode time grows with the notes a view holds (a dense piano+other window runs at a
+    # fraction of a sparse bass view's speed), so slowness is never a spill signal here; only shared-usage growth
+    # (after or during the model load) fails a MuScriptor rung (review 2026-10-05).
     result, attempts = gpu_common.run_ladder(available, attempt, sampler=ctx.sampler, req=request,
-                                             audio_s_total=audio_total)
+                                             audio_s_total=audio_total, slow_can_fail=False)
     # run_ladder numbers the rungs it was given; report indices of the full configured ladder instead.
     label_index = {r["label"]: i for i, r in enumerate(rungs)}
     for a in attempts:
@@ -483,7 +499,10 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
     vram["attempts"] = gpu_common.attempts_summary(merged)
     for a in merged:
         if a.slow:
-            warn.append(f"{a.rung_label}: 실시간 배수 {a.rtf}x 로 기준보다 느림(다른 GPU 작업과 경합했을 수 있음)")
+            warn.append(f"{a.rung_label}: 실시간 배수 {a.rtf}x 로 기준보다 느림(음이 많은 구간이거나 다른 GPU 작업과 "
+                        "경합했을 수 있음)")
+    for vid, where in sorted(((result or {}).get("eos") or {}).items()):
+        warn.append(eos_warning(vid, where))
 
     model_sha = model_req.get("sha256")
     backend = {"name": BACKEND, "version": version, "model": f"muscriptor-{model_req.get('size', 'medium')}",

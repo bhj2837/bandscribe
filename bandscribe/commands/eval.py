@@ -17,7 +17,7 @@ from rich.table import Table
 log = logging.getLogger(__name__)
 
 SetOpt = Annotated[list[str] | None, typer.Option("--set", "-s", metavar="KEY=VALUE", help="설정 덮어쓰기(여러 번 가능)")]
-EXP_IDS = ("E1", "E2", "E3", "E3b", "E23", "E24-sep", "E24-amt", "latency", "gate-m2", "stereo-preservation")
+EXP_IDS = ("E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt", "latency", "gate-m2", "stereo-preservation")
 
 
 def _out() -> Console:
@@ -125,7 +125,9 @@ def register(app: typer.Typer) -> None:
         data: Annotated[str | None, typer.Option("--data", help="tierB 데이터셋(쉼표로 여러 개, 기본 cambridge_mt,medleydb)")] = None,
         arg: Annotated[list[str] | None, typer.Option("--arg", metavar="KEY=VALUE",
                                                       help="세트 인자(여러 번 가능): 예 distractors 의 songs=a,b · max_windows=1 · "
-                                                           "gpu_budget_min=60 · dry_run=true, backing 의 pairs=<toml>")] = None,
+                                                           "gpu_budget_min=60 · dry_run=true, backing 의 pairs=<toml>, "
+                                                           "job:<단계>·b0·no_split 의 allow_stale=true(현재 설정으로 만든 "
+                                                           "단계 결과가 없을 때 예전 설정의 결과로 평가, 기본은 그 곡을 뺌)")] = None,
         set_: SetOpt = None,
     ) -> None:
         """평가 세트를 돌려 metrics.csv, summary.json, report.html 을 만든다."""

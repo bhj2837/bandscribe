@@ -11,7 +11,9 @@ Every experiment pins the rung of each GPU backend it measures (``force_rung`` =
 (``data/eval/reftx_cache``, rung in the key) except E24-amt, which uses a fresh cache so resources are measured.
 
 Data (pre-registered): Tier B = ``cambridge_mt`` (+ ``medleydb`` when present) remixed with
-``bandscribe.eval.remix.tierb_mix(master_lufs=-8)``; references = ``bandscribe.amt.reftx`` of the true solo tracks. EGDB for
+``bandscribe.eval.remix.tierb_mix(master_lufs=-8)``; references = ``bandscribe.amt.reftx`` of the true solo tracks,
+pooled per kind and merged like ``eval.suites`` (same pitch within 50 ms = one note, references and estimates
+alike; E1-E3 ran before this 2026-10-05 fix with unmerged references). EGDB for
 E23 (dev = official train clips, test = official test clips; amp renders, DI excluded) and gate-m2 (test clips,
 ``scenario`` = ``distortion`` for Marshall/Mesa/Plexi renders, ``clean`` otherwise). GuitarSet for ``latency``
 (estimate on players 00-02, report on 03-05) and as the Tier C GT set of E24-amt.
@@ -186,6 +188,30 @@ def _score(ref: tuple[np.ndarray, np.ndarray], est: tuple[np.ndarray, np.ndarray
     return note_prf(ref, est, onset_tol=0.05, pitch_tol_cents=50.0)
 
 
+# Copies of one note (same pitch, onsets within this tolerance of the first) count once, on both sides.
+# = the onset tolerance of the metric: two such reference notes can never both be matched by one transcription
+# of the mixed guitar stem, so unmerged they cap recall. Measured 2026-10-05 on the 22,382 reftx guitar notes of
+# the 6 Tier B songs: ~11 % are redundant cross-line copies within 50 ms (Mistrusted 23 %; double-tracked parts
+# are offset by human timing, so the 1-tick tolerance of eval.suites, 10.5 ms, merges only ~5 %), and another
+# 11 % are exact within-line duplicates (one onset labelled with two guitar classes).
+MERGE_TOL_S = 0.05
+
+
+def merged(arrs: tuple[np.ndarray, np.ndarray], tol: float = MERGE_TOL_S) -> tuple[np.ndarray, np.ndarray]:
+    """``eval.suites._merged_arrays`` (same pitch, onset within ``tol`` of the cluster's first onset -> one note
+    with the latest offset) on (intervals, pitches) arrays. Idempotent."""
+    from bandscribe.eval.suites import _merged_arrays
+
+    iv, pp = arrs
+    return _merged_arrays(((float(a), float(b), int(round(float(p)))) for (a, b), p in zip(iv, pp)), tol=tol)
+
+
+def _score_merged(ref: tuple[np.ndarray, np.ndarray], est: tuple[np.ndarray, np.ndarray]) -> Any:
+    """Note P/R/F1 of the Tier B / scene experiments (E1-E3b, E24-sep): reference (pooled over its guitar or
+    bass lines) and estimate both merged with :func:`merged` first (decisions.md amendment 2026-10-05)."""
+    return _score(merged(ref), merged(est))
+
+
 def row(*, system: str, dataset: str, item: str, metric: str, value: Any, group: str = "", line: str = "",
         scenario: str = "", section: str = "", rung: str = "", tp: Any = None, fp: Any = None, fn: Any = None,
         n: Any = None, note: str = "") -> dict[str, Any]:
@@ -265,15 +291,17 @@ def _tier_b(args: Mapping[str, Any], *, need: str) -> list[tuple[str, Any]]:
 
 
 def _refs_by_kind(track: Any, refs: Mapping[str, dict], latency_s: float = 0.0) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Reference arrays per kind. ``latency_s`` must be the same constant the estimates get: reftx is itself a
-    raw MuScriptor transcription with the same lag, so correcting only the estimates would shift every
-    estimate against its reference by the constant and cost F1 at the 50 ms tolerance in every arm."""
+    """Reference arrays per kind, the lines of a kind pooled and **merged** (:func:`merged`: a note that two
+    guitar lines both play counts once; decisions.md amendment 2026-10-05). ``latency_s`` must be the same
+    constant the estimates get: reftx is itself a raw MuScriptor transcription with the same lag, so correcting
+    only the estimates would shift every estimate against its reference by the constant and cost F1 at the
+    50 ms tolerance in every arm."""
     kinds: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {"guitar": [], "bass": []}
     for line in _get(track, "lines") or []:
         lid, kind = str(_get(line, "id")), str(_get(line, "kind"))
         if kind in kinds and lid in refs:
             kinds[kind].append(note_arrays(refs[lid].get("notes") or [], latency_s=latency_s))
-    return {k: _concat(*v) for k, v in kinds.items() if v}
+    return {k: merged(_concat(*v)) for k, v in kinds.items() if v}
 
 
 def _item(dataset: str, track: Any) -> str:
@@ -369,7 +397,7 @@ def run_e1(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
                     continue
                 est = note_arrays(raws[vid].get("notes") or [], classes=classes, latency_s=params["latency_s"])
                 ref = refs[kind]
-                rows.append(f1_row(_score(ref, est), system=label, dataset=dataset, item=item, group=_group(track),
+                rows.append(f1_row(_score_merged(ref, est), system=label, dataset=dataset, item=item, group=_group(track),
                                    line=kind, rung=rung))
     return rows
 
@@ -397,7 +425,7 @@ def run_e2(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
         rung = f"{sep.rung.get('label')}|{info['rung_label']}"
         for vid in E2_VIEWS:
             est = note_arrays(raws[vid].get("notes") or [], classes=I.GUITAR_CLASSES, latency_s=params["latency_s"])
-            rows.append(f1_row(_score(refs["guitar"], est), system=vid, dataset=dataset, item=item,
+            rows.append(f1_row(_score_merged(refs["guitar"], est), system=vid, dataset=dataset, item=item,
                                group=_group(track), line="guitar", rung=rung))
     return rows
 
@@ -543,7 +571,7 @@ def run_e3(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
                 arm = policy if thr == E3_DEFAULT_THRESHOLD else f"{policy}|t={thr:g}"
                 rung = f"{rung_sep}|{info['rung_label']}"
                 scen = "keys" if dataset != "synthetic" else f"synthetic_{it.get('scenario')}"
-                rows.append(f1_row(_score(ref, est), system=arm, dataset=dataset, item=item, group=group,
+                rows.append(f1_row(_score_merged(ref, est), system=arm, dataset=dataset, item=item, group=group,
                                    line="guitar", rung=rung, scenario=scen, section=section,
                                    note=f"mask={'+'.join(mask) if mask else 'all'}"))
                 rows.append(row(system=arm, dataset=dataset, item=item, group=group, line="guitar", rung=rung,
@@ -673,12 +701,15 @@ def _guitarset(args: Mapping[str, Any], players: Sequence[str]) -> list[Any]:
 
 
 def run_latency(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
-    """Estimate the MuScriptor lag on dev (players 00-02 [+ EGDB dev]); report |residual| on test (03-05)."""
+    """Estimate the MuScriptor lag on dev (players 00-02; EGDB dev only with ``egdb_dev=true``); report
+    |residual| on test (03-05)."""
     params = S.ms_params(cfg)
     top = ms_rung(params)
     splits = {"dev": _guitarset(args, L.DEV_PLAYERS), "test": _guitarset(args, L.TEST_PLAYERS)}
     dev_egdb = []
-    if args.get("egdb_dev", True) and _available("egdb"):
+    # Off by default: the 2026-10-03 registration amendment excludes EGDB dev (cost); only an explicit
+    # ``--arg egdb_dev=true`` adds it (review 2026-10-05: the default used to contradict the registration).
+    if args.get("egdb_dev", False) and _available("egdb"):
         dev_egdb = _egdb_tracks(args, "train", "latency")
     work = Path(out_dir) / "work" / "latency"
     per_track: dict[str, list[tuple[str, Any, dict, tuple, Path]]] = {"dev": [], "test": []}
@@ -752,7 +783,7 @@ def run_e24_sep(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
             for kind, vid, classes in (("guitar", "guitar_mono", I.GUITAR_CLASSES), ("bass", "bass_mono", I.BASS_CLASSES)):
                 if kind in refs:
                     est = note_arrays(raws[vid].get("notes") or [], classes=classes, latency_s=params["latency_s"])
-                    rows.append(f1_row(_score(refs[kind], est), system=dtype, dataset=dataset, item=item, group=group,
+                    rows.append(f1_row(_score_merged(refs[kind], est), system=dtype, dataset=dataset, item=item, group=group,
                                        line=kind, rung=rung))
             for metric, value in _sep_resources(sep).items():
                 if value is not None:
@@ -802,12 +833,53 @@ def run_e24_amt(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
     return rows
 
 
+# E3c (docs/decisions.md): windows of the distractor songs that the distractor run did NOT use (held-out), chosen
+# before any E3c result by fixed rules: no overlap with the run's window, guitar active >= 50 %, a keys/organ/synth/
+# strings category active >= 10 %, the strongest such 75 s window per song (5 of the 10 songs have one).
+E3C_WINDOWS = ("jameselder_englishactor@35-110", "jetb_tothewolves@5-80", "moosmusic_bigdummyshake@0-75",
+               "secretariat_overthetop@145-220", "zeno_signs@0-75")
+E3C_METRICS = ("note_f1_onset50", "mask_non_guitar", "non_guitar_dropped")
+
+
+def _num(v: Any) -> Any:
+    if v in ("", None):
+        return v
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return v
+    return int(f) if f.is_integer() and "." not in str(v) else f
+
+
+def run_e3c(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
+    """E3c: production mask vs guitar-only mask on the full mix of the held-out windows (distractor machinery,
+    conditions base + full, no null control). Returns the per-window rows of the full condition."""
+    import csv
+
+    from bandscribe.eval import distractors as D
+
+    sub = Path(out_dir) / "distractors"
+    sub.mkdir(parents=True, exist_ok=True)
+    D.run(sub, cfg, {"windows": list(args.get("windows") or E3C_WINDOWS), "conditions": "full", "null": False,
+                     "gpu_budget_min": float(args.get("gpu_budget_min", 30.0)),
+                     **({"allow_over_budget": True} if args.get("allow_over_budget") else {})},
+          progress=lambda s: log.info("E3c: %s", s))
+    rows: list[dict] = []
+    with open(sub / "metrics.csv", encoding="utf-8", newline="") as f:
+        for r in csv.DictReader(f):
+            if r.get("item") == "*" or r.get("scenario") != "full" or r.get("metric") not in E3C_METRICS:
+                continue
+            rows.append({k: _num(v) for k, v in r.items() if k != "suite"})
+    return rows
+
+
 EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E1": run_e1,
     "E2": run_e2,
     "E3": run_e3,
     "E3b": lambda out_dir, cfg, args: run_e3(out_dir, cfg, {**args, "presence": "sampled",
                                                              "policies": args.get("policies") or E3B_POLICIES}),
+    "E3c": run_e3c,
     "E23": run_e23,
     "E24-sep": run_e24_sep,
     "E24-amt": run_e24_amt,

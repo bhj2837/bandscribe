@@ -237,32 +237,72 @@ def _perf_arrays(gt, tm, jitter_s: float = 0.0, seed: int = 0):
 
 
 def test_grid_leak_system_grid_errors_do_not_reach_tick_f1():
-    """Predictions at the true times, system grid off by half a beat and by one downbeat: tick F1 stays 1.0
-    (it only uses the GT tempo map), while the system's own quantisation (notation match) is visibly wrong."""
-    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
-
+    """Predictions at the true times, system grid off by half a beat and by one downbeat: the system's own
+    quantisation (notation match) is visibly wrong, while tick F1 (GT tempo map only) is 1.0. tick_prf takes
+    times, so this alone cannot show the harness ignores the system's bar/tick: see the evaluate_item test below."""
     gt, tm = _grid_song(bars=16, warp=True)
     perf = _perf_arrays(gt, tm, jitter_s=0.02, seed=5)
     assert metrics.tick_prf(gt, perf, tm).f1 == pytest.approx(1.0)
-    # a system grid: half a beat late, and its downbeats one beat off (bar lines on GT beat 2)
-    gt_beats = np.asarray(tm.beat_to_time(np.arange(0, 16 * 4 + 1)), dtype=float)
-    half = np.diff(gt_beats) / 2
-    sys_times = list(gt_beats[:-1] + half)
-    sys_bar = [1 + (i + 1) // 4 for i in range(len(sys_times))]
-    sys_beat = [1 + (i + 1) % 4 for i in range(len(sys_times))]
-    sys_tm = tempo_map_from_dict(tempo_map_dict(sys_times, sys_bar, sys_beat, {b: 4 for b in set(sys_bar)}, source="x"))
+    sys_tm = _system_grid(tm, 16)
     sb, st = sys_tm.time_to_bar_tick(perf[0][:, 0])
-    downbeats = {int(b): float(sys_tm.bar_tick_to_time([b], [0.0])[0]) for b in sorted(set(sys_bar))}
+    sys_bars = sorted({1 + (i + 1) // 4 for i in range(16 * 4)})  # the bars _system_grid numbers
+    downbeats = {b: float(sys_tm.bar_tick_to_time([b], [0.0])[0]) for b in sys_bars}
     bmap = metrics.bar_map_by_downbeats(downbeats, tm, [n.bar for n in gt.notes])
     quant = [(int(b), float(np.round(t / 24) * 24), int(p)) for b, t, p in zip(sb, st, perf[1])]
     nm = metrics.notation_match(gt, quant, bmap)
-    assert nm["exact_ratio"] < 0.2  # the system grid is wrong ...
-    assert metrics.tick_prf(gt, perf, tm).f1 == pytest.approx(1.0)  # ... and tick F1 does not see it
+    assert nm["exact_ratio"] < 0.2  # the system grid is wrong
     # sanity: with the GT grid itself the notation match is perfect
     gb, gtk = tm.time_to_bar_tick(_perf_arrays(gt, tm)[0][:, 0])
     exact = [(int(b), float(np.round(t / 24) * 24), int(p)) for b, t, p in zip(gb, gtk, perf[1])]
     ident = {b: b for b in range(0, 18)}
     assert metrics.notation_match(gt, exact, ident)["exact_ratio"] == pytest.approx(1.0)
+
+
+def _system_grid(tm, bars: int):
+    """A wrong system grid: every beat half a beat late, downbeats one beat off (bar lines on GT beat 2)."""
+    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
+
+    gt_beats = np.asarray(tm.beat_to_time(np.arange(0, bars * 4 + 1)), dtype=float)
+    sys_times = list(gt_beats[:-1] + np.diff(gt_beats) / 2)
+    sys_bar = [1 + (i + 1) // 4 for i in range(len(sys_times))]
+    sys_beat = [1 + (i + 1) % 4 for i in range(len(sys_times))]
+    return tempo_map_from_dict(tempo_map_dict(sys_times, sys_bar, sys_beat, {b: 4 for b in set(sys_bar)}, source="x"))
+
+
+def test_grid_leak_through_evaluate_item_ignores_the_systems_own_bar_tick():
+    """a7 through the harness (review 2026-10-05: the test above hands tick_prf the true times itself, so its
+    tick-F1 assertion cannot fail). Here the predictions carry their performed onsets (± 20 ms jitter) *and* the
+    (bar, tick) a wrong system grid gives them. ``suites.evaluate_item`` must score tick F1 = 1.0 on the GT grid
+    and produce exactly the rows it produces when bar/tick are the GT's own, or absent."""
+    from bandscribe.eval import suites
+    from bandscribe.schema.evalio import PredNote, Prediction
+
+    bars = 16
+    gt, tm = _grid_song(bars=bars, warp=True)
+    perf = _perf_arrays(gt, tm, jitter_s=0.02, seed=5)
+    on = perf[0][:, 0]
+    sys_bar, sys_tick = _system_grid(tm, bars).time_to_bar_tick(on)
+    gt_bar, gt_tick = tm.time_to_bar_tick(on)
+
+    def pred(bar_tick):
+        notes = []
+        for k, ((a, b), p) in enumerate(zip(perf[0], perf[1])):
+            bt = {} if bar_tick is None else {"bar": int(bar_tick[0][k]), "tick": float(bar_tick[1][k])}
+            notes.append(PredNote(onset_s=float(a), offset_s=float(b), pitch=int(p), line="L1", posterior=0.9, **bt))
+        return Prediction(format="bandscribe.prediction/1", system="sys", item="grid:all",
+                          lines=[{"id": "L1", "name": "L1"}], notes=notes)
+
+    it = suites.EvalItem(item="grid:all", dataset="tierA", group="grid", scenario="A", gt=gt, lines=["L1"],
+                         tempo_map=tm)
+    res = {name: suites.evaluate_item(it, pred(bt), suite="t", system="sys").rows
+           for name, bt in (("system", (sys_bar, sys_tick)), ("gt", (gt_bar, gt_tick)), ("none", None))}
+    tick = next(r for r in res["system"] if r["metric"] == "tick_f1")
+    assert tick["value"] == pytest.approx(1.0) and (tick["fp"], tick["fn"]) == (0, 0)
+    assert tick["tp"] == len(gt.notes)
+    assert res["system"] == res["gt"] == res["none"]
+    # the bar/tick the harness ignored really were wrong for (almost) every note
+    wrong = sum(1 for b, t, n in zip(sys_bar, sys_tick, gt.notes) if (int(b), round(float(t))) != (n.bar, round(n.tick)))
+    assert wrong >= 0.9 * len(gt.notes)
 
 
 def test_grid_leak_tick_f1_rejects_wrong_pitch_and_far_onsets():

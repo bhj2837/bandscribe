@@ -1,8 +1,8 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-04 evening (distractor measurement: which kinds of sound cause guitar FP/FN, see
-"Distractor measurement" below; earlier the same day: rename gtab → bandscribe, folder `D:\bandscribe`,
-speed fix + review fixes).
+Last updated: 2026-10-05 (fixes for the two M1a/M2 code reviews, see "Review fixes (2026-10-05)"; E3c run and
+rejected. 2026-10-04: distractor measurement, rename gtab → bandscribe, folder `D:\bandscribe`, speed fix + review
+fixes).
 
 ## Where things stand
 
@@ -14,7 +14,7 @@ speed fix + review fixes).
 | Integration | ✅ 1174 tests passed (1 skipped) after the 2026-10-04 speed/presence fix; all 5 `D:\backing` songs + 1 Cambridge-MT mix run end to end |
 | Rename gtab → bandscribe | ✅ done (`docs/RENAME.md`): 0 stage keys changed, old files load as is. Folder moved to `D:\bandscribe`, all three venvs re-created: keys again unchanged, 1198 tests passed (1 skipped) |
 | Experiments | 🟡 mostly done (see table below) |
-| Review → Fix → Acceptance | ⬜ not started |
+| Review → Fix → Acceptance | 🟡 two reviews (correctness, GPU/Windows) done; fixes applied 2026-10-05, not committed; acceptance pending |
 
 All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented but its review and acceptance are still pending; tag it `m2` once accepted.
 
@@ -22,17 +22,95 @@ All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented 
 
 | E# | Status |
 |---|---|
-| E1 SW input loudness | Undecided. Default `off` kept: every CI includes 0. |
-| E2 MuScriptor input view | Undecided. Default `guitar_mono` kept. |
-| E3 instruments mask + presence threshold | Undecided. Default `guitar+present` / 0.5 kept: thin data. |
-| E3b (same question on the production presence pass, + `guitar+present+strings`) | Pre-registered 2026-10-04, not run. |
+| E1 SW input loudness | Undecided. Default `off` kept: every CI includes 0. (Numbers used unmerged references: biased, see "Review fixes".) |
+| E2 MuScriptor input view | Undecided. Default `guitar_mono` kept. (Unmerged references: biased.) |
+| E3 instruments mask + presence threshold | Undecided. Default `guitar+present` / 0.5 kept: thin data. (Unmerged references: biased.) |
+| E3b (same question on the production presence pass, + `guitar+present+strings`) | Pre-registered 2026-10-04, not run. Amended 2026-10-05 before its first run: references merged across guitar lines. |
+| E3c (`guitar_only` vs production mask, held-out windows) | **Rejected** 2026-10-05: Δ −2.35 [−8.22, +0.47] (non-inferiority margin −1.0). JetB: the keys mask removed 191 piano-bleed notes (F1 61.9 → 76.3); Zeno: −1 point. Default `guitar+present` kept. |
 | E23 Basic Pitch params | **Adopted** onset 0.6, frame 0.4, min_note_frames 7. Test Δ +6.6 [+3.8, +9.9]. |
 | Latency | **Adopted** `amt.latency_s = -0.003` (descriptive; held-out 10.9 ms). |
 | Gate-m2 (MuScriptor vs Basic Pitch, distorted) | Undecided. Δ +8.1 [+2.1, +13.5], but contamination is unknown, so not counted as a pass. |
-| distractors (which sounds cause guitar FP/FN; descriptive) | **Run** 2026-10-04 (`20261004-192625_e3f8e5f_distractors`), status 실행 중 until a person records it. Results below. |
-| E24-sep, E24-amt (fp16 cast) | Pre-registered only, not run. Optional; skip unless cheap. |
+| distractors (which sounds cause guitar FP/FN; descriptive) | **Run** 2026-10-04 (`20261004-192625_e3f8e5f_distractors`), recorded 판단 보류 (descriptive; its "mask filters nothing" hypothesis was rejected by E3c). Results below. |
+| E24-sep, E24-amt (fp16 cast) | Closed as 판단 보류 without a run (GPU cost > 40 min). E24-sep amended 2026-10-05 (merged references) in case it is re-registered. |
 | stereo-preservation (last entry in decisions.md) | Pre-registered only, not run. |
 | Tier A descriptive pass on the 5 songs | Started (`data/scratch/exp/tiera_desc.py`), killed at the pause. Partial output is in `data/scratch/exp/tierA/`. |
+
+## Review fixes (2026-10-05)
+
+Two code reviews of M1a/M2 at `b50ea18` (correctness; GPU/Windows). Every fix below is in the working tree with
+tests; nothing is committed. Test and SC-run results are at the end of this section.
+
+**Correctness**
+
+1. **Experiments merge references and estimates** (`amt/experiments.py` `merged`, `_score_merged`). The reftx of
+   several guitar lines were concatenated, so a note two lines play together counted twice (~11 % of the 22,382 Tier B
+   reftx guitar notes, Mistrusted 23 %), and one onset labelled with two guitar classes counted twice (another 11 %).
+   That capped recall and could bias arm deltas. Rule = `eval.suites._merged_arrays` with a 50 ms tolerance (the
+   metric's onset tolerance; the suites' 1-tick 10.5 ms merges only ~5 % of the cross-line copies, because double
+   tracks are offset by human timing). Used by E1–E3b and E24-sep (incl. the synthetic GT of E3/E3b); single-part GT
+   experiments (E23, gate-m2, latency, E24-amt) are unchanged. decisions.md: pre-run amendments to E3b and E24-sep;
+   bias notes on E1/E2/E3 (all 판단 보류, so no default changed).
+2. **`job:<stage>`, `b0`, `no_split` never score a stage dir made with other settings.** When the planned (current
+   settings) dir is missing, the song is skipped with a Korean warning (console, `summary.json` `warnings`); `--arg
+   allow_stale=true` opts in (note says `(stale)`). Every metrics row's `note` has `stage=<key12>`, run.json has
+   `stage_keys`. An unplannable job (no config, foreign layout) still uses the newest dir.
+3. **Tuning rule `exclude=<prefix>[|...]`** (also honoured by select-then-confirm). E23's 판정 설정 now has
+   `exclude=f12_`; re-evaluating the 2026-10-03 E23 rows picks `f7_o0.6_fr0.4` (test Δ +6.56) = the recorded
+   decision (the runner's raw pick was `f12_o0.6_fr0.3`). Amendment note in E23; the decision is unchanged.
+4. **Distractor report: FP cause × loudest sound per condition and arm** (`summary.json` `fp_cause_vs_dominant` =
+   {arm: {condition: {cause: {sound: n}}}}; summaries from before still render as one pooled table). The
+   `guitar_timing` label is given before the loudest sound is looked at (attribution rule 1), so "pads hurt through
+   the guitar's own segmentation" was not established (softened here, in DESIGN §8.8, README and decisions.md).
+   Statements that the `guitar+present` mask "filters nothing / only reshuffles the output" were corrected (E3c:
+   JetB +14 points). Rerun from the caches (0 GPU; local evidence `data/scratch/review1005/`): on the three pad
+   windows (3.75 min) the pad adds 69 `guitar_timing` FPs (+18.4/min); in 19 of them (5.1/min) the pad is the
+   loudest sound in the note's band, in 53 more (14.1/min) the guitar is. So most of the increase sits in
+   guitar-dominated bands, but about a quarter is pad-dominated, and whether the pad makes the guitar re-trigger
+   or the guitar splits on its own cannot be told apart by this attribution.
+5. **MIDI lead-in tempo within 30–300 BPM** (`amt/midi.py`): the old rule is kept where its tempo is in range;
+   otherwise another `k/4` (slow songs), else eighths or sixteenths (`k/8`, `k/16`); a lead-in < 50 ms is absorbed
+   into the first beat, one > 255 units becomes several 4/4 bars. SC's 0.16 s lead-in was a 1/4 bar at 375 BPM, now 1/8 at 187.5 BPM. Note times
+   unchanged. `notes` stage code version 3 → 4.
+6. **Cache keys.** Basic Pitch: `threads` joins the transcription-cache key (the `amt_bp` stage key already had it;
+   1 or 2 vs 4 ONNX threads change ~1,700 values of a 30 s clip's output by 1.2e-7, measured), and the model-output
+   npz name gets `__t<threads>` except for 4 threads (the name every existing entry has). `beats` params now include
+   the installed beat-this version (1.1.0), like MuScriptor / Basic Pitch: **every existing job's `beats` key changes
+   once**, so beats re-runs on the GPU (seconds) and grid → sections → … → notes recompute on the CPU; the MuScriptor
+   views come from the transcription cache as long as the grid comes out the same.
+7. **a7 test through `suites.evaluate_item`**: predictions with their performed onsets and the (bar, tick) of a
+   wrong system grid score tick F1 = 1.0 and the same rows as with GT or no bar/tick.
+8. `latency`: `egdb_dev` defaults to False (the registration amendment excludes EGDB).
+9. Basic Pitch: config and worker refuse `min_note_frames >= 12` (was only `== 12`) unless `allow_default_min_len`.
+
+**GPU / Windows**
+
+10. **Load-time spill** (`workers/gpu_common.py`): shared usage at `model_loaded` minus the `pre_load` mark (taken
+    after the CUDA context, before the first upload) above `gpu.load_spill_fail_mb` (48 MB, [잠정]) fails the rung.
+    Bench 2026-09-30 17:58 / 18:01 had 130–136 MB vs 66 MB and accepted `chunk=352256` at 1.4x / 0.87x realtime
+    (benched 5.3x); normal loads add 0–4 MB, MuScriptor's upstream loader 32 MB. A rung below one that failed with
+    SharedGrowth may not be slow (slow → failure → the stage waits and retries).
+11. **Worker warnings reach the console**: `sep`, `amt_ms1`/`amt_gtr` and `beats` forward the worker's warnings
+    (slow rung; MuScriptor no-EOS, now one Korean line per view) through the stage notifier; a freshly run lower
+    rung warns live; `gpu_run.json` keeps `slow` and `warnings`; `run_warnings` shows cached degraded / slow / worker
+    warnings (older `sep` dirs: from `sep.json`); `bandscribe run` prints each text once.
+12. **MuScriptor: slowness never fails a rung** (`run_ladder(slow_can_fail=False)`: decode time depends on note
+    density); only shared-usage growth (after or during the load) does.
+13. **Separation RAM**: `demix` shares the mix (`torch.from_numpy`), drops the padded copy before the division and
+    replaces NaN/inf in place (`torch.nan_to_num_`, same values) instead of numpy's mask-heavy `nan_to_num`. 10-min
+    synthetic stereo input, identity model, CPU: peak working set 3.83 → 2.32 GB, peak commit 4.60 → 3.08 GB,
+    outputs bitwise identical (VENDOR.md note; `demix.py` is ours, no sha change). `bandscribe run` / `ingest` warn
+    in Korean above 15 min with an estimate (1.5 GB + 9.5 × the float32 mix: 4 min ≈ 2.3 GB, 15 min ≈ 4.3 GB).
+14. **`gpu.wait_total_max_s`** (3600 s) bounds all the waiting of one GPU stage (pre-checks + retry pauses; before,
+    each pre-check could wait `wait_max_s` again: ~4 h with 3 retries); a "아직 … 기다리는 중" line every 5 minutes.
+
+New config keys: `gpu.load_spill_fail_mb = 48`, `gpu.wait_total_max_s = 3600`. Deferred items: see "Next steps".
+
+**Tests:** full default suite 1346 passed, 2 skipped (6 min 57 s on the final state; incl. the GPU tests: Beat This!
+worker load check 0 MB, SW upstream parity unchanged). **SC check** (`bandscribe run D:\backing\SC.mp3 --until notes`): first run after
+the change ~39 s (beats 7.5 s on the GPU, grid 23.6 s, the rest < 3 s each; `amt_ms1` / `amt_gtr` from the
+transcription cache, no MuScriptor worker), new MIDI lead-in 1/8 at 187.5 BPM; the next run, fully cached, 0.96 s.
+Warnings printed by both: the cached `sep` slow flag (`chunk=588800: 실시간 배수 3.506x`, recorded by the 2026-10-03 run
+before the watchdog's warm-up fix; now surfaced by fix 11, clears with `--force sep`) and the grid repair note.
 
 ## Distractor measurement (2026-10-04)
 
@@ -55,7 +133,7 @@ All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented 
 
   | Added sound (songs) | dFP/min | dFN/min | d recall (pts) | dF1 (pts) | dF1, guitar-only mask | leak into SW guitar | top FP cause |
   |---|---|---|---|---|---|---|---|
-  | synth pad (3) | +18.7 [+12.0, +24.0] | +24.8 [+13.6, +44.0] | −3.7 [−6.1, −2.2] | −3.1 [−4.9, −1.9] | −2.4 [−4.9, +0.1] | −12.5 dB | guitar's own timing/splits +18.4/min (pad-dominated only +1.9) |
+  | synth pad (3) | +18.7 [+12.0, +24.0] | +24.8 [+13.6, +44.0] | −3.7 [−6.1, −2.2] | −3.1 [−4.9, −1.9] | −2.4 [−4.9, +0.1] | −12.5 dB | labelled `guitar_timing` +18.4/min, labelled pad +1.9 (the timing label is given before the loudest sound is checked: see Review fixes 4) |
   | strings (2) | +55.6 [+50.4, +60.8] | +50.0 [+8.8, +91.2] | −5.5 [−10.8, −0.9] | −5.9 [−9.9, −2.7] | **+0.5 [0.0, +0.9]** | −11.5 dB | the mask (synth_strings / organ added), not the sound |
   | piano (3) | +21.9 [+4.0, +40.0] | −0.8 [−8.0, +4.8] | +0.1 [−0.7, +2.0] | −1.4 [−2.8, +0.7] | −1.5 [−2.8, −0.7] | −12.9 dB | guitar timing +16, octave +8 |
   | organ (2) | +17.6 [0.0, +35.2] | +4.0 [0.0, +8.0] | −0.6 [−1.5, 0.0] | −1.5 [−3.8, 0.0] | −1.5 [−3.8, 0.0] | −14.4 dB | organ-dominated +14.0/min |
@@ -68,15 +146,23 @@ All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented 
 
   - base itself (drums+bass+vocals only): F1 82.9, FP 130/min, FN 95/min vs the clean-guitar reference. Biggest
     causes in the full mix: the guitar's own timing/splitting (FP 67.7/min, FN 70.6/min: same pitch, 50–200 ms off)
-    and octave (FP 27.7, FN 40.9/min). All FPs whose loudest true sound is a distractor add up to ~7/min.
+    and octave (FP 27.7, FN 40.9/min). All FPs *labelled* with a distractor (its sound loudest in the note's band)
+    add up to ~7/min; FPs with a same-pitch reference note within 200 ms are labelled `guitar_timing` first, whatever
+    is loudest, so they are not in that count (Review fixes 4).
   - **Mask:** in the 13 conditions where the production mask added keys/synth classes, MuScriptor labelled **0**
     notes non-guitar; pooled F1 85.3 (guitar-only mask) -> 82.3 (production), mean −2.1 points, 9 of 13 worse.
+    **This did not generalize** (E3c, 2026-10-05, windows this run did not use): on JetB the keys mask removed 191
+    piano-bleed notes (F1 61.9 guitar-only → 76.3 production); on Zeno it cost 1 point. The mask's effect varies by
+    song; `guitar_only` as the default was rejected.
   - SW guitar stem: guitar retention −0.5 dB; 81–85 % of its energy lies in guitar-dominated bins, each distractor
     category ≤ 1.1 %.
 - **Surprises:** (1) adding a synth lead / unnamed synth / Rhodes made FPs go *down* by 50–80/min; (2) an inaudible
   −90 dBFS change moved FP by −146/min on Mu and FN by +56/min on Signe: MuScriptor's greedy decoding is unstable on
   some excerpts, so 2–3-song category deltas can sit inside decoder noise; (3) the strings "damage" is entirely the
-  mask; (4) pads hurt through the guitar's own segmentation (timing FPs/FNs), not by pad-pitched notes.
+  mask; (4) the FPs a pad adds are mostly labelled `guitar_timing` (same pitch as a reference note within 200 ms),
+  few as pad-pitched notes. That label is given before the loudest sound in the note's band is checked; per
+  condition, 19 of the 69 added timing FPs have the pad as the loudest sound, 53 the guitar. So whether the pad made
+  the guitar re-trigger or the guitar's own segmentation did is not settled (Review fixes 4).
 - **What to fix first** (report ranking): guitar timing/segmentation (FN 70.6 + FP 67.7 /min) -> octave (FN 40.9 +
   FP 27.7) -> decoder instability (an inaudible change moves 25.4 errors/min on average) -> strings (mask-driven,
   21.1 weighted) -> synth pad (13.0) -> piano (6.3).
@@ -163,8 +249,9 @@ mask the backing used:
 - **aotonat:** the guitar view labels nothing non-guitar, but dropping chromatic_percussion from the mask raised its
   note count by 31 % (3,649 → 4,796) and changed the class mix (clean 2,726 / distorted 1,155 / acoustic 915). The
   bleed share is unchanged (17.0 → 17.7 %).
-- **Conclusion:** any change to the guitar-pass prompt reshuffles MuScriptor's output far more than it removes bleed.
-  Measured as notes kept from 10-03:
+- **Conclusion (for these two songs):** changing the guitar-pass prompt reshuffled MuScriptor's output far more than
+  it removed bleed. Not a general rule: on JetB the keys mask did remove 191 piano-bleed notes (E3c, F1 +14 points);
+  the effect varies by song. Measured as notes kept from 10-03:
   - KH kept 1,050 of 2,916 presumably-real notes and 239 of 627 bleed notes.
   - aotonat kept 1,372 of 3,029 and 476 of 620.
   - So keys in the mask is a trade-off with no ground truth yet: E3b, or a GP file for these songs, must decide it.
@@ -177,9 +264,10 @@ mask the backing used:
 ## Priority for the next session
 
 - **Guitar mask:** the distractor run found 0 notes relabelled non-guitar and −2.1 F1 points on average when the
-  production mask added keys/synth classes (13 conditions). Pre-register a new E# (or run E3b with the 13 Tier B songs,
-  after noting that in its registration) to switch the default to `guitar_only`; until decided the default stays
-  `guitar+present`.
+  production mask added keys/synth classes (13 conditions), but E3c (held-out windows) rejected `guitar_only`
+  (Δ −2.35 [−8.22, +0.47]; JetB: the keys mask removed 191 piano-bleed notes, +14 points). The default stays
+  `guitar+present`; the policy question goes to E3b with more songs (its registration already notes the 13 Tier B
+  songs and, since 2026-10-05, merged references).
 - **Decoder stability:** an inaudible change moved up to 146 FP/min on one excerpt. Before trusting small deltas,
   measure overlapping-window re-decoding / voting or beam search (E21), or repeat the null on more excerpts.
 - **S7 note clean-up** is the largest lever by error count (timing/splitting and octave), present even with no
@@ -196,9 +284,26 @@ mask the backing used:
 1. Quick check from the project folder: `bandscribe.cmd doctor` and
    `.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
 2. ~~Speed work~~ done 2026-10-04 (profiles + presence windows, reviewed and fixed, above). Optional: time `--profile fast` on SC.mp3.
-3. Review (correctness + GPU/Windows), fix, then check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on the user.
+3. Review (correctness + GPU/Windows): done; fixes applied 2026-10-05 ("Review fixes" above, not committed). Next:
+   check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on
+   the user. The first `bandscribe run` per existing job recomputes `beats` (new key: beat-this version) and its CPU
+   descendants once.
 4. Commit the milestone on `main` and tag it (`m2`).
-5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export).
+5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export). **First task of M3:** note
+   scoring drops matches at section boundaries (`eval/metrics.py` `tick_prf` ~201-206 filters estimates by the GT bar
+   of their onset, `eval/suites.py` `evaluate_item` ~578-585 by onset inside the section windows): a note played up to
+   50 ms before a section's first bar line is dropped from the estimate while its GT note stays (an FN), and a GT note
+   just outside a section whose estimate lands inside becomes an FP; the same at the section's end. Deferred from
+   the 2026-10-05 review because M2 has no Tier A section
+   scoring yet (no GP ground truth) and tick F1 becomes the primary metric in M3, where the fix (match within a
+   tolerance band around the section, then keep pairs whose GT note is inside) belongs with its tests.
+6. **M4a: NVML budget pre-check outside the GPU lock** (`vram.py` `run_gpu_stage` ~408-424 checks NVML free, then
+   `gpu.py` ~224-231 takes the lock): two concurrent bandscribe processes can both pass the pre-check and then run one
+   after the other on a budget measured before the first one loaded. Deferred from the 2026-10-05 review: it only
+   matters with two bandscribe processes at once, i.e. once the UI (M4a) can start runs next to the CLI; one CLI run
+   is strictly sequential. Note (acceptance 2026-10-05): the worker's own `mem_get_info` is **not** a safeguard on this
+   PC: under WDDM it reported 5,098 MB free whatever other processes held (0.8-5.0 GB). What actually catches a real
+   shortage is the rung ladder with the shared-usage / load-spill checks (review fix 10).
 
 ## Facts worth keeping
 
@@ -219,6 +324,11 @@ mask the backing used:
   are cached through `notes`. AIZO and AZ are cached only up to `resid1` (AIZO also `amt_ms1` + `amt_bp`, run
   10-04 as the post-move GPU check), SC_backing 8 of 13 stages, AIZO/AZ backings 2 of 13. A full `bandscribe run`
   on AIZO or AZ still costs roughly 5–7 min of GPU time.
+  - 2026-10-05: the `beats` key now includes the beat-this version, so every job recomputes `beats` (GPU, seconds)
+    and its CPU descendants (`grid` … `notes`, except `sep`, `stems`, `amt_bp`) once on its next run; MuScriptor
+    views come from the transcription cache when the grid is unchanged. SC was re-run in the review check (below).
+    Until a job is re-run, `bandscribe eval run --suite tierA` skips it (its planned `notes` dir does not exist
+    yet) unless `--arg allow_stale=true`.
 - **VRAM per stage:**
   - SW: 1.2–1.7 GB reserved.
   - MuScriptor lean: 1.74 GB.

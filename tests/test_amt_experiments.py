@@ -202,6 +202,52 @@ def test_e2_views_use_the_guitar_only_mask(env):
     _check_rows(rows, "E2")
 
 
+def test_reference_copies_across_guitar_lines_count_once(env):
+    """Review 2026-10-05: two guitar lines playing the same note (double-tracked, 20 ms apart) are one note to a
+    transcription of the mixed guitar stem. The old pooling counted both, so recall was capped at 50 % here and
+    every arm's F1 was biased; references and estimates are now merged like eval.suites (50 ms, same pitch)."""
+    root = env.root("cambridge_mt")
+    tr = _track(root, "cambridge_mt", "dbl")
+    l1 = list(tr.notes["L1"].notes)
+    l2 = [NoteEvent(onset_s=round(n.onset_s + 0.02, 6), offset_s=round(n.offset_s + 0.02, 6), pitch=n.pitch)
+          for n in l1]
+    tr = tr.model_copy(update={"lines": tr.lines + [GtLine(id="L2", name="L2", kind="guitar", takes=[9])],
+                               "notes": {**tr.notes, "L2": _noteset("L2", l2)}})
+    env.tracks["cambridge_mt"] = [tr]
+    # the estimate also carries an exact duplicate of every note (one onset labelled with two guitar classes)
+    env.fakes.gt_by_wav["guitar_mono.wav"] = l1 + l1
+    rows = E.run_e2(env.out, {}, {})
+    r = next(r for r in rows if r["system"] == "guitar_mono")
+    assert (r["tp"], r["fp"], r["fn"], r["n"]) == (12, 0, 0, 12) and r["value"] == pytest.approx(1.0)
+    # what unmerged scoring gives: 24 reference notes for 12 played (recall capped at 0.5), and duplicate
+    # estimates as false positives once the reference is merged
+    ref_raw = E._concat(E.note_arrays(l1), E.note_arrays(l2))
+    one = [{"onset_s": n.onset_s + 0.01, "offset_s": n.offset_s + 0.01, "pitch": n.pitch} for n in l1]
+    old = E._score(ref_raw, E.note_arrays(one))
+    assert (old.tp, old.fp, old.fn) == (12, 0, 12)
+    half = E._score(E.merged(ref_raw), E.note_arrays(one + one))
+    assert (half.tp, half.fp, half.fn) == (12, 12, 0)
+    new = E._score_merged(ref_raw, E.note_arrays(one + one))
+    assert (new.tp, new.fp, new.fn) == (12, 0, 0)
+    # merging is idempotent and never joins different pitches or notes further apart than 50 ms
+    m = E.merged(ref_raw)
+    assert len(m[1]) == 12 and len(E.merged(m)[1]) == 12
+    far = E._concat(E.note_arrays(l1), E.note_arrays([{"onset_s": n.onset_s + 0.06, "offset_s": n.offset_s + 0.06,
+                                                         "pitch": n.pitch} for n in l1]))
+    assert len(E.merged(far)[1]) == 24
+    _check_rows(rows, "E2")
+
+
+def test_latency_leaves_egdb_out_unless_asked(env):
+    """The registration amendment excludes EGDB dev (cost): the default must not add it (review 2026-10-05)."""
+    _guitarset(env)
+    _egdb(env, n_train=1, n_test=0)
+    rows = E.run_latency(env.out, {}, {})
+    assert not any(str(r["dataset"]) == "egdb" for r in rows)
+    rows = E.run_latency(env.out / "with", {}, {"egdb_dev": True})
+    assert any(str(r["dataset"]) == "egdb" and r["section"] == "dev" for r in rows)
+
+
 def test_e3_synthetic_scene_policies_omissions_and_families(env):
     rows = E.run_e3(env.out, {}, {"scenes": ["A"], "seeds": [0], "thresholds": [0.3, 0.5]})
     systems = {r["system"] for r in rows}

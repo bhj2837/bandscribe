@@ -15,14 +15,16 @@ Two-step path in both modes, so settings tuned by E23 reproduce exactly in the p
    ONNX Runtime session is ours, built with ``SessionOptions(intra_op_num_threads=threads,
    inter_op_num_threads=1, ORT_SEQUENTIAL)``: pinned threads keep the float reductions (and so the NoteSets)
    independent of the machine's core count. The raw model output (``note``/``onset``/``contour`` arrays) is
-   optionally cached as ``<cache>/<view_sha256>__<model sha12>.npz``.
+   optionally cached as ``<cache>/<view_sha256>__<model sha12>[__t<threads>].npz`` (no suffix = 4 threads,
+   ``model_output_name``).
 2. ``note_creation.model_output_to_notes(output, onset_thresh, frame_thresh, infer_onsets=True,
    min_note_len=min_note_frames - 1, ...)``. Verified in basic_pitch 0.4.0 (note_creation.py): a note is kept
    only if its length in frames is **strictly greater** than ``min_note_len`` (``if i - note_start_idx <=
    min_note_len: continue``), and ``predict()`` converts ms with ``round(ms / 1000 * 22050 / 256)``. So the
    upstream default 127.7 ms = 11 frames keeps notes of >= 12 frames (~139 ms), which deletes 16th notes above
    ~117 BPM, fast runs and ghost notes (DESIGN S6). Our parameter ``min_note_frames`` is the shortest note
-   *kept*; 12 (= the upstream default) is refused unless ``allow_default_min_len`` is set (E23's reference arm).
+   *kept*; 12 (= the upstream default) or more is refused unless ``allow_default_min_len`` is set (E23's
+   reference arm).
    ``constrain_frequency`` mutates its inputs in place, so every setting gets a fresh copy of the cached output.
 
 Pitch bends: ``get_pitch_bends`` returns per-frame offsets in contour bins of 1/3 semitone; cents = 100/3 x bin,
@@ -78,7 +80,8 @@ def min_note_len_for(min_note_frames: Any, *, allow_default_min_len: bool = Fals
     """``min_note_len`` to pass to Basic Pitch for the shortest note we want to KEEP (in frames).
 
     Basic Pitch drops notes whose length is <= ``min_note_len``, so keeping notes of >= N frames means passing
-    N - 1. N == 12 reproduces the upstream 127.7 ms default and is refused unless explicitly allowed.
+    N - 1. N == 12 reproduces the upstream 127.7 ms default; N >= 12 (the default or anything that deletes even
+    more short notes) is refused unless explicitly allowed (E23's comparison arm).
     """
     if isinstance(min_note_frames, bool):
         raise ParamError(f"min_note_frames must be an int, got {min_note_frames!r}")
@@ -92,10 +95,10 @@ def min_note_len_for(min_note_frames: Any, *, allow_default_min_len: bool = Fals
         min_note_frames = int(as_float)
     if min_note_frames < 1 or min_note_frames > 30:
         raise ParamError(f"min_note_frames must be in [1, 30], got {min_note_frames}")
-    if min_note_frames == UPSTREAM_DEFAULT_MIN_NOTE_FRAMES and not allow_default_min_len:
+    if min_note_frames >= UPSTREAM_DEFAULT_MIN_NOTE_FRAMES and not allow_default_min_len:
         raise ParamError(
-            "min_note_frames=12 is Basic Pitch's upstream 127.7 ms default, which deletes short notes "
-            "(DESIGN S6); set allow_default_min_len only for E23's reference arm")
+            f"min_note_frames={min_note_frames} is at or above Basic Pitch's upstream 127.7 ms default (12 frames), "
+            "which deletes short notes (DESIGN S6); set allow_default_min_len only for E23's reference arm")
     return min_note_frames - 1
 
 
@@ -190,6 +193,18 @@ def sweep_out_path(out: Path, k: int) -> Path:
 # ------------------------------------------------------------------------------------------- model
 
 
+LEGACY_CACHE_THREADS = 4  # every model-output cache entry written before 2026-10-05 used 4 threads
+
+
+def model_output_name(view_sha256: str, model_sha256: str, threads: int) -> str:
+    """Cache file of one view's raw model output. The thread count is part of it (it changes the output in the
+    last float bit, see ``bandscribe.amt.stage._bp_cache_params``); 4 threads keeps the original name, which every
+    entry written before the thread count was recorded (E23, gate-m2, ``amt_bp``: all ``amt.bp_threads = 4``)
+    has, so those stay valid."""
+    base = f"{view_sha256}__{model_sha256[:12]}"
+    return f"{base}.npz" if int(threads) == LEGACY_CACHE_THREADS else f"{base}__t{int(threads)}.npz"
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -240,7 +255,7 @@ class _Runner:
 
         cache_file = None
         if cache_dir is not None and view_sha256:
-            cache_file = cache_dir / f"{view_sha256}__{self.model_sha256[:12]}.npz"
+            cache_file = cache_dir / model_output_name(view_sha256, self.model_sha256, self.threads)
             if cache_file.is_file():
                 try:
                     with np.load(cache_file) as z:

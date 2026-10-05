@@ -375,6 +375,14 @@ def ingest(
     c.print("캐시 적중: " + ("예 (이미 처리한 입력, 다시 계산하지 않음)" if result.cache_hit else "아니오 (새로 처리함)"))
     _print_meta(c, result.meta or {}, Path(result.job_dir))
     c.print(f"작업 폴더: {escape(str(result.job_dir))}", soft_wrap=True)
+    try:  # long songs: the separation worker's RAM grows with the length (a warning, never a failure)
+        from bandscribe.sep.run import long_input_warning
+
+        long_msg = long_input_warning(_duration_s(result.meta or {}, Path(result.job_dir)))
+    except Exception:  # noqa: BLE001 - an optional hint must not break ingest
+        long_msg = None
+    if long_msg:
+        _err().print(f"[yellow]경고:[/] {escape(long_msg)}", soft_wrap=True)
 
 
 @app.command()

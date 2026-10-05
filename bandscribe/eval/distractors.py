@@ -312,6 +312,44 @@ def select_windows(power: Mapping[str, np.ndarray], *, window_s: float = WINDOW_
     return out
 
 
+def window_at(power: Mapping[str, np.ndarray], start_s: float, end_s: float, wid: str, *,
+              fps: float = FPS) -> WindowChoice | None:
+    """An explicitly requested window (held-out experiments such as E3c), described with the same activity rules
+    as ``select_windows``. None if the song has no guitar or the range is empty / outside the song."""
+    act = activity(power)
+    if "_guitar" not in act:
+        return None
+    n = len(act["_guitar"])
+    a, z = max(0, int(round(start_s * fps))), min(n, int(round(end_s * fps)))
+    if z <= a or end_s > n / fps + 1e-6:
+        return None
+    distract = [c for c in T.DISTRACTORS if c in act]
+    shares = {c: round(float(act[c][a:z].mean()), 4) for c in distract}
+    return WindowChoice(wid, round(float(start_s), 3), round(float(end_s), 3),
+                        round(float(act["_guitar"][a:z].mean()), 4), shares,
+                        [c for c in distract if shares[c] >= PRESENT_SHARE])
+
+
+def parse_windows(spec: Any) -> dict[str, list[tuple[float, float]]]:
+    """``"track@start-end,track@start-end"`` (or a list of such strings) -> {track_id: [(start_s, end_s), ...]}."""
+    if not spec:
+        return {}
+    items = spec if isinstance(spec, (list, tuple)) else str(spec).split(",")
+    out: dict[str, list[tuple[float, float]]] = {}
+    for it in (str(i).strip() for i in items):
+        if not it:
+            continue
+        track, sep, rng = it.partition("@")
+        a, dash, b = rng.partition("-")
+        if not sep or not dash:
+            raise DistractorError(f"구간 지정 형식이 잘못됐습니다: '{it}' (예: jetb_tothewolves@5-80)")
+        start, end = float(a), float(b)
+        if end <= start:
+            raise DistractorError(f"구간 끝이 시작보다 앞입니다: '{it}'")
+        out.setdefault(track.strip(), []).append((start, end))
+    return out
+
+
 # ------------------------------------------------------------------------------------------ conditions
 
 
@@ -899,6 +937,15 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     only = args.get("songs")
     if isinstance(only, str):
         only = [s.strip() for s in only.split(",") if s.strip()]
+    # Explicit windows (held-out experiments): only those songs and ranges, no automatic selection.
+    explicit = parse_windows(args.get("windows"))
+    if explicit:
+        only = sorted(explicit)
+    # Optional condition subset; 'base' is always kept because every delta is measured against it.
+    keep_conds = args.get("conditions")
+    if isinstance(keep_conds, str):
+        keep_conds = [c.strip() for c in keep_conds.split(",") if c.strip()]
+    keep_conds = set(keep_conds or []) | {"base"} if keep_conds else None
     songs = load_songs(str(args.get("dataset", "cambridge_mt")), only=only)
     if not songs:
         raise DistractorError("평가할 멀티트랙이 없습니다 (bandscribe data fetch cambridge_mt --part all).")
@@ -918,9 +965,14 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
             continue
         say(f"구간 고르기: {song.track_id}")
         power = category_power(song, cache_root=croot)
-        choices = select_windows(power, window_s=window_s, max_windows=max_windows)
+        if explicit:
+            choices = [c for i, (a, b) in enumerate(explicit.get(song.track_id, []), 1)
+                       if (c := window_at(power, a, b, f"h{i}")) is not None]
+        else:
+            choices = select_windows(power, window_s=window_s, max_windows=max_windows)
         if not choices:
-            skipped[song.track_id] = "기타와 방해 소리가 함께 나오는 구간 없음"
+            skipped[song.track_id] = ("지정한 구간이 곡 밖이거나 기타가 없음" if explicit
+                                      else "기타와 방해 소리가 함께 나오는 구간 없음")
             continue
         for ch in choices:
             windows.append(WindowRun(song, ch))
@@ -934,6 +986,8 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
         w.cat_audio = category_audio(w.song, w.choice.start_s, w.choice.end_s)
         w.gain = master_gain(sum(w.cat_audio.values()), SR, lufs=MASTER_LUFS, ceiling_dbtp=CEILING_DBTP)
         for cond in conditions_for(cats, w.choice.present, guitar_alone=guitar_alone):
+            if keep_conds is not None and cond.name not in keep_conds:
+                continue
             x = condition_audio(w.cat_audio, w.gain, cond.categories)
             w.conds.append(CondRun(w.item, cond, pcm_sha(x), len(x)))
         g = sum((w.cat_audio[c] for c in T.GUITAR if c in w.cat_audio), np.zeros_like(w.gain[:, None].repeat(2, 1)))
@@ -1149,7 +1203,7 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     summary["leakage"] = _leak_summary(leaks, windows)
     summary["fp_cause_matrix"] = _cause_matrix(scores, windows, "production", "fp")
     summary["fn_cause_matrix"] = _cause_matrix(scores, windows, "production", "fn")
-    summary["fp_cause_vs_dominant"] = _cause_vs_dominant(scores, "production")
+    summary["fp_cause_vs_dominant"] = _cause_vs_dominant(scores)
     summary["per_window"] = _per_window(scores, windows, leaks)
     summary["masks"] = {f"{w.item}|{c.cond.name}": {"production": c.masks["production"],
                                                      "present": [k for k, v in (c.instrumentation or {}).get(
@@ -1237,15 +1291,23 @@ def _cause_matrix(scores: Mapping[tuple[str, str, str], Score], windows: Sequenc
     return out
 
 
-def _cause_vs_dominant(scores: Mapping[tuple[str, str, str], Score], arm: str) -> dict[str, dict[str, int]]:
-    tot: Counter = Counter()
-    for (_item, _cond, a), s in scores.items():
-        if a == arm:
-            tot.update(s.fp_pairs)
-    out: dict[str, dict[str, int]] = defaultdict(dict)
-    for (cause, dom), v in sorted(tot.items()):
-        out[cause][dom] = v
-    return dict(out)
+def _cause_vs_dominant(scores: Mapping[tuple[str, str, str], Score]) -> dict[str, dict[str, dict[str, dict[str, int]]]]:
+    """{arm: {condition: {FP cause label: {loudest sound in the note's band: count}}}}, pooled over windows only.
+
+    Per condition and arm on purpose (review 2026-10-05): pooled over everything, the table could not say whether
+    the ``guitar_timing`` FPs that appear when a pad is added are pad-dominated. ``guitar_timing`` is assigned
+    before the loudest sound is looked at (attribution.py rule 1), so this table is the only place where a
+    timing FP whose band a distractor dominates shows up."""
+    tot: dict[tuple[str, str], Counter] = defaultdict(Counter)
+    for (_item, cond, arm), s in scores.items():
+        tot[(arm, cond)].update(s.fp_pairs)
+    out: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    for arm, cond in sorted(tot, key=lambda ac: (ARMS.index(ac[0]) if ac[0] in ARMS else 99, cond_order(ac[1]))):
+        by: dict[str, dict[str, int]] = defaultdict(dict)
+        for (cause, dom), v in sorted(tot[(arm, cond)].items()):
+            by[cause][dom] = v
+        out.setdefault(arm, {})[cond] = dict(by)
+    return out
 
 
 def _per_window(scores: Mapping[tuple[str, str, str], Score], windows: Sequence[WindowRun],

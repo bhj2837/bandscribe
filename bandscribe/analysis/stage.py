@@ -87,8 +87,15 @@ def mix_path(ctx: Any) -> Path:
 
 
 def beats_params(cfg: Any) -> dict[str, Any]:
+    """``beats`` stage params = key. Like the MuScriptor / Basic Pitch stages, the installed package version is
+    part of it (read from the gpu env's metadata, no import): a beat-this upgrade (its pre/postprocessing) must
+    recompute the beats rather than reuse them (review 2026-10-05; this changed every job's beats key once)."""
+    from bandscribe import paths
+    from bandscribe.amt.stage import dist_version
+
     g = _conf(cfg).grid  # grid.dbn = true never gets here: the config refuses it (needs madmom)
-    return {"checkpoint": str(g.checkpoint), "dbn": bool(g.dbn), "float16": False}
+    return {"checkpoint": str(g.checkpoint), "dbn": bool(g.dbn), "float16": False,
+            "beat_this_version": dist_version(paths.GPU_PYTHON, "beat-this")}
 
 
 def beats_model_name(cfg: Any) -> str:
@@ -135,6 +142,9 @@ def run_beats(ctx: Any) -> None:
                              f"자세한 내용: {out_dir / '_worker' / 'stderr.log'}")
     vram.write_gpu_run(out_dir, BEATS_BACKEND, labels, output, getattr(res, "waited_s", 0.0))
     BeatsRaw.model_validate(atomic.read_json(out_dir / "beats.json"))
+    warn = _notifier(ctx, "warning")  # the worker's Korean warnings reach the console (review 2026-10-05)
+    for w in output.get("warnings") or []:
+        warn(str(w))
 
 
 # ------------------------------------------------------------------------------------------------- grid

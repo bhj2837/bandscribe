@@ -40,10 +40,12 @@ insufficient_vram_policy = "wait"
 # recorded per stage in gpu_run.json instead).
 wait_poll_s = 30
 wait_max_s = 3600
+wait_total_max_s = 3600        # all the waiting of one GPU stage together (pre-checks + retries)
 max_worker_retries = 3         # worker answered insufficient_vram / every GPU rung failed -> wait and retry
 worker_headroom_mb = 256       # worker-side check: reserved peak + this <= mem_get_info free
 ctx_mb_default = 150           # CUDA context estimate until `bandscribe bench gpu` measures it (measured 79-91 MB)
 shared_growth_fail_mb = 64     # this pid's Shared Usage growth after model load = Sysmem Fallback [잠정]
+load_spill_fail_mb = 48        # its Shared Usage with the model resident - before the upload > this = spill at load [잠정]
 rtf_fail_ratio = 0.5           # slower than this x the benched realtime factor -> "slow" warning
 cpu_backends = ["beats_beatthis"]   # backends that may use a CPU rung, only under policy "cpu"
 

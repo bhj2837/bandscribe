@@ -123,6 +123,7 @@ class FakeMs:
         self.calls: list[dict] = []
         self.po_class = "synth_pad"
         self.gtr_bleed = False
+        self.warnings: list[str] = []  # the worker's own (Korean) warnings, as amt_muscriptor reports them
 
     def __call__(self, backend, labels, req, cfg, work_dir, notify=None):
         self.calls.append(json.loads(json.dumps(req, default=str)))
@@ -153,7 +154,7 @@ class FakeMs:
             doc["notes"] = notes
             atomic.write_json(Path(v["out"]), doc)
         out = {"status": "ok", "vram": {"rung_label": labels[0], "attempts": []},
-               "backend": {"device_used": "cuda", "model_sha256": "m" * 64}}
+               "backend": {"device_used": "cuda", "model_sha256": "m" * 64}, "warnings": list(self.warnings)}
         return SimpleNamespace(ok=True, output=out, waited_s=0.0, stderr_path=Path(work_dir) / "stderr.log")
 
 
@@ -506,9 +507,32 @@ def test_profiles_change_the_amt_ms1_key_params_and_fast_halves_the_budget():
         S.amt_ms1_params({"amt": {"presence_pass": "some"}})
 
 
+def test_muscriptor_stages_forward_the_workers_warnings(job, monkeypatch):
+    """Review 2026-10-05: amt_ms1 / amt_gtr ignored the worker's warnings (slow rung, a view that never emitted
+    EOS); they now go to the console through the stage notifier and stay in gpu_run.json for cached runs."""
+    monkeypatch.setattr(S, "bp310_python", lambda: job.root / "no-bp310" / "python.exe")
+    eos = "bass_mono: MuScriptor 가 2개 구간에서 끝 토큰(EOS) 없이 생성 한도에 닿았습니다(12, 40 s 부근). ..."
+    job.fake.warnings = [eos]
+    events: list[tuple[str, dict]] = []
+    out = job.store.job_dir(SONG) / "stages" / "amt_ms1" / "w"
+    ctx = _ctx(job, "amt_ms1", out, {k: job.deps[k] for k in ("stems", "grid", "sections")}, _cfg())
+    ctx.progress = lambda e, i: events.append((e, i))
+    S.STAGES["amt_ms1"]["run"](ctx)
+    assert ("warning", {"stage": "amt_ms1", "message": eos}) in events
+    assert json.loads((out / "gpu_run.json").read_text(encoding="utf-8"))["warnings"] == [eos]
+    # a rerun whose views all come from the transcription cache has no worker, hence nothing to forward
+    events.clear()
+    out2 = job.store.job_dir(SONG) / "stages" / "amt_ms1" / "w2"
+    ctx = _ctx(job, "amt_ms1", out2, {k: job.deps[k] for k in ("stems", "grid", "sections")}, _cfg())
+    ctx.progress = lambda e, i: events.append((e, i))
+    S.STAGES["amt_ms1"]["run"](ctx)
+    assert not [e for e in events if e[0] == "warning"]
+    assert json.loads((out2 / "gpu_run.json").read_text(encoding="utf-8"))["warnings"] == []
+
+
 def test_stage_code_versions_were_bumped_for_the_profile_change():
     assert {n: S.STAGES[n]["code_version"] for n in ("amt_ms1", "instr", "amt_gtr", "s35", "notes")} == {
-        "amt_ms1": "3", "instr": "4", "amt_gtr": "2", "s35": "4", "notes": "3"}
+        "amt_ms1": "3", "instr": "4", "amt_gtr": "2", "s35": "4", "notes": "4"}
 
 
 def test_load_presence_falls_back_to_an_m2_full_pass(tmp_path):

@@ -57,10 +57,12 @@ GPU_DEFAULTS: dict[str, Any] = {
     "gpu.vram_margin_gb": 0.7,
     "gpu.wait_poll_s": 30.0,
     "gpu.wait_max_s": 3600.0,
+    "gpu.wait_total_max_s": 3600.0,
     "gpu.max_worker_retries": 3,
     "gpu.worker_headroom_mb": 256.0,
     "gpu.ctx_mb_default": 150.0,
     "gpu.shared_growth_fail_mb": 64.0,
+    "gpu.load_spill_fail_mb": 48.0,
     "gpu.rtf_fail_ratio": 0.5,
     "gpu.cpu_backends": ["beats_beatthis"],
     "gpu.worker_timeout_s": 7200.0,
@@ -270,14 +272,21 @@ def cpu_allowed(backend: str, cfg: Any) -> bool:
     return _policy(cfg) == "cpu" and backend in list(cfg_get(cfg, "gpu.cpu_backends") or [])
 
 
+WAIT_NOTICE_EVERY_S = 300.0  # while waiting for VRAM, say so again this often (a silent wait looks like a hang)
+
+
 def wait_for_budget(backend: str, labels: list[str], cfg: Any, *, clock: Callable[[], float] = time.monotonic,
                     sleep: Callable[[float], None] = time.sleep, notify: Callable[[str], None] | None = None,
                     snap_fn: Callable[[], GpuSnapshot | None] | None = None,
-                    needs: Mapping[str, RungNeed] | None = None) -> tuple[int | None, float]:
+                    needs: Mapping[str, RungNeed] | None = None, max_wait_s: float | None = None,
+                    elapsed0: float = 0.0, total_max_s: float | None = None) -> tuple[int | None, float]:
     """(first GPU rung that fits | None = use the CPU rung, waited_s).
 
-    policy "wait": poll every ``gpu.wait_poll_s`` up to ``gpu.wait_max_s``, then VramInsufficient;
-    "error": raise at once; "cpu": return None iff backend in ``gpu.cpu_backends``, else behave like "wait".
+    policy "wait": poll every ``gpu.wait_poll_s`` up to ``gpu.wait_max_s`` (``max_wait_s``: the caller's
+    smaller remainder of ``gpu.wait_total_max_s``), then VramInsufficient; "error": raise at once; "cpu":
+    return None iff backend in ``gpu.cpu_backends``, else behave like "wait". While waiting, ``notify`` gets the
+    Korean reason once and a "still waiting" line every ``WAIT_NOTICE_EVERY_S``; ``elapsed0`` (time this stage
+    already waited) and ``total_max_s`` only shape those messages.
     Without NVML the check cannot be made: returns (0, 0) and the worker's own check decides.
     """
     snap_fn = snapshot if snap_fn is None else snap_fn
@@ -285,12 +294,13 @@ def wait_for_budget(backend: str, labels: list[str], cfg: Any, *, clock: Callabl
         needs = load_table(ctx_default_mb=float(cfg_get(cfg, "gpu.ctx_mb_default"))).get(backend, {})
     margin = float(cfg_get(cfg, "gpu.vram_margin_gb")) * 1024.0
     poll = max(0.0, float(cfg_get(cfg, "gpu.wait_poll_s")))
-    max_wait = float(cfg_get(cfg, "gpu.wait_max_s"))
+    max_wait = float(cfg_get(cfg, "gpu.wait_max_s")) if max_wait_s is None else max(0.0, float(max_wait_s))
     policy = _policy(cfg)
     smallest = min((orchestrator_need_mb(needs[lab]) for lab in labels if lab in needs), default=None)
 
     t0 = clock()
     announced = False
+    next_notice = WAIT_NOTICE_EVERY_S
     while True:
         snap = snap_fn()
         waited = clock() - t0
@@ -315,15 +325,30 @@ def wait_for_budget(backend: str, labels: list[str], cfg: Any, *, clock: Callabl
                 notify(f"VRAM 부족({backend}): 필요 약 {_gb(smallest or 0)}, 여유 {_gb(budget)}. CPU로 실행합니다(느림).")
             return None, waited
         if waited >= max_wait:
-            raise VramInsufficient(backend, smallest, snap.free_mb, snap.processes,
-                                   reason=f"{max_wait / 60:.0f}분 기다려도 여유가 생기지 않았습니다.")
-        if not announced:  # say it once; the wait itself can take minutes
+            total = elapsed0 + waited
+            if total_max_s is not None and total >= total_max_s - 1e-9:
+                reason = (f"이 단계에서 모두 {total / 60:.0f}분 기다려도 여유가 생기지 않았습니다"
+                          f"(최대 {total_max_s / 60:.0f}분, gpu.wait_total_max_s).")
+            else:
+                reason = f"{max_wait / 60:.0f}분 기다려도 여유가 생기지 않았습니다."
+            raise VramInsufficient(backend, smallest, snap.free_mb, snap.processes, reason=reason)
+        if not announced:  # say it once in full; the wait itself can take minutes
             msg = (f"VRAM 부족: 필요 약 {_gb(smallest or 0)}, 여유 {_gb(max(budget, 0.0))} "
                    f"(다른 GPU 사용 프로그램: {_proc_names(snap.processes)}). 앱을 닫으면 이어서 진행합니다. 대기 중...")
             log.warning(msg)
             if notify is not None:
                 notify(msg)
             announced = True
+        elif waited >= next_notice:  # ... and then every few minutes, so a long wait never looks like a hang
+            limit = total_max_s if total_max_s is not None else elapsed0 + max_wait
+            msg = (f"아직 VRAM 여유를 기다리는 중입니다({backend}): {(elapsed0 + waited) / 60:.0f}분째, "
+                   f"최대 {limit / 60:.0f}분. 필요 약 {_gb(smallest or 0)}, 여유 {_gb(max(budget, 0.0))} "
+                   f"(다른 GPU 사용 프로그램: {_proc_names(snap.processes)}).")
+            log.warning(msg)
+            if notify is not None:
+                notify(msg)
+            while next_notice <= waited:
+                next_notice += WAIT_NOTICE_EVERY_S
         # A zero poll interval (tests) must still make progress on the clock: never sleep past the deadline.
         sleep(min(poll, max(0.0, max_wait - waited)) if poll > 0 else 0.0)
 
@@ -362,6 +387,7 @@ def build_vram_request(backend: str, labels: list[str], cfg: Any, *, force_rung:
         "need_table": {lab: {"reserved_peak_mb": needs[lab].reserved_peak_mb, "ctx_mb": needs[lab].ctx_mb}
                        for lab in labels if lab in needs},
         "shared_growth_fail_mb": float(cfg_get(cfg, "gpu.shared_growth_fail_mb")),
+        "load_spill_fail_mb": float(cfg_get(cfg, "gpu.load_spill_fail_mb")),
         "rtf_ref": rtf_refs(backend, labels),
         "rtf_fail_ratio": float(cfg_get(cfg, "gpu.rtf_fail_ratio")),
         "cap_mb": cap_mb,
@@ -382,7 +408,9 @@ def run_gpu_stage(backend: str, labels: list[str], request: dict, cfg: Any, work
     spent waiting for VRAM) attached as an attribute for ``write_gpu_run``.
     check=True raises GpuWorkerFailed for a failed worker (``ok=False`` or a dirty lock release); after
     ``gpu.max_worker_retries`` ``insufficient_vram`` answers (or at once under policy ``error``) raises
-    VramInsufficient.
+    VramInsufficient. All the waiting together (pre-checks and retry pauses) is bounded by
+    ``gpu.wait_total_max_s``: each pre-check gets only what is left of it (review 2026-10-05; before, every
+    pre-check could wait the full ``gpu.wait_max_s``, about 4 h in all with the default 3 retries).
     """
     if run_worker is None:
         from bandscribe import gpu
@@ -398,6 +426,8 @@ def run_gpu_stage(backend: str, labels: list[str], request: dict, cfg: Any, work
     needs = load_table(ctx_default_mb=float(cfg_get(cfg, "gpu.ctx_mb_default"))).get(backend, {})
     max_retries = int(cfg_get(cfg, "gpu.max_worker_retries"))
     poll = max(0.0, float(cfg_get(cfg, "gpu.wait_poll_s")))
+    wait_max = float(cfg_get(cfg, "gpu.wait_max_s"))
+    total_max = float(cfg_get(cfg, "gpu.wait_total_max_s"))
     policy = _policy(cfg)
     precheck = bool(vram.get("precheck", True))
 
@@ -407,7 +437,9 @@ def run_gpu_stage(backend: str, labels: list[str], request: dict, cfg: Any, work
         idx: int | None = 0
         if precheck and (not force or force in needs):
             idx, waited = wait_for_budget(backend, check_labels, cfg, clock=clock, sleep=sleep, notify=notify,
-                                          snap_fn=snap_fn, needs=needs)
+                                          snap_fn=snap_fn, needs=needs,
+                                          max_wait_s=min(wait_max, max(0.0, total_max - waited_total)),
+                                          elapsed0=waited_total, total_max_s=total_max)
             waited_total += waited
         attempt_req = copy.deepcopy(req)
         if idx is None:  # policy "cpu" and a CPU-capable backend: skip the CUDA context entirely
@@ -433,6 +465,11 @@ def run_gpu_stage(backend: str, labels: list[str], request: dict, cfg: Any, work
                 snap = (snap_fn or snapshot)()
                 raise VramInsufficient(backend, smallest, free, snap.processes if snap else [],
                                        reason=f"워커가 VRAM 부족을 {retries}번 알렸습니다.")
+            if waited_total + poll > total_max + 1e-9:
+                snap = (snap_fn or snapshot)()
+                raise VramInsufficient(backend, smallest, free, snap.processes if snap else [],
+                                       reason=f"워커가 VRAM 부족을 {retries}번 알렸고, 이 단계에서 기다린 시간이 모두 합쳐 "
+                                              f"{total_max / 60:.0f}분(gpu.wait_total_max_s)을 넘게 됩니다.")
             if notify is not None:
                 notify(f"워커가 VRAM 부족을 알렸습니다({backend}, 여유 {_gb(free or 0)}). "
                        f"{poll:.0f}초 뒤 다시 시도합니다({retries}/{max_retries}).")
@@ -455,7 +492,9 @@ def write_gpu_run(out_dir: Path, backend: str, labels: list[str], worker_output:
     """Record the rung actually used at the stage root (M1_M2_SPEC 3.1). Returns the written dict.
 
     ``degraded`` = a lower rung than the top of the configured ladder, or the CPU. The runner warns about
-    cached degraded results; experiments record the rung in their metric rows instead.
+    cached degraded results; experiments record the rung in their metric rows instead. ``slow`` (an attempt
+    ran slower than its benched realtime factor) and the worker's Korean ``warnings`` are kept too, so a run
+    that reuses this stage from the cache can still show them (review 2026-10-05).
     """
     vr = worker_output.get("vram") or {}
     label = vr.get("rung_label")
@@ -477,6 +516,8 @@ def write_gpu_run(out_dir: Path, backend: str, labels: list[str], worker_output:
         "rung": {"index": index, "label": label, "device": device},
         "degraded": bool(index > 0 or device == "cpu"),
         "waited_s": round(float(waited_s or 0.0), 3),
+        "slow": any(bool(a.get("slow")) for a in vr.get("attempts") or [] if isinstance(a, Mapping)),
+        "warnings": [str(w) for w in worker_output.get("warnings") or []],
     }
     atomic.write_json(Path(out_dir) / GPU_RUN_FILE, doc)
     return doc

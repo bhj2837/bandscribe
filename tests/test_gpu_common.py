@@ -388,3 +388,180 @@ def test_cap_makes_large_allocation_oom_then_smaller_fits() -> None:
     """)
     assert out["res"] == "small" and out["status"] == ["oom", "ok"]
     assert out["reserved"][1] is not None and out["reserved"][1] < 700
+
+
+# ------------------------------------------------------------------- load-time spill, slow after a spill
+
+
+class LevelSampler:
+    """A sampler whose shared usage the test sets (``level``); marks are stored like ResourceSampler's."""
+
+    def __init__(self, level: float | None = 66.0) -> None:
+        self.level = level
+        self.marks: dict[str, dict[str, Any]] = {}
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"pdh_self_shared_mb": self.level, "pdh_adapter_shared_mb": 100.0, "nvml_used_mb": 3000.0}
+
+    def mark(self, label: str) -> dict[str, Any]:
+        e = {"t_s": 0.0, **self.snapshot()}
+        self.marks[label] = e
+        return dict(e)
+
+
+def _armed(s: LevelSampler, loaded: float, **kw: Any) -> Watchdog:
+    s.mark(gpu_common.PRE_LOAD)
+    s.level = loaded
+    s.mark(base.MODEL_LOADED)
+    wd = Watchdog(s, shared_growth_fail_mb=64, rtf_ref=None, rtf_fail_ratio=0.5, audio_s_total=100, **kw)
+    wd.arm()
+    return wd
+
+
+def test_load_time_spill_fails_the_rung() -> None:
+    """Bench 2026-09-30 17:58/18:01: 130-136 MB shared at model_loaded vs 66 MB after the CUDA context; the growth
+    check (from model_loaded on) saw nothing, so a spilled rung was accepted at a fraction of its speed."""
+    with pytest.raises(SharedGrowth, match="load time"):
+        _armed(LevelSampler(66.0), 136.0, load_spill_fail_mb=48)
+    # normal loads stage a few MB through shared memory; MuScriptor's upstream loader +32 MB (bench 2026-10-03)
+    assert _armed(LevelSampler(66.0), 68.0, load_spill_fail_mb=48).load_growth_mb == 2.0
+    assert _armed(LevelSampler(66.0), 98.0, load_spill_fail_mb=48).load_growth_mb == 32.0
+    # off (None / 0), no PDH, a fake sampler without dict marks, or no reference mark: never fails
+    assert _armed(LevelSampler(66.0), 200.0).load_growth_mb is None
+    assert _armed(LevelSampler(66.0), 200.0, load_spill_fail_mb=0).load_growth_mb is None
+    assert _armed(LevelSampler(None), None, load_spill_fail_mb=48).load_growth_mb is None
+    wd = Watchdog(FakeSampler([_r(500.0)]), shared_growth_fail_mb=64, rtf_ref=None, rtf_fail_ratio=0.5,
+                  audio_s_total=10, load_spill_fail_mb=48)
+    wd.arm()
+    assert wd.load_growth_mb is None
+    s = LevelSampler(66.0)
+    s.mark("cuda_ctx")  # without pre_load the CUDA-context mark is the reference
+    s.level = 140.0
+    with pytest.raises(SharedGrowth):
+        Watchdog(s, shared_growth_fail_mb=64, rtf_ref=None, rtf_fail_ratio=0.5, audio_s_total=10,
+                 load_spill_fail_mb=48).arm()
+    # a stale 0 MB reading (bench 2026-09-30 17:49: cuda_ctx 0.0, model_loaded 66 with nothing spilled) is never
+    # the reference: the other mark is used, and with no non-zero reference there is no check at all
+    s = LevelSampler(0.0)
+    s.mark(gpu_common.PRE_LOAD)
+    s.marks["cuda_ctx"] = {"pdh_self_shared_mb": 64.0}
+    s.level = 66.0
+    wd = Watchdog(s, shared_growth_fail_mb=64, rtf_ref=None, rtf_fail_ratio=0.5, audio_s_total=10,
+                  load_spill_fail_mb=48)
+    wd.arm()
+    assert wd.load_growth_mb == 2.0
+    s = LevelSampler(0.0)
+    s.mark("cuda_ctx")
+    s.level = 66.0
+    wd = Watchdog(s, shared_growth_fail_mb=64, rtf_ref=None, rtf_fail_ratio=0.5, audio_s_total=10,
+                  load_spill_fail_mb=48)
+    wd.arm()
+    assert wd.load_growth_mb is None
+
+
+def test_spill_during_load_steps_down_and_a_spilled_gpu_answers_insufficient() -> None:
+    """Through the ladder: every GPU rung whose load leaves the shared usage up fails; with no CPU rung the worker
+    answers insufficient_vram (the stage waits and retries) instead of accepting a spilled, 4-6x slower rung."""
+    s = LevelSampler(66.0)
+
+    def attempt(rung: dict, wd: Watchdog) -> str:
+        s.level = 136.0  # the upload spilled (and stays spilled: the other app still holds the VRAM)
+        s.mark(base.MODEL_LOADED)
+        wd.arm()
+        wd.check(10.0)
+        return rung["label"]
+
+    res, attempts = run_ladder(RUNGS, attempt, sampler=s, req=_req(load_spill_fail_mb=48), audio_s_total=10.0,
+                               mem_info=lambda: (5000.0, 6144.0), cuda_available=lambda: True)
+    assert res is None and [a.status for a in attempts] == ["shared_growth"] * 3
+    assert [a.load_growth_mb for a in attempts] == [70.0] * 3 and "load time" in (attempts[0].error or "")
+    assert s.marks[gpu_common.PRE_LOAD]["pdh_self_shared_mb"] == 66.0  # taken once, before the first upload
+    # the same ladder with a clean load succeeds at once
+    s2 = LevelSampler(66.0)
+
+    def clean(rung: dict, wd: Watchdog) -> str:
+        s2.level = 68.0
+        s2.mark(base.MODEL_LOADED)
+        wd.arm()
+        return rung["label"]
+
+    res, attempts = run_ladder(RUNGS, clean, sampler=s2, req=_req(load_spill_fail_mb=48), audio_s_total=10.0,
+                               mem_info=lambda: (5000.0, 6144.0), cuda_available=lambda: True)
+    assert res == "chunk=588800" and attempts[0].load_growth_mb == 2.0
+
+
+def test_slow_after_a_spill_is_a_failure_unless_the_backend_says_otherwise() -> None:
+    clk = Clock()
+
+    def slow_run(**kw: Any) -> Watchdog:
+        wd = Watchdog(FakeSampler([_r(50.0)]), shared_growth_fail_mb=64, rtf_ref=6.0, rtf_fail_ratio=0.5,
+                      audio_s_total=100, clock=clk, **kw)
+        wd.arm()
+        clk.t = 0.0
+        wd.check(5)
+        clk.t = 40.0
+        wd.check(20)  # 0.375x vs 6x reference
+        return wd
+
+    assert slow_run().slow  # PDH readable, no spill above: contention, a warning only
+    with pytest.raises(SharedGrowth, match="spilled"):
+        slow_run(slow_is_failure=True)
+    assert slow_run(slow_is_failure=True, slow_can_fail=False).slow  # MuScriptor: never fatal
+    # MuScriptor without PDH: slow is not "degraded detection" failure either (only recorded)
+    clk.t = 0.0
+    wd = Watchdog(FakeSampler([_r(None, adapter=None)]), shared_growth_fail_mb=64, rtf_ref=6.0, rtf_fail_ratio=0.5,
+                  audio_s_total=100, clock=clk, slow_can_fail=False)
+    wd.arm()
+    wd.check(1)
+    clk.t = 40.0
+    wd.check(20)
+    assert wd.slow and wd.degraded_detection
+
+
+def test_ladder_passes_the_spill_and_backend_flags_to_each_rung(monkeypatch: pytest.MonkeyPatch) -> None:
+    made: list[dict[str, Any]] = []
+
+    class Rec(Watchdog):
+        def __init__(self, *a: Any, **kw: Any) -> None:
+            made.append(kw)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(gpu_common, "Watchdog", Rec)
+    res, _attempts = _ladder(_req(load_spill_fail_mb=48), {"chunk=588800": SharedGrowth("spill")})
+    assert res == "chunk=352256"
+    assert [m["slow_is_failure"] for m in made] == [False, True]  # the rung below a spill may not be slow
+    assert all(m["load_spill_fail_mb"] == 48.0 and m["slow_can_fail"] is True for m in made)
+    made.clear()
+    _ladder(_req(), {"chunk=588800": RuntimeError("CUDA out of memory")})
+    assert [m["slow_is_failure"] for m in made] == [False, False]  # an OOM is no spill
+    assert all(m["load_spill_fail_mb"] is None for m in made)  # an old request without the key: no load check
+    made.clear()
+    run_ladder(RUNGS, lambda r, wd: r["label"], sampler=FakeSampler([_r(1.0)]), req=_req(), audio_s_total=1.0,
+               mem_info=lambda: (5000.0, 6144.0), cuda_available=lambda: True, slow_can_fail=False)
+    assert made[0]["slow_can_fail"] is False
+
+
+def test_vram_request_carries_the_load_spill_threshold() -> None:
+    from bandscribe import vram
+
+    assert vram.build_vram_request("sep_msst", ["chunk=588800"], None)["load_spill_fail_mb"] == 48.0
+    assert vram.build_vram_request("sep_msst", ["chunk=588800"], {"gpu": {"load_spill_fail_mb": 0}})[
+        "load_spill_fail_mb"] == 0.0
+
+
+def test_sampler_wait_for_sample() -> None:
+    s = base.ResourceSampler(pid=1, interval_s=0.01)
+    assert s.wait_for_sample() is False  # not running: never blocks
+    s.start()
+    try:
+        assert s.wait_for_sample(n=2, timeout_s=10.0) is True
+    finally:
+        s.stop()
+
+
+def test_muscriptor_eos_warning_is_one_korean_line_per_view() -> None:
+    from bandscribe.workers import amt_muscriptor as W
+
+    msg = W.eos_warning("bass_mono", [12.04, 3.5, None, 40.0, 41.0, 42.0, 43.0])
+    assert msg.startswith("bass_mono: MuScriptor 가 7개 구간에서 끝 토큰(EOS)") and "(4, 12, 40, 41, 42 ... s 부근)" in msg
+    assert "부근" not in W.eos_warning("g", [None])

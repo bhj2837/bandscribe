@@ -57,6 +57,35 @@ def sep_value(cfg: Any, key: str) -> Any:
     return vram.cfg_get(cfg, key, SEP_DEFAULTS[key])
 
 
+# The separation worker holds the whole song in RAM (DESIGN 9.5: 16 GB PC, the commit limit has run out before):
+# the mix, its padded working copy, the six-stem overlap-add buffer and the counter. Measured 2026-10-05 on a
+# synthetic 10-min stereo input with the identity model (CPU): peak working set 9.1 x the float32 mix above the
+# interpreter's own (2.3 GB in all). BASE covers torch, the CUDA runtime and the model on its way to the GPU
+# (rough). Long inputs get a Korean warning in `bandscribe run` / `bandscribe ingest`.
+LONG_INPUT_WARN_S = 15 * 60
+SEP_RAM_BASE_GB = 1.5
+SEP_RAM_PER_MIX = 9.5
+_MIX_BYTES_PER_S = 44100 * 2 * 4  # 44.1 kHz stereo float32 (mix_44k_f32.wav)
+
+
+def sep_ram_estimate_gb(duration_s: float) -> float:
+    """Approximate peak RAM of the separation worker for a song of ``duration_s`` seconds (GB)."""
+    return SEP_RAM_BASE_GB + SEP_RAM_PER_MIX * float(duration_s) * _MIX_BYTES_PER_S / 2**30
+
+
+def long_input_warning(duration_s: Any) -> str | None:
+    """Korean warning for inputs longer than 15 minutes, with the separation worker's RAM estimate (or None)."""
+    try:
+        d = float(duration_s)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(d) or d <= LONG_INPUT_WARN_S:
+        return None
+    return (f"입력이 {d / 60:.0f}분으로 깁니다({LONG_INPUT_WARN_S // 60}분 초과). 분리 단계(sep)는 곡 전체를 RAM 에 올려 "
+            f"약 {sep_ram_estimate_gb(d):.1f} GB 를 씁니다(곡 길이에 비례, 4분 곡은 약 {sep_ram_estimate_gb(240):.1f} GB). "
+            "메모리가 모자라면 브라우저·게임 같은 큰 앱을 닫거나, 곡을 나눠서 넣으세요.")
+
+
 def rung_labels(ladder: list[int]) -> list[str]:
     """GPU rung labels in ladder order (the worker adds ``chunk=<smallest>@cpu`` only if CPU is allowed)."""
     return [f"chunk={int(c)}" for c in ladder]

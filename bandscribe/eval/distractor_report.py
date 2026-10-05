@@ -83,6 +83,33 @@ def _top_causes(causes: Mapping[str, Mapping[str, Any]], prefix: str, n: int = 3
     return ", ".join(f"{cause_ko(k)} {_f(v, 1, signed=True)}" for k, v in items[:n]) or "–"
 
 
+_GUITAR_FIRST = ("guitar_timing", "guitar_octave", "guitar_near", "guitar_unref")
+
+
+def cause_vs_dominant_rows(cvd: Mapping[str, Any]) -> list[tuple[str, str, str, dict[str, int]]]:
+    """(arm, condition, cause, {dominant sound: count}) rows of ``summary["fp_cause_vs_dominant"]``.
+
+    Current layout ``{arm: {condition: {cause: {dominant: n}}}}``; summaries written before 2026-10-05 hold one
+    table pooled over every condition of the production arm (``{cause: {dominant: n}}``), shown as arm
+    ``production``, condition ``*``."""
+    def is_counts(d: Any) -> bool:
+        return isinstance(d, Mapping) and all(isinstance(v, (int, float)) for v in d.values())
+
+    if cvd and all(is_counts(v) for v in cvd.values()):  # the old pooled layout
+        cvd = {"production": {"*": dict(cvd)}}
+    from bandscribe.eval.distractors import cond_order
+
+    out = []
+    for arm in sorted(cvd, key=lambda a: (a != "production", a)):
+        for cond in sorted(cvd[arm], key=cond_order):
+            by = cvd[arm][cond] or {}
+            for cause in sorted(by, key=lambda k: (k not in _GUITAR_FIRST, _GUITAR_FIRST.index(k)
+                                                   if k in _GUITAR_FIRST else 0, k)):
+                if any(by[cause].values()):
+                    out.append((arm, cond, cause, dict(by[cause])))
+    return out
+
+
 def sections(s: Mapping[str, Any]) -> list[tuple[str, str, list[str], list[list[str]]]]:
     """(title, intro, headers, rows) per report table."""
     out: list[tuple[str, str, list[str], list[list[str]]]] = []
@@ -167,12 +194,15 @@ def sections(s: Mapping[str, Any]) -> list[tuple[str, str, list[str], list[list[
     out.append(("FN 원인표 (조건 × 원인, 놓친 음/분)", "놓친 기준 음마다: 추정 음과의 관계, 아니면 그 음의 대역을 가린 가장 센 "
                 "비기타 소리(기타보다 6 dB 이상 약하면 '가림 없이 놓침').", ["조건"] + [cause_ko(k) for k in causes], rows))
 
-    cvd = s.get("fp_cause_vs_dominant") or {}
-    doms = sorted({k for d in cvd.values() for k in d})
-    rows = [[cause_ko(c)] + [str(cvd[c].get(d, "")) for d in doms] for c in sorted(cvd)]
-    out.append(("FP 원인 라벨 × 대역 에너지 1위 소리 (모든 조건, 개수)",
-                "원인 라벨이 '기타 자신'이어도 그 음높이 대역을 실제로 가장 크게 울린 소리가 무엇이었는지 보여 준다.",
-                ["원인 라벨"] + [cause_ko(d) for d in doms], rows))
+    cvd = cause_vs_dominant_rows(s.get("fp_cause_vs_dominant") or {})
+    doms = sorted({d for _a, _c, _k, row in cvd for d in row})
+    rows = [[a, cond_ko(c), cause_ko(k)] + [str(row.get(d, "")) for d in doms] for a, c, k, row in cvd]
+    out.append(("FP 원인 라벨 × 대역 에너지 1위 소리 (경로·조건별, 개수)",
+                "원인 라벨이 '기타 자신'이어도 그 음높이 대역을 실제로 가장 크게 울린 소리가 무엇이었는지 조건과 경로마다 "
+                "보여 준다. 주의: '기타 자신: 타이밍·중복'(같은 음높이 참조 음이 200 ms 안)은 대역 1위 소리를 보기 전에 "
+                "붙는 라벨이다. 그래서 이 라벨의 FP 라도 1위가 방해 소리면, 기타 자신의 분할이 아니라 그 소리가 같은 "
+                "음높이에서 다시 잡히게 만든 것일 수 있다(어느 쪽인지 이 측정으로는 가를 수 없다).",
+                ["경로", "조건", "원인 라벨"] + [cause_ko(d) for d in doms], rows))
 
     rows = []
     for w in s.get("per_window") or []:

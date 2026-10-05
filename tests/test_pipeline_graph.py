@@ -87,7 +87,12 @@ def test_grid_stages_are_registered():
     assert stage.STAGES["beats"]["device"] == "gpu"
     assert all(stage.STAGES[n]["device"] == "cpu" for n in ("grid", "sections", "vocal", "resid1"))
     assert all(stage.STAGES[n]["models"](None) == {} for n in ("grid", "sections", "vocal", "resid1"))
-    assert stage.beats_params(None) == {"checkpoint": "final0", "dbn": False, "float16": False}
+    from bandscribe import paths
+    from bandscribe.amt.stage import dist_version
+
+    # the installed beat-this version is part of the key, like muscriptor / basic-pitch (review 2026-10-05)
+    assert stage.beats_params(None) == {"checkpoint": "final0", "dbn": False, "float16": False,
+                                        "beat_this_version": dist_version(paths.GPU_PYTHON, "beat-this")}
     assert stage.beats_model_name(None) == "beat_this.final0"
     with pytest.raises(ValueError, match="madmom"):  # refused by the config itself
         stage.beats_params({"grid": {"dbn": True}})
@@ -96,6 +101,27 @@ def test_grid_stages_are_registered():
                                            "align_max_offset_ms": 50.0}
     assert stage.vocal_params(None) == {"vocal_active_rel_db": -30.0}
     assert stage.resid1_params(None) == {"resid_min_occurrences": 3}
+
+
+def test_beats_key_follows_the_installed_beat_this_version(monkeypatch, tmp_path):
+    """A beat-this upgrade in the gpu env changes the beats params (and so every downstream key) instead of
+    silently reusing beats made by the old version; an absent env reads as None (plan still works)."""
+    from bandscribe import paths
+    from bandscribe.analysis import stage
+
+    site = tmp_path / "Lib" / "site-packages"
+    for v in ("1.1.0", "1.2.0"):
+        for old in site.glob("beat_this-*.dist-info"):
+            for f in old.iterdir():
+                f.unlink()
+            old.rmdir()
+        info = site / f"beat_this-{v}.dist-info"
+        info.mkdir(parents=True)
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: beat_this\nVersion: {v}\n", encoding="utf-8")
+        monkeypatch.setattr(paths, "GPU_PYTHON", tmp_path / "Scripts" / "python.exe")
+        assert stage.beats_params(None)["beat_this_version"] == v
+    monkeypatch.setattr(paths, "GPU_PYTHON", tmp_path / "nowhere" / "Scripts" / "python.exe")
+    assert stage.beats_params(None)["beat_this_version"] is None
 
 
 def test_grid_params_come_from_the_validated_config():

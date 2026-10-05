@@ -296,6 +296,9 @@ root = "data/datasets"
 (worker-side check, §8.1), `ctx_mb_default = 150` (CUDA context estimate until the bench measures it; was 500
 **[잠정]**, lowered 2026-10-03 after workers measured 71–101 MB),
 `shared_growth_fail_mb = 64` (**[잠정]**; calibrated from fallback-off bench runs, §9.1), `rtf_fail_ratio = 0.5`,
+`load_spill_fail_mb = 48` (**[잠정]**, 2026-10-05 review: this pid's shared usage with the model resident minus
+before the upload; above it the rung failed at load time, §8.2; 0 = off), `wait_total_max_s = 3600` (2026-10-05: all
+the waiting of one GPU stage together, pre-checks + retry pauses; each pre-check gets only what is left of it),
 `cpu_backends = ["beats_beatthis"]` (backends that may use a CPU rung, and only under policy `"cpu"`; DESIGN §12
 "작은 모델만 CPU"). Existing `vram_margin_gb` (0.7) is redefined as headroom for *other apps' fluctuation and
 fragmentation only* — the CUDA context is counted separately (§8.1); `target_reserved_gb`,
@@ -303,7 +306,8 @@ fragmentation only* — the CUDA context is counted separately (§8.1); `target_
 is recorded per stage instead (§3.1 `gpu_run.json`).
 Config validation (P0): `grid.dbn = true` → ConfigError `"grid.dbn=true 는 madmom 이 필요해 지원하지 않습니다"`;
 `amt.dtype`/`sep.dtype` accept only `upstream|fp16`; `sep.input_lufs` is `"off"` or a float in [−30, −6];
-`amt.bp_min_note_frames` int in [1, 30].
+`amt.bp_min_note_frames` int in [1, 30] and below 12 (12 = the upstream 127.7 ms default; 13+ deletes even more
+short notes; refused since the 2026-10-05 review, the worker refuses >= 12 too unless `allow_default_min_len`).
 
 ### 1.4 `bandscribe/audio.py` (importable in all three envs: stdlib + numpy + soundfile, Python-3.10-safe)
 
@@ -851,7 +855,7 @@ Request:
  "vram": {"policy": "wait|error|cpu", "cpu_allowed": false, "precheck": true,
           "worker_headroom_mb": 256,
           "need_table": {"<rung label>": {"reserved_peak_mb": 1800, "ctx_mb": 500}},
-          "shared_growth_fail_mb": 64, "rtf_ref": {"<rung label>": 6.0} , "rtf_fail_ratio": 0.5,
+          "shared_growth_fail_mb": 64, "load_spill_fail_mb": 48, "rtf_ref": {"<rung label>": 6.0} , "rtf_fail_ratio": 0.5,
           "cap_mb": null, "force_rung": null},
  "determinism": true}
 ```
@@ -954,8 +958,9 @@ NoteSets); model output (`note`, `onset`, `contour` arrays) optionally cached as
 sha12>.npz`. (2) `note_creation.model_output_to_notes(output, onset_thresh, frame_thresh, infer_onsets=True,
 min_note_len=min_note_frames − 1, min_freq, max_freq, include_pitch_bends=True, multiple_pitch_bends,
 melodia_trick)` — **frames are passed directly** (Basic Pitch drops notes with length ≤ `min_note_len`, so
-`min_note_frames` is the shortest note kept; §1.3). The worker **rejects** `min_note_frames == 12` (the upstream
-127.7 ms default) unless `"allow_default_min_len": true` (DESIGN §9.7 test; E23's 12-frame arm sets it).
+`min_note_frames` is the shortest note kept; §1.3). The worker **rejects** `min_note_frames >= 12` (12 = the upstream
+127.7 ms default; more deletes more; `>= 12` since the 2026-10-05 review) unless `"allow_default_min_len": true`
+(DESIGN §9.7 test; E23's 12-frame arm sets it).
 `sweep` (E23): step 1 per view (cached), then step 2 for every entry of `settings`, writing
 `<out stem>__s<k>.json` per setting — 72 settings cost one model pass per track.
 Note events → NoteSet with `amplitude` and `bend` (Basic Pitch bends are per-frame bin offsets of 1/3 semitone at
@@ -1043,6 +1048,12 @@ class Watchdog:                              # called by the worker between chun
         # slow (rtf < rtf_fail_ratio × rtf_ref, evaluated after >= 10 % done) is a WARNING flag on the attempt,
         #   unless PDH self counters are unavailable in this worker — then slow alone raises SharedGrowth
         #   ("degraded detection", recorded), because the spill cannot be seen directly.
+        # 2026-10-05 review additions: arm() also checks the LOAD (this pid's shared usage at model_loaded minus
+        #   the `pre_load` mark taken before the first upload > vram.load_spill_fail_mb, 48 [잠정] -> SharedGrowth:
+        #   bench 2026-09-30 accepted a rung whose model had spilled while loading, 130-136 vs 66 MB). On a rung
+        #   below one that failed with SharedGrowth, slow raises too (the spill continuing, not contention), so
+        #   the stage waits instead of accepting it. run_ladder(slow_can_fail=False) (amt_muscriptor: decode
+        #   speed depends on note density) keeps slow a warning in every case.
 def run_ladder(rungs: list[dict], attempt: Callable[[dict, Watchdog], T], *, sampler, req) -> tuple[T | None, list[Attempt]]
     # rung dict: {"label","device","params"}. GPU rungs over the worker-side need are recorded skipped_budget
     # (unless req.vram.precheck is false). On torch.OutOfMemoryError / SharedGrowth: record, free (del + gc +
@@ -1635,7 +1646,7 @@ backend. The ids below are the `## <id>` headings in `docs/decisions.md` and the
 | a6 | 모든 음을 한 Line에 넣으면 다수 클래스 기준선과 같다 | `... -k majority` |
 | a7 | 템포를 흔든 합성 연주에서 격자 오류가 음표 지표에 새지 않는다 | `... -k grid_leak` |
 | a8 | 정렬 도구: 템포를 알려진 방식으로 흔든 합성 렌더에서 DTW가 다운비트의 95 % 이상을 ±70 ms 안으로 복원 | `pytest -m slow tests/test_eval_align.py -q` (prints ratio) |
-| a9 | 부트스트랩 CI가 나오고, CPU 단계를 두 번 실행한 결과가 byte 단위로 같다 | `bandscribe eval run --suite quick --system oracle-noisy` ×2 → `ci_low/ci_high` filled; `Get-FileHash metrics.csv` equal (and `tests/test_eval_determinism.py`); pipeline CPU stages: `tests/test_pipeline_run.py -k determinism` and `tests/test_sections_synth.py -k determinism` (data outputs only, §0) |
+| a9 | 부트스트랩 CI가 나오고, CPU 단계를 두 번 실행한 결과가 byte 단위로 같다 | `bandscribe eval run --suite quick --system oracle-noisy` ×2 → `ci_low/ci_high` filled; `Get-FileHash metrics.csv` equal (and `tests/test_eval_determinism.py`); pipeline CPU stages: `tests/test_pipeline_run.py -k determinis` and `tests/test_sections_synth.py -k determinis` (the tests are named `…_deterministic`; `-k determinism` selects none) (data outputs only, §0) |
 | a10 | 리믹스가 router_exp 특징을 ±0.02 안에서 재현한다 | `pytest tests/test_eval_remix_parity.py -q` |
 | a11 | Basic Pitch 스모크: GuitarSet 임의 20트랙에서 onset-only F1 > 0.6 (판정용 아님) | `bandscribe data fetch guitarset` → `bandscribe eval run --suite bp-smoke` → `summary.json` value (flagged: GuitarSet is in Basic Pitch's training data) |
 | a12 | contamination 표에 MuScriptor·Basic Pitch·SW의 학습 목록을 모델 카드와 논문에서 채운다(모르면 '불명') | `docs/eval/contamination.md` reviewed, sources linked |

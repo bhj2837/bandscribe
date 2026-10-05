@@ -13,6 +13,13 @@ shapes the tempo map so that DAW bar lines follow the song:
   ``k/4`` bar with ``k = ceil(t0 / interval)`` and ``t0 / k`` s per quarter. The pickup bar (bar 0) then gets
   its own time signature, and bar 1 starts exactly on its downbeat. ``midi_bar_offset`` = MIDI bars before
   musical bar 1 (lead-in + pickup); ``notes_summary.json`` records it.
+  The lead-in tempo must stay where DAWs accept it (``LEAD_IN_BPM`` = 30-300 BPM; SC's 0.16 s lead-in used to
+  become a 1/4 bar at 375 BPM, review 2026-10-05). When the rule above leaves that range, another ``k/4`` or,
+  failing that, an eighths or sixteenths bar (``k/8``, ``k/16``: the same seconds, fewer ticks, a slower tempo)
+  is used, with the numerator whose tempo is closest to the song's first beat. A lead-in too short even for one
+  sixteenth inside the range (< 50 ms) is absorbed into the first beat (that beat starts at 0 s, so only the
+  first bar line is early, by < 50 ms); one too long for a single bar (> 255 units) becomes several bars.
+  Note times stay exact in every case: the tempo map reproduces every second.
 - Without a grid: constant 120 BPM, 4/4, no lead-in.
 
 Deterministic bytes: format-1 file, conductor track first, one track per name, fixed channel assignment (drum
@@ -42,6 +49,11 @@ MAX_TEMPO_US = 0xFFFFFF  # MIDI set_tempo is 24-bit
 UNIT_FACTOR = {"quarter": 1.0, "dotted_quarter": 1.5, "eighth": 0.5}
 # eighths or quarters (the time-signature denominator unit) per beat of each beat unit
 UNITS_PER_BEAT = {"quarter": 1, "dotted_quarter": 3, "eighth": 1}
+# Lead-in bar: a tempo DAWs accept (Cubase: 30-300 BPM; most others allow more), signature denominators tried in
+# order, and the largest numerator a MIDI time_signature can hold (one byte).
+LEAD_IN_BPM = (30.0, 300.0)
+LEAD_IN_DENOMINATORS = (4, 8, 16)
+MAX_SIG_NUMERATOR = 255
 
 GM_PROGRAMS = {  # 0-based General MIDI programs (M1_M2_SPEC 9.2 item 7)
     "acoustic_guitar": 25, "clean_electric_guitar": 27, "distorted_electric_guitar": 30,
@@ -121,6 +133,37 @@ def _bar_sig(bar: Any) -> tuple[str, int, int]:
     return unit, num, den
 
 
+def _lead_in_bars(t0: float, first_iv: float, ref_spq: float) -> tuple[list[tuple[int, int]], float] | None:
+    """Lead-in bars ``[(numerator, denominator), ...]`` spanning ``t0`` seconds and their seconds per quarter,
+    or None when ``t0`` is too short for any in-range bar (the caller absorbs it into the first beat).
+
+    1. The original rule (``1/4`` for ``t0 <= 2 x`` the first beat interval, else ``k/4``, ``k = ceil(t0 /
+       interval)``) whenever its tempo is inside ``LEAD_IN_BPM``: unchanged files for every such song.
+    2. Else the first denominator of ``LEAD_IN_DENOMINATORS`` that admits an in-range tempo, with the numerator
+       whose tempo is closest to ``ref_spq`` (the song's first quarter, clamped to the range; ties: smaller).
+    3. Else (more than 255 units at the slowest tempo) several bars of 4/4 (+ one shorter bar) at about
+       ``ref_spq``; None when ``t0`` is shorter than one sixteenth at the fastest tempo.
+    """
+    lo, hi = 60.0 / LEAD_IN_BPM[1], 60.0 / LEAD_IN_BPM[0]  # seconds per quarter
+    eps = 1e-9
+    k = 1 if t0 <= 2.0 * first_iv else int(math.ceil(t0 / first_iv - eps))
+    if k <= MAX_SIG_NUMERATOR and lo - eps <= t0 / k <= hi + eps:
+        return [(k, 4)], t0 / k
+    ref = min(hi, max(lo, ref_spq))
+    for den in LEAD_IN_DENOMINATORS:
+        units = 4.0 / den  # quarters per signature unit
+        k_min = max(1, int(math.ceil(t0 / (hi * units) - eps)))
+        k_max = min(MAX_SIG_NUMERATOR, int(math.floor(t0 / (lo * units) + eps)))
+        if k_min <= k_max:
+            k = min(range(k_min, k_max + 1), key=lambda n: (abs(math.log(t0 / (n * units) / ref)), n))
+            return [(k, den)], t0 / (k * units)
+    if t0 < lo * 4.0 / max(LEAD_IN_DENOMINATORS):  # shorter than one sixteenth at 300 BPM (50 ms)
+        return None
+    q = max(1, int(round(t0 / ref)))  # very long silence: whole 4/4 bars at about the song's tempo
+    full, rem = divmod(q, 4)
+    return [(4, 4)] * full + ([(rem, 4)] if rem else []), t0 / q
+
+
 def plan_from_grid(grid: Any) -> TempoPlan:
     """Tempo segments + time signatures from a ``Grid`` (model or grid.json dict). See the module docstring."""
     beats = sorted(_get(grid, "beats") or [], key=lambda b: float(_get(b, "t_s")))
@@ -137,14 +180,25 @@ def plan_from_grid(grid: Any) -> TempoPlan:
     first_iv = times[1] - times[0]
     lead_in = None
     offset = 0
+    absorbed = False
     if t0 > 1e-9 and first_iv > 0:
-        k = 1 if t0 <= 2.0 * first_iv else int(math.ceil(t0 / first_iv - 1e-9))
-        spq = t0 / k
-        segs.append(_Seg(0.0, 0.0, spq / TPQ, _tempo_us(spq)))
-        sigs.append((0, k, 4))
-        tick = float(k * TPQ)
-        lead_in = {"quarters": k, "sec_per_quarter": round(spq, 6), "t0_s": round(t0, 6)}
-        offset += 1
+        first_bar = bars.get(bar_of[0])
+        first_unit = str(_get(first_bar, "beat_unit", "quarter") or "quarter") if first_bar is not None else "quarter"
+        plan = _lead_in_bars(t0, first_iv, first_iv / UNIT_FACTOR.get(first_unit, 1.0))
+        if plan is None:  # < 50 ms: the first beat starts at 0 s instead (its bar line < 50 ms early)
+            absorbed = True
+            lead_in = {"quarters": 0, "bars": 0, "absorbed_s": round(t0, 6), "t0_s": round(t0, 6)}
+        else:
+            lbars, spq = plan
+            segs.append(_Seg(0.0, 0.0, spq / TPQ, _tempo_us(spq)))
+            for num, den in lbars:
+                sigs.append((int(round(tick)), num, den))
+                tick += num * TPQ * 4.0 / den
+            quarters = sum(num * 4.0 / den for num, den in lbars)
+            lead_in = {"quarters": int(quarters) if float(quarters).is_integer() else quarters,
+                       "numerator": lbars[0][0], "denominator": lbars[0][1], "bars": len(lbars),
+                       "sec_per_quarter": round(spq, 6), "t0_s": round(t0, 6)}
+            offset += len(lbars)
     prev_bar: int | None = None
     unit = "quarter"
     for i, t in enumerate(times):
@@ -162,6 +216,8 @@ def plan_from_grid(grid: Any) -> TempoPlan:
         d = (times[i + 1] - t) if i + 1 < len(times) else (t - times[i - 1])
         if d <= 0:
             raise ValueError(f"grid beats are not strictly increasing near t={t:.6f}s")
+        if i == 0 and absorbed:  # the first beat spans 0 s .. second beat
+            t, d = 0.0, times[1]
         factor = UNIT_FACTOR[unit]
         spq = d / factor
         segs.append(_Seg(t, tick, spq / TPQ, _tempo_us(spq)))

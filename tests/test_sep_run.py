@@ -178,3 +178,38 @@ def test_run_sep_stage_uses_job_mix_and_params(cfg: dict, tmp_path: Path, monkey
     assert (tmp_path / "stage" / "sep.json").is_file() and (tmp_path / "stage" / "gpu_run.json").is_file()
     fake.calls[0]["notify"]("VRAM 부족: 테스트")
     assert events == [("vram_wait", {"stage": "sep", "message": "VRAM 부족: 테스트"})]
+
+
+def test_run_sep_forwards_the_workers_warnings(cfg: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 2026-10-05: SepResult.warnings (slow rung, ...) were dropped, so they never reached the console."""
+    fake = FakeStage()
+    slow = "chunk=352256: 실시간 배수 1.415x 로 기준보다 느림(다른 GPU 작업과 경합했을 수 있음)"
+
+    def with_warning(*a: Any, **kw: Any) -> Any:
+        res = fake(*a, **kw)
+        res.output["warnings"] = [slow]
+        return res
+
+    monkeypatch.setattr(vram, "run_gpu_stage", with_warning)
+    input_dir = tmp_path / "job" / "input"
+    input_dir.mkdir(parents=True)
+    _mix(input_dir / "mix_44k_f32.wav")
+    events: list[tuple[str, dict]] = []
+    ctx = SimpleNamespace(song_key="f-abc", stage="sep", key="k" * 64, out_dir=tmp_path / "stage", dep_dirs={},
+                          config=cfg, store=SimpleNamespace(input_dir=lambda k: input_dir),
+                          params=seprun.sep_params(cfg), progress=lambda e, i: events.append((e, i)))
+    sepstage.run_sep(ctx)
+    assert events == [("warning", {"stage": "sep", "message": slow})]
+    gpu_run = json.loads((tmp_path / "stage" / "gpu_run.json").read_text(encoding="utf-8"))
+    assert gpu_run["warnings"] == [slow]  # kept for runs that reuse the stage from the cache
+
+
+def test_long_input_warning_with_a_ram_estimate() -> None:
+    assert seprun.long_input_warning(14 * 60) is None and seprun.long_input_warning(None) is None
+    assert seprun.long_input_warning("nan") is None
+    msg = seprun.long_input_warning(40 * 60)
+    assert msg is not None and "40분" in msg and "RAM" in msg
+    # proportional to the length: 9.5 x the 44.1 kHz stereo float32 mix + a fixed base
+    assert seprun.sep_ram_estimate_gb(20 * 60) - seprun.sep_ram_estimate_gb(10 * 60) == pytest.approx(
+        9.5 * 600 * 44100 * 8 / 2**30)
+    assert f"{seprun.sep_ram_estimate_gb(40 * 60):.1f} GB" in msg

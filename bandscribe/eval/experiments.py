@@ -36,7 +36,7 @@ from bandscribe.eval.runs import METRIC_COLUMNS
 log = logging.getLogger(__name__)
 
 SEP_IDS = frozenset({"stereo-preservation"})
-AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
+AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
 ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS))
 
 STATE_PRE = "사전 등록"
@@ -343,6 +343,13 @@ def _violations(rows: Iterable[Mapping[str, Any]], constraint: str | None, arm: 
                and _is_num(r.get("value")) and float(r["value"]) != float(cval))
 
 
+def excluded_arms(arms: Iterable[str], spec: Mapping[str, str], *, baseline: str | None = None) -> list[str]:
+    """Arms that may be reported but never chosen: ``exclude=<prefix>[|<prefix>...]`` in 판정 설정 (e.g. E23's
+    ``exclude=f12_``: the 12-frame arms were registered "비교용으로만"). The baseline always stays eligible."""
+    prefixes = [p.strip() for p in str(spec.get("exclude") or "").split("|") if p.strip()]
+    return sorted(a for a in arms if a != baseline and any(a.startswith(p) for p in prefixes))
+
+
 def _pooled_point(rows: Sequence[Mapping[str, Any]]) -> float:
     its = items_from_rows(rows)
     return stats.block_bootstrap(its, _stat_for(its), n=0)[0] if its else float("nan")
@@ -376,8 +383,10 @@ def _select_then_confirm(rows: Sequence[Mapping[str, Any]], spec: Mapping[str, s
         return out
     sel_rows = in_split(rows, sel_split)
     scores = {a: _pooled_point(rs) for a, rs in sel_arms.items()}
-    eligible = {a: s for a, s in scores.items() if math.isfinite(s) and _violations(sel_rows, constraint, a) == 0}
-    out.update(baseline=base, select_scores=scores, eligible=sorted(eligible))
+    excluded = excluded_arms(scores, spec, baseline=base)
+    eligible = {a: s for a, s in scores.items() if math.isfinite(s) and _violations(sel_rows, constraint, a) == 0
+                and a not in excluded}
+    out.update(baseline=base, select_scores=scores, eligible=sorted(eligible), excluded=excluded)
     if not eligible:
         out.update(decision="hold", decision_ko=f"{DECISION_KO['hold']} ({sel_split} 행 없음 또는 모든 arm 이 제약 위반)")
         return out
@@ -479,9 +488,16 @@ def evaluate(rows: Sequence[Mapping[str, Any]], spec: Mapping[str, str], *, n: i
         if not scores:
             out.update(decision="hold", decision_ko=f"{DECISION_KO['hold']} (dev 행 없음)")
             return out
-        best = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        # ``exclude=``: arms registered as comparison-only are scored and reported but never picked
+        excluded = excluded_arms(scores, spec, baseline=base)
+        eligible = {a: s for a, s in scores.items() if a not in excluded}
+        if not eligible:
+            out.update(dev_scores=scores, excluded=excluded, decision="hold",
+                       decision_ko=f"{DECISION_KO['hold']} (선택 가능한 arm 없음)")
+            return out
+        best = sorted(eligible.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
         res = _paired(test.get(base, []), test.get(best, []), n, seed, subset_col) if best != base else None
-        out.update(dev_scores=scores, tuned=best, test=res)
+        out.update(dev_scores=scores, excluded=excluded, tuned=best, test=res)
         if best == base:
             out.update(decision="reject", decision_ko="기각 (dev 최적이 기본값)")
         elif res is None or not math.isfinite(res["delta"]):

@@ -41,6 +41,9 @@ def _mb(v: float | None) -> float | None:
 DEFAULT_SHARED_GROWTH_FAIL_MB = 64.0
 # The mark that separates legitimate staging (weights uploaded through shared memory) from a spill.
 MODEL_LOADED = "model_loaded"
+# Marked by gpu_common.run_ladder after the CUDA context exists, before the first rung uploads its model: the
+# reference for the load-time spill check (model_loaded - pre_load, M1_M2_SPEC 8.2; review 2026-10-05).
+PRE_LOAD = "pre_load"
 
 
 class ResourceSampler(threading.Thread):
@@ -160,6 +163,21 @@ class ResourceSampler(threading.Thread):
             self._self_shared_peak_after[label] = self.self_shared_end
             self._adapter_shared_peak_after[label] = self.adapter_shared_end
         return dict(entry)
+
+    def wait_for_sample(self, n: int = 2, timeout_s: float | None = None) -> bool:
+        """Block until the sampler thread has started ``n`` more samples, so the next ``snapshot()`` / ``mark()``
+        reflects the present instead of a reading up to ``interval_s`` old (``samples`` counts sample starts:
+        n = 2 guarantees one complete sample taken after this call). False on timeout or when the thread is not
+        running (tests, a monitoring failure): callers then use what they have."""
+        if not self.is_alive():
+            return False
+        target = self.samples + int(n)
+        deadline = time.perf_counter() + (timeout_s if timeout_s is not None else (int(n) + 2) * self.interval_s)
+        while self.samples < target:
+            if time.perf_counter() >= deadline or not self.is_alive():
+                return False
+            time.sleep(max(0.005, self.interval_s / 10.0))
+        return True
 
     def growth_since(self, label: str) -> float | None:
         """This pid's shared-usage peak after ``mark(label)`` minus its value at the mark (MB); None if unknown."""

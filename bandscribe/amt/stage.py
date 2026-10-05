@@ -517,6 +517,11 @@ def _write_ms_outputs(ctx: Any, raws: Mapping[str, dict], params: Mapping[str, A
     if worker_out is None:  # every view came from the cache: record the rung it was looked up with
         worker_out = {"vram": {"rung_label": info["rung_label"]}, "backend": {"device_used": "cuda"}}
     vram.write_gpu_run(out_dir, MS_BACKEND, list(info["labels"]), worker_out, info.get("waited_s", 0.0))
+    # the worker's Korean warnings (slow rung, a view that ran out of tokens without EOS) reach the console
+    # instead of staying in _worker/result.json (review 2026-10-05); gpu_run.json keeps them for cached runs
+    warn = _notifier(ctx, "warning")
+    for w in worker_out.get("warnings") or []:
+        warn(str(w))
 
 
 def _job(ctx: Any) -> dict[str, Any]:
@@ -611,7 +616,11 @@ def run_amt_gtr(ctx: Any) -> None:
 
 
 def _bp_cache_params(params: Mapping[str, Any]) -> dict[str, Any]:
-    return {"params": dict(params["params"])}
+    """Transcription-cache params of a Basic Pitch view. ``threads`` belongs here as it does in the ``amt_bp``
+    stage key: the ONNX session's intra-op thread count changes the model output in the last float bit (1 vs 4
+    threads: ~1,700 of the note/onset/contour values of a 30 s clip differ by 1.2e-7, measured 2026-10-05), which
+    can flip a threshold decision; the worker pins it for exactly that reason."""
+    return {"params": dict(params["params"]), "threads": int(params["threads"])}
 
 
 def transcribe_views_bp(views: list[dict[str, Any]], params: Mapping[str, Any], cfg: Any, *, work_dir: Path,
@@ -911,7 +920,8 @@ STAGES: dict[str, dict] = {
     # view). instr 3 = presence source + renormalised weights; 4 = guards (sections, stem agreement), stem
     # attribution, bass pass evidence, mix pass reported only, guitar+present back to keys/synth. amt_gtr 2.
     # s35 3 = presence entry; 4 = guitar_pass_mask / guitar_pass_non_guitar. notes 2 = non_guitar_dropped;
-    # 3 = guitar_view_notes + dropped-share warning.
+    # 3 = guitar_view_notes + dropped-share warning; 4 (2026-10-05) = MIDI lead-in tempo kept within 30-300 BPM
+    # (eighth/sixteenth lead-in bars, tiny lead-ins absorbed into the first beat).
     "amt_ms1": {"run": run_amt_ms1, "code_version": "3", "params": amt_ms1_params, "device": "gpu",
                 "models": ms_models},
     "amt_bp": {"run": run_amt_bp, "code_version": "1", "params": bp_params, "device": "cpu", "models": bp_models},
@@ -921,6 +931,6 @@ STAGES: dict[str, dict] = {
                 "models": ms_models},
     "s35": {"run": run_s35, "code_version": "4", "params": lambda cfg: {}, "device": "cpu",
             "models": lambda cfg: {}},
-    "notes": {"run": run_notes, "code_version": "3", "params": lambda cfg: {}, "device": "cpu",
+    "notes": {"run": run_notes, "code_version": "4", "params": lambda cfg: {}, "device": "cpu",
               "models": lambda cfg: {}},
 }

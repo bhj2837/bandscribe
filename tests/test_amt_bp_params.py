@@ -7,9 +7,19 @@ from bandscribe.amt import stage as S
 from bandscribe.workers import amt_basicpitch as W
 
 
-@pytest.mark.parametrize("frames", [1, 3, 4, 5, 7, 11, 13, 30])
+@pytest.mark.parametrize("frames", [1, 3, 4, 5, 7, 11])
 def test_min_note_len_is_frames_minus_one(frames):
     assert W.min_note_len_for(frames) == frames - 1
+
+
+@pytest.mark.parametrize("frames", [13, 20, 30])
+def test_minimum_above_the_upstream_default_needs_the_flag_too(frames):
+    """Review 2026-10-05: the guard used to refuse only exactly 12; 13+ deletes even more short notes."""
+    with pytest.raises(W.ParamError, match="127.7"):
+        W.min_note_len_for(frames)
+    assert W.min_note_len_for(frames, allow_default_min_len=True) == frames - 1
+    with pytest.raises(W.ParamError):
+        W.normalize_params({"min_note_frames": frames})
 
 
 def test_upstream_default_is_refused_unless_allowed():
@@ -49,6 +59,21 @@ def test_stage_params_come_from_config_frames():
     assert p["threads"] == 2 and p["views"] == ["guitar_mono", "bass_mono"]
     with pytest.raises(W.ParamError):
         S.bp_params({"amt": {"bp_min_note_frames": 12}})
+
+
+def test_thread_count_is_in_every_basic_pitch_cache_key():
+    """The amt_bp stage key had bp_threads but the transcription cache key did not (review 2026-10-05): the thread
+    count changes the ONNX output in the last bit, so both keys (and the model-output file) carry it now."""
+    from bandscribe.amt import cache as amt_cache
+
+    p2, p4 = S.bp_params({"amt": {"bp_threads": 2}}), S.bp_params({"amt": {"bp_threads": 4}})
+    assert S._bp_cache_params(p2) == {"params": p2["params"], "threads": 2}
+    keys = {amt_cache.amt_key("basicpitch", "0.4.0", "m" * 64, "v" * 64, None, S._bp_cache_params(p), "1", S.BP_RUNG)
+            for p in (p2, p4)}
+    assert len(keys) == 2
+    # model-output cache file: the pre-2026-10-05 name (all written with 4 threads) stays valid for 4 threads
+    assert W.model_output_name("v" * 64, "abcdef0123456789", 4) == f"{'v' * 64}__abcdef012345.npz"
+    assert W.model_output_name("v" * 64, "abcdef0123456789", 2) == f"{'v' * 64}__abcdef012345__t2.npz"
 
 
 def test_default_config_is_not_the_upstream_default():

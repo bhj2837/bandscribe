@@ -285,6 +285,41 @@ def test_fix_first_ranks_by_weighted_errors():
     assert r[0]["weighted"] == pytest.approx(4.0) and r[2]["weighted"] == pytest.approx(2.0)
 
 
+def test_cause_vs_dominant_is_kept_per_condition_and_arm(tmp_path):
+    """Review 2026-10-05: one table pooled over every condition and arm hid whether the guitar_timing FPs that a
+    pad adds sit in pad-dominated bands (guitar_timing is labelled before the loudest sound is looked at)."""
+    from collections import Counter
+
+    from bandscribe.eval import distractor_report as R
+
+    def score(pairs: dict) -> D.Score:
+        c = Counter(pairs)
+        return D.Score(tp=10, fp=sum(c.values()), fn=0, minutes=1.0, fp_causes=Counter(), fn_causes=Counter(),
+                       fp_dominant=Counter(), fn_dominant=Counter(), fp_pairs=c)
+
+    scores = {("a:w1", "base", "production"): score({("guitar_timing", "guitar"): 3}),
+              ("b:w1", "base", "production"): score({("guitar_timing", "guitar"): 1}),
+              ("a:w1", "+synth_pad", "production"): score({("guitar_timing", "synth_pad"): 5,
+                                                           ("guitar_timing", "guitar"): 2}),
+              ("a:w1", "+synth_pad", "guitar_only"): score({("guitar_timing", "synth_pad"): 4})}
+    cvd = D._cause_vs_dominant(scores)
+    assert cvd["production"]["base"] == {"guitar_timing": {"guitar": 4}}  # pooled over windows only
+    assert cvd["production"]["+synth_pad"] == {"guitar_timing": {"guitar": 2, "synth_pad": 5}}
+    assert cvd["guitar_only"]["+synth_pad"] == {"guitar_timing": {"synth_pad": 4}}
+    assert list(cvd) == ["production", "guitar_only"] and list(cvd["production"]) == ["base", "+synth_pad"]
+    rows = R.cause_vs_dominant_rows(cvd)
+    assert [(a, c, k) for a, c, k, _ in rows] == [("production", "base", "guitar_timing"),
+                                                   ("production", "+synth_pad", "guitar_timing"),
+                                                   ("guitar_only", "+synth_pad", "guitar_timing")]
+    # summaries written before the change (one pooled production table) still render
+    old = R.cause_vs_dominant_rows({"guitar_timing": {"guitar": 6, "synth_pad": 5}})
+    assert old == [("production", "*", "guitar_timing", {"guitar": 6, "synth_pad": 5})]
+    p_md, _ = R.write(tmp_path, {"n_windows": 1, "n_songs": 1, "rung": "x", "gpu": {}, "arms": list(D.ARMS),
+                                 "fp_cause_vs_dominant": cvd})
+    md = p_md.read_text(encoding="utf-8")
+    assert "경로·조건별" in md and "| guitar_only | +" in md and "대역 1위 소리를 보기 전에" in md
+
+
 def test_report_renders_minimal_summary(tmp_path):
     from bandscribe.eval import distractor_report as R
 

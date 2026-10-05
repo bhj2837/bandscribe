@@ -8,8 +8,9 @@
   Outputs ``stems/{bass,drums,other,vocals,guitar,piano}.wav``, ``sep.json``, ``gpu_run.json`` (+ ``_worker/``).
 - ``stems``: params ``leftover_warn_db`` only; outputs of ``bandscribe.sep.derive``. Byte-deterministic data outputs.
 
-The mix is ``store.input_dir(song_key)/mix_44k_f32.wav``. VRAM waits and the leftover warning go to the
-runner's progress callback when the context carries one (``ctx.progress(event, info)``), and to the log.
+The mix is ``store.input_dir(song_key)/mix_44k_f32.wav``. VRAM waits, the worker's warnings (slow rung, ...) and
+the leftover warning go to the runner's progress callback when the context carries one
+(``ctx.progress(event, info)``), and to the log.
 """
 
 from __future__ import annotations
@@ -68,8 +69,11 @@ def sep_models(cfg: Any) -> dict[str, str]:
 def run_sep(ctx: Any) -> None:
     params = dict(ctx.params)
     job = {"song_key": ctx.song_key, "stage": ctx.stage, "stage_key": ctx.key}
-    seprun.run_separation(mix_path(ctx), Path(ctx.out_dir), ctx.config, params, job=job,
-                          notify=_notifier(ctx))
+    res = seprun.run_separation(mix_path(ctx), Path(ctx.out_dir), ctx.config, params, job=job,
+                                notify=_notifier(ctx))
+    warn = _notifier(ctx, "warning")  # the worker's Korean warnings (slow rung, ...) reach the console
+    for w in res.warnings:
+        warn(w)
 
 
 # ------------------------------------------------------------------------------------------ stems

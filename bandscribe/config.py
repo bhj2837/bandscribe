@@ -95,11 +95,17 @@ class GpuCfg(_Section):
     # M2 (M1_M2_SPEC 1.3, 8): wait policy, worker-side check, Sysmem Fallback detection.
     wait_poll_s: float = Field(30.0, gt=0.0)
     wait_max_s: float = Field(3600.0, ge=0.0)
+    # All the waiting of one GPU stage together (pre-check waits + retries after the worker's insufficient_vram);
+    # without it, wait_max_s applied to each of the 1 + max_worker_retries pre-checks (up to ~4 h; review 2026-10-05).
+    wait_total_max_s: float = Field(3600.0, ge=0.0)
     max_worker_retries: int = Field(3, ge=0)
     worker_headroom_mb: float = Field(256.0, ge=0.0)
     # CUDA context estimate until the bench measures it; workers measured 79-91 MB on this PC (2026-10-03).
     ctx_mb_default: float = Field(150.0, ge=0.0)
     shared_growth_fail_mb: float = Field(64.0, gt=0.0)  # calibrated from fallback-off bench runs
+    # [잠정] this pid's shared usage with the model resident minus before the upload; above it = a spill at load
+    # time (bench 2026-09-30: normal loads +0-4 MB, MuScriptor upstream loader +32 MB, spills +64-70 MB). 0 = off.
+    load_spill_fail_mb: float = Field(48.0, ge=0.0)
     rtf_fail_ratio: float = Field(0.5, gt=0.0, le=1.0)
     # Backends that may use a CPU rung, and only under policy "cpu" (DESIGN 12: only small models on CPU).
     cpu_backends: list[Literal["sep_msst", "amt_muscriptor", "beats_beatthis"]] = Field(
@@ -221,10 +227,12 @@ class AmtCfg(_Section):
     def _bp_min_note_frames(cls, v: Any) -> Any:
         if isinstance(v, bool) or not isinstance(v, int):
             raise ValueError("1 ~ 30 사이의 정수(프레임 수)여야 합니다")
-        if v == 12:
-            # 12 frames = upstream's 127.7 ms default, which deletes fast picking (DESIGN S6, M1_M2_SPEC A11).
+        if v >= 12:
+            # 12 frames = upstream's 127.7 ms default, which deletes fast picking (DESIGN S6, M1_M2_SPEC A11);
+            # longer minimums delete even more (review 2026-10-05: the guard used to stop only at exactly 12).
             raise ValueError(
-                "12 프레임은 Basic Pitch 기본값(127.7 ms)이라 빠른 음을 지웁니다(DESIGN S6). 다른 값을 쓰세요"
+                f"{v} 프레임은 Basic Pitch 기본값(12 프레임 = 127.7 ms) 이상이라 빠른 음을 지웁니다(DESIGN S6). "
+                "11 이하를 쓰세요"
             )
         return v
 

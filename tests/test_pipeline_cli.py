@@ -118,3 +118,29 @@ def test_config_error_at_plan_time_is_a_usage_error(tmp_path, monkeypatch):
     r = CliRunner().invoke(_app(), ["run", KEY, "--instruments", "kazoo"])
     assert r.exit_code == 2 and "kazoo" in r.output
     assert "Traceback" not in r.output
+
+
+def test_degraded_and_worker_warnings_reach_the_console_once(tmp_path, monkeypatch):
+    """Review 2026-10-05: a freshly run lower rung, and the cached flags (gpu_run.json / sep.json), are printed;
+    a cached degraded stage, also announced live, is printed once."""
+    f = _job(tmp_path, monkeypatch)
+    f.degraded = {"sep"}
+    r = CliRunner().invoke(_app(), ["run", KEY, "--until", "stems"])
+    assert r.exit_code == 0, r.output
+    assert "sep: 낮은 칸(low)으로 실행했습니다" in r.output  # fresh run: said now, not only next time
+    sep_dir = next((tmp_path / "jobs" / KEY / "stages" / "sep").iterdir())
+    atomic.write_json(sep_dir / "sep.json", {"warnings": ["chunk=352256: 실시간 배수 1.4x 로 기준보다 느림"]})
+    r = CliRunner().invoke(_app(), ["run", KEY, "--until", "stems"])
+    assert r.exit_code == 0, r.output
+    flat = " ".join(r.output.split())
+    assert flat.count("낮은 칸(low)으로 만든 캐시입니다") == 1
+    assert "sep: chunk=352256: 실시간 배수 1.4x 로 기준보다 느림" in flat
+
+
+def test_long_input_warning_on_run(tmp_path, monkeypatch):
+    _job(tmp_path, monkeypatch)
+    meta = tmp_path / "jobs" / KEY / "input" / "meta.json"
+    atomic.write_json(meta, {**atomic.read_json(meta), "duration_s": 3000.0})
+    r = CliRunner().invoke(_app(), ["run", KEY, "--until", "grid"])
+    assert r.exit_code == 0, r.output
+    assert "50분으로 깁니다" in " ".join(r.output.split())

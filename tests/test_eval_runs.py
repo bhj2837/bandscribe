@@ -193,6 +193,31 @@ def test_tuning_rule_and_mixed_rungs():
     assert s2["decision"] == "hold" and "rung" in s2["decision_ko"]
 
 
+def test_tuning_rule_never_picks_excluded_comparison_arms():
+    """E23 (review 2026-10-05): the 12-frame arms were registered as comparison-only, yet the runner picked
+    f12_o0.6_fr0.3 as the dev maximum. ``exclude=f12_`` keeps them in the report and out of the selection."""
+    dev = {"f4_o0.5_fr0.3": 0.62, "f7_o0.6_fr0.4": 0.655, "f12_o0.6_fr0.3": 0.675, "f12_o0.6_fr0.4": 0.665}
+    test = {"f4_o0.5_fr0.3": 0.66, "f7_o0.6_fr0.4": 0.726, "f12_o0.6_fr0.3": 0.72, "f12_o0.6_fr0.4": 0.72}
+    rows = _rows(dev, section="dev") + _rows(test, section="test", seed=3)
+    raw = "rule=tuning; metric=onset_f1_50; baseline=f4_o0.5_fr0.3; split_col=section"
+    assert experiments.evaluate(rows, experiments.parse_spec(raw), n=200)["tuned"] == "f12_o0.6_fr0.3"  # the bug
+    s = experiments.evaluate(rows, experiments.parse_spec(raw + "; exclude=f12_"), n=200)
+    assert s["tuned"] == "f7_o0.6_fr0.4" and s["decision"] == "adopt"
+    assert s["excluded"] == ["f12_o0.6_fr0.3", "f12_o0.6_fr0.4"]
+    assert set(s["dev_scores"]) == set(dev)  # still scored and reported
+    # several prefixes; the baseline is never excluded even if a prefix matches it
+    s = experiments.evaluate(rows, experiments.parse_spec(raw + "; exclude=f12_|f7_|f4_"), n=200)
+    assert s["tuned"] == "f4_o0.5_fr0.3" and s["decision"] == "reject"
+    # the same key works for select-then-confirm (E3 style)
+    dev3 = _rows({"base": 0.70, "x_big": 0.80, "a": 0.75}, section="dev")
+    test3 = _rows({"base": 0.70, "x_big": 0.80, "a": 0.76}, section="test", seed=5)
+    spec3 = experiments.parse_spec("rule=superiority; metric=onset_f1_50; baseline=base; mde=1.0; split_col=section; "
+                                   "select=dev; split=test; exclude=x_")
+    s3 = experiments.evaluate(dev3 + test3, spec3, n=200)
+    assert s3["chosen_on_select"] == "a" and s3["excluded"] == ["x_big"]
+    assert experiments.excluded_arms(["f12_a", "f7_b"], {}) == []
+
+
 def test_constraint_blocks_adoption():
     rows = _rows({"guitar+present": 0.70, "all": 0.80})
     rows.append({"system": "all", "item": "t1", "group": "t1", "metric": "guitar_class_omissions", "value": 2})

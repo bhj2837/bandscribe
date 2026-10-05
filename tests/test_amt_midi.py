@@ -114,6 +114,62 @@ def test_long_silence_lead_in_uses_k_quarters(tmp_path):
     assert tick_to_s(tempos, notes[1][0]) == pytest.approx(4.0, abs=0.001)
 
 
+def test_short_lead_in_uses_eighths_to_stay_under_300_bpm(tmp_path):
+    """SC (review 2026-10-05): the first beat at 0.16 s made a 1/4 lead-in bar at 375 BPM, which some DAWs refuse.
+    The same 0.16 s as one eighth = a quarter of 0.32 s (187.5 BPM); bar 1 and every note keep their seconds."""
+    beats = [0.16 + 0.5 * k for k in range(16)]
+    notes = [{"onset_s": 0.05, "offset_s": 0.1, "pitch": 60}] + NOTES
+    info = M.write_performance_midi(tmp_path / "s.mid", [("gtr", 27, notes)], grid(beats, 4))
+    assert info["midi_bar_offset"] == 1
+    assert info["lead_in"] == {"quarters": 0.5, "numerator": 1, "denominator": 8, "bars": 1,
+                               "sec_per_quarter": 0.32, "t0_s": 0.16}
+    _mid, tempos, sigs, got = read(tmp_path / "s.mid")
+    assert sigs[:2] == [(0, 1, 8), (240, 4, 4)]
+    assert tempos[0] == (0, 320000) and tempos[1] == (240, 500000)
+    assert tick_to_s(tempos, 240) == pytest.approx(0.16, abs=1e-6)  # bar 1 on the first downbeat
+    for (on, off, _p), n in zip(got, sorted(notes, key=lambda n: n["onset_s"])):
+        assert tick_to_s(tempos, on) == pytest.approx(n["onset_s"], abs=0.001)
+        assert tick_to_s(tempos, off) == pytest.approx(n["offset_s"], abs=0.001)
+
+
+def test_tiny_lead_in_is_absorbed_and_slow_or_huge_ones_stay_in_range(tmp_path):
+    # < 50 ms cannot be one in-range bar: the first beat starts at 0 s (no lead-in bar), times stay exact
+    beats = [0.03 + 0.5 * k for k in range(12)]
+    info = M.write_performance_midi(tmp_path / "t.mid", [("gtr", 27, NOTES)], grid(beats, 4))
+    assert info["midi_bar_offset"] == 0 and info["lead_in"]["absorbed_s"] == 0.03 and info["lead_in"]["bars"] == 0
+    _mid, tempos, sigs, got = read(tmp_path / "t.mid")
+    assert sigs[0] == (0, 4, 4) and tempos[0] == (0, 530000)  # 0 .. 0.53 s = the first beat
+    assert tick_to_s(tempos, 480) == pytest.approx(0.53, abs=1e-6)
+    for (on, _off, _p), n in zip(got, sorted(NOTES, key=lambda n: n["onset_s"])):
+        assert tick_to_s(tempos, on) == pytest.approx(n["onset_s"], abs=0.001)
+    # a slow song (40 BPM): 2.5 s as one quarter would be 24 BPM -> 2/4 at 48 BPM
+    beats = [2.5 + 1.5 * k for k in range(8)]
+    info = M.write_performance_midi(tmp_path / "u.mid", [("gtr", 27, NOTES)], grid(beats, 4))
+    assert (info["lead_in"]["numerator"], info["lead_in"]["denominator"]) == (2, 4)
+    _mid, tempos, sigs, _got = read(tmp_path / "u.mid")
+    assert sigs[0] == (0, 2, 4) and tempos[0] == (0, 1250000)
+    # ten minutes of silence: more than 255 units in one bar -> whole 4/4 bars at the song's tempo
+    beats = [600.0 + 0.5 * k for k in range(8)]
+    info = M.write_performance_midi(tmp_path / "v.mid", [("gtr", 27, NOTES)], grid(beats, 4))
+    assert info["lead_in"]["bars"] == 300 and info["midi_bar_offset"] == 300
+    _mid, tempos, sigs, _got = read(tmp_path / "v.mid")
+    assert tempos[0] == (0, 500000) and tick_to_s(tempos, 1200 * 480) == pytest.approx(600.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("iv", [0.25, 0.5, 1.5])
+@pytest.mark.parametrize("t0", [0.05, 0.1, 0.16, 0.19, 0.2, 0.37, 0.9, 1.5, 3.2, 10.0, 130.0])
+def test_lead_in_tempo_is_always_between_30_and_300_bpm(tmp_path, t0, iv):
+    beats = [t0 + iv * k for k in range(9)]
+    info = M.write_performance_midi(tmp_path / "w.mid", [("gtr", 27, NOTES)], grid(beats, 4))
+    _mid, tempos, sigs, _got = read(tmp_path / "w.mid")
+    assert 0 < sigs[0][1] <= 255
+    lead_ticks = int(round(info["lead_in"]["quarters"] * 480))
+    # bar 1 at t0 up to the 1-us tempo rounding (<= 0.5 us per quarter of lead-in)
+    assert lead_ticks > 0 and tick_to_s(tempos, lead_ticks) == pytest.approx(t0, abs=1e-6 * lead_ticks / 480 + 1e-6)
+    bpm = 60e6 / tempos[0][1]
+    assert 30.0 - 1e-6 <= bpm <= 300.0 + 1e-6, (t0, iv, bpm, sigs[0])
+
+
 def test_pickup_bar_gets_its_own_signature(tmp_path):
     beats = [0.25 + 0.5 * k for k in range(14)]  # 2 pickup beats, then 4/4
     info = M.write_performance_midi(tmp_path / "c.mid", [("gtr", 27, NOTES)], grid(beats, 4, pickup=2))

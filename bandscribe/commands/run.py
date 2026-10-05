@@ -95,6 +95,11 @@ def run_cmd(
     except Exception as e:
         fail(f"입력 처리 실패: {e}")
     song_key = job.song_key
+    from bandscribe.sep.run import long_input_warning
+
+    long_msg = long_input_warning((job.meta or {}).get("duration_s"))
+    if long_msg:
+        err.print(f"[yellow]경고:[/] {escape(long_msg)}", soft_wrap=True)
     hints = Path(job.job_dir) / "hints.toml"
     try:
         cfg = config.load_config(job_hints=hints, overrides=overrides)
@@ -181,8 +186,11 @@ def run_cmd(
         out.print("단계 결과 폴더:")
         for stage, d in results.items():
             out.print(f"  {escape(stage)}: {escape(str(d))}", soft_wrap=True)
+    shown = set(notices)  # e.g. a cached degraded stage: already printed live with the same text
     for w in runner.run_warnings(results, exclude_stages=warned_live):
-        out.print(f"[yellow]경고:[/] {escape(w)}", soft_wrap=True)
+        if w not in shown:
+            shown.add(w)
+            out.print(f"[yellow]경고:[/] {escape(w)}", soft_wrap=True)
 
 
 def register(app: typer.Typer) -> None:

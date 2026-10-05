@@ -355,3 +355,41 @@ def test_doctor_models_present(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
         encoding="utf-8")
     c = _doctor_checks()["models.present"]
     assert c.ok and "모두 있음" in c.detail
+
+
+# ------------------------------------------------------------- overall wait deadline, periodic notices
+
+
+def test_long_wait_says_so_every_few_minutes() -> None:
+    """Review 2026-10-05: the reason was announced once, then a wait of up to an hour said nothing."""
+    clk = Clock()
+    msgs: list[str] = []
+    with pytest.raises(vram.VramInsufficient):
+        vram.wait_for_budget("sep_msst", SEP_LABELS, _cfg(wait_poll_s=30, wait_max_s=1000), clock=clk,
+                             sleep=clk.sleep, notify=msgs.append, snap_fn=_snaps(800))
+    assert "대기 중" in msgs[0]
+    still = [m for m in msgs if m.startswith("아직 VRAM 여유를 기다리는 중입니다(sep_msst)")]
+    assert len(still) == 3  # at 5, 10 and 15 minutes of a 16.7-minute wait
+    assert "5분째" in still[0] and "10분째" in still[1] and "League of Legends.exe" in still[0]
+
+
+def test_all_waiting_of_a_stage_is_bounded_by_wait_total_max_s(tmp_path: Path) -> None:
+    """Each pre-check used to get the full wait_max_s again after every insufficient_vram retry (up to ~4 h)."""
+    clk = Clock()
+    # pre-check 1 waits 40 s, the worker answers insufficient_vram, 10 s pause, pre-check 2 gets only the
+    # remaining 50 s of the 100 s total (not wait_max_s = 80)
+    snaps = _snaps(1000, 1000, 1000, 1000, 5000, *([1000] * 50))
+    runner = FakeRunner([INSUFF])
+    with pytest.raises(vram.VramInsufficient) as ei:
+        vram.run_gpu_stage("sep_msst", SEP_LABELS, {}, _cfg(wait_max_s=80, wait_total_max_s=100, max_worker_retries=5),
+                           tmp_path, run_worker=runner, clock=clk, sleep=clk.sleep, snap_fn=snaps)
+    assert len(runner.calls) == 1 and clk.t == pytest.approx(100.0)
+    assert "gpu.wait_total_max_s" in str(ei.value) and "2분" in str(ei.value)
+    # retries alone: the pauses stop before they pass the total either
+    clk2 = Clock()
+    runner2 = FakeRunner([INSUFF])
+    with pytest.raises(vram.VramInsufficient) as ei:
+        vram.run_gpu_stage("sep_msst", SEP_LABELS, {}, _cfg(wait_total_max_s=25, max_worker_retries=10), tmp_path,
+                           run_worker=runner2, clock=clk2, sleep=clk2.sleep, snap_fn=_snaps(5000))
+    assert len(runner2.calls) == 3 and clk2.sleeps == [10, 10]  # a third pause would end at 30 s > 25 s
+    assert "wait_total_max_s" in str(ei.value)

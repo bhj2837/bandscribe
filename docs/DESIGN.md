@@ -1158,9 +1158,10 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 ### 8.8 방해 소리 측정: 무엇이 기타 오검출·누락을 만드는가 (2026-10-04)
 
 J-pop·J-rock 밴드 녹음에는 기타 위에 신스 패드·리드, 건반, 현악, 효과음(라이저·스윕), 샘플이 겹친다. "원곡 기타 음 중 반주에서도
-나오는 음의 비율" 하나로는 **어떤 소리가** 오검출(FP)을 만들고 진짜 음을 가리는지(FN) 알 수 없다. 2026-10-04 에는 악기 마스크를
-바꾸면 블리드가 줄기보다 MuScriptor 출력이 뒤섞인다는 것도 확인했다. 그래서 마스크·S7 블리드 감점 같은 이후 결정은 이 측정으로
-한다. 실행: `bandscribe eval run --suite distractors` (사전 등록 `distractors`, docs/decisions.md). 코드:
+나오는 음의 비율" 하나로는 **어떤 소리가** 오검출(FP)을 만들고 진짜 음을 가리는지(FN) 알 수 없다. 2026-10-04 에는 실곡 두 곡에서
+악기 마스크를 바꾸면 블리드가 줄기보다 MuScriptor 출력이 뒤섞이는 것도 봤다(일반적인 성질은 아니다: 2026-10-05 E3c 에서는 피아노가
+뚜렷한 구간에서 건반 마스크가 블리드를 실제로 걸렀다. 효과는 곡마다 다르다). 그래서 마스크·S7 블리드 감점 같은 이후 결정은 이
+측정과 그 결과로 세운 실험으로 한다. 실행: `bandscribe eval run --suite distractors` (사전 등록 `distractors`, docs/decisions.md). 코드:
 [`eval/distractors.py`](../bandscribe/eval/distractors.py), [`eval/attribution.py`](../bandscribe/eval/attribution.py),
 [`eval/stem_taxonomy.py`](../bandscribe/eval/stem_taxonomy.py), 리포트 [`eval/distractor_report.py`](../bandscribe/eval/distractor_report.py).
 
@@ -1188,7 +1189,10 @@ J-pop·J-rock 밴드 녹음에는 기타 위에 신스 패드·리드, 건반, �
    - FP: 같은 음높이 참조 음이 겹치거나 200 ms 안 → `guitar_timing`; 그 음의 대역(f0 ±50 cents, MIDI 52 미만은 2배음 대역도) 에너지
      1위가 비기타 참 스템 → 그 범주; ±12/19/24 반음 참조 음이 겹침 → `guitar_octave`; ±1/2 반음 → `guitar_near`; 기타가 1위 →
      `guitar_unref`(참조에 없는 기타 소리); 바닥 아래 → `unknown`. 비기타 1위를 배음 규칙보다 먼저 보는 이유: 건반·패드는 기타와
-     같은 화성을 쳐서 옥타브·5도 관계가 흔하다(시험 실행에서 오르간이 만든 FP 70/104개가 `guitar_octave` 로 찍혔다).
+     같은 화성을 쳐서 옥타브·5도 관계가 흔하다(시험 실행에서 오르간이 만든 FP 70/104개가 `guitar_octave` 로 찍혔다. 이 순서는 등록부에
+     기록하지 않은 그 1곡 시험 실행을 본 뒤 정한 **사후 보완**이다). `guitar_timing` 은 대역 1위를 보기 **전에** 붙으므로, 방해 소리가
+     기타 음을 같은 음높이에서 다시 잡히게 만든 FP 도 이 라벨로 들어간다: 그래서 리포트는 원인 라벨 × 대역 1위 소리를 조건·경로마다
+     따로 보여 준다(2026-10-05 리뷰).
    - FN: 추정 음과의 같은 관계(`est_timing`, `est_octave`, `est_near`) → 가장 센 비기타 범주가 기타 에너지 ‑6 dB 이상이면 그 범주
      (가림) → 아니면 `guitar_clear`.
    - 분리 누출: 한 범주가 참 에너지의 80 % 이상을 차지하는 시간-주파수 칸에서 SW 기타 스템 에너지 / 참 에너지(dB), 그리고 기타 스템
@@ -1196,13 +1200,16 @@ J-pop·J-rock 밴드 녹음에는 기타 위에 신스 패드·리드, 건반, �
    - 잡음 기준(`base_null`, 첫 결과를 본 뒤 더한 진단): 기본 조건의 기타 뷰에 ‑90 dBFS RMS 백색 잡음(시드 고정)만 더해 같은 마스크로
      다시 전사한다. 들리지 않는 변화로 생기는 차이라서 범주 효과를 해석하는 잣대가 된다(MuScriptor 만의 민감도).
 8. **리포트:** `metrics.csv`, `summary.json`, `report.md`·`report.html`(한국어): "먼저 고칠 것" 순위, 범주별 표, 조건별 전체 값, FP 원인
-   혼동표(조건 × 원인, 원인 × 대역 1위 소리), FN 원인표, 곡별 표, 분리 누출 표.
+   혼동표(조건 × 원인; 원인 × 대역 1위 소리는 경로·조건별), FN 원인표, 곡별 표, 분리 누출 표.
 9. **보조 세트 `backing`:** 상용곡의 원곡과 기타를 지운 반주(사용자 파일, 읽기만)를 둘 다 돌린 뒤, 원곡 기타 음 중 반주에서도
    나오는 음의 비율을 낸다(`data/eval/backing_pairs.toml`, 결과는 `data/runs` 에만). 원인이 아니라 증상이라 보조 지표다.
 
 **첫 결과(2026-10-04, PROGRESS.md "Distractor measurement"):** 신스 패드는 재현율 −3.7점으로 일관되게 해롭고, 현악의 손해는
 소리가 아니라 편성 마스크 탓이었다(기타만 마스크로는 차이 없음). 가장 큰 오류는 방해 소리가 없어도 있는 음 분할·타이밍·옥타브
-차이이고, MuScriptor 디코딩은 일부 구간에서 들리지 않는 잡음에도 크게 흔들렸다.
+차이이고, MuScriptor 디코딩은 일부 구간에서 들리지 않는 잡음에도 크게 흔들렸다. 패드가 더한 FP 는 대부분 `guitar_timing` 라벨이지만,
+위 규칙 순서 때문에 "패드는 기타 자신의 분할을 통해 해롭다"고 확정할 수는 없다(패드 3구간에서 더해진 timing FP 69개 중 19개는
+그 음 대역 1위가 패드, 53개는 기타; 2026-10-05). 마스크에 건반·신스 클래스를 넣은 조건에서 비기타로 걸러진 음이 0개였던 관찰은
+E3c 의 보류 구간에서 일반화되지 않았다(JetB: 피아노 블리드 191음을 걸러 F1 +14점, `guitar_only` 기본값 가설 기각).
 
 **한계:** 75 s 구간을 따로 분리하므로 곡 전체를 분리하는 제품 실행과 가장자리 문맥이 다르다. 편성 추정은 구간 하나에서 표본 창
 1개(10 s)로 하므로 곡 전체의 존재 패스와 다를 수 있다. 참조는 MuScriptor 출력이라 참조 자체의 누락은 `guitar_unref` 로 보인다.
@@ -1330,7 +1337,8 @@ bandscribe learn attribution|calibrate|fit | bandscribe bench gpu | bandscribe m
   - 로드는 CPU에서 하고 CUDA로 옮긴다. `torch.inference_mode()`, batch 1. **Turing에서 bf16 금지.**
 - **OOM 사다리:** 청크를 절반으로(hop 배수 유지) → CPU(경고) → (설정 시) 클라우드 → 건너뜀. 모두 기록한다. Sysmem Fallback이 켜져 있으면 OOM 예외가 나지 않으므로, **Shared Usage 증가나 처리량 급락**도 사다리를 내려가는 조건으로 둔다.
 - **느려짐 감시:** Windows NVIDIA의 **Sysmem Fallback**은 OOM을 조용한 약 10배 감속으로 바꾼다. Shared Usage와 처리량으로 감지해 경고한다. 설정 변경은 사용자 몫이다(12장).
-- **시스템 RAM 16 GB:** 게임과 브라우저를 함께 켰을 때 커밋 한도가 바닥난 전례가 있다. 프로세스당 무거운 모델 하나, 블록 단위 WAV 읽기, 스템 사본 금지, STFT는 창 단위로 돌린다.
+  - 2026-10-05 리뷰 보완: 모델이 올라간 뒤 늘어나는 Shared Usage뿐 아니라 **모델을 올리는 동안** 넘친 것(로드 직후 − 로드 전 > `gpu.load_spill_fail_mb` 48 MB, 잠정)도 그 칸의 실패로 본다(벤치에서 로드 중에 넘친 칸이 실시간 1/4–1/6 속도로 받아들여졌다). Shared Usage로 실패한 칸 아래 칸이 느리면 넘침이 이어지는 것으로 보고 실패시켜 기다린다. MuScriptor는 음 밀도에 따라 속도가 달라 느림만으로는 실패시키지 않는다. 한 단계의 VRAM 대기는 사전 점검과 재시도를 모두 합쳐 `gpu.wait_total_max_s`(1시간)를 넘지 않고, 5분마다 아직 기다린다고 알린다.
+- **시스템 RAM 16 GB:** 게임과 브라우저를 함께 켰을 때 커밋 한도가 바닥난 전례가 있다. 프로세스당 무거운 모델 하나, 블록 단위 WAV 읽기, 스템 사본 금지, STFT는 창 단위로 돌린다. 분리 워커는 곡 전체를 RAM에 두므로(믹스 + 패딩 사본 + 6스템 누적 버퍼, 2026-10-05 측정 약 9배) 15분이 넘는 입력은 `bandscribe run`/`ingest`가 예상 RAM과 함께 경고한다.
 
 ### 9.6 백엔드 교체
 
@@ -1369,7 +1377,7 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 - **워커 정리:** 워커를 강제 종료하면 런처의 자식 인터프리터까지 끝나고, 그 뒤에 락이 풀린다.
 - **torchcrepe fmin ≥31.7 고정.**
 - **MuScriptor에 float32 경로가 아닌 텐서를 전달하는지.**
-- **Basic Pitch `minimum_note_length`가 기본값(127.7 ms)이 아닌지.**
+- **Basic Pitch `minimum_note_length`가 기본값(127.7 ms) 이상이 아닌지**(2026-10-05부터 12 프레임 이상을 모두 거부).
 - **베이스 투표자 2개일 때 AND 정책이 쓰이지 않는지.**
 - 20초 골든 클립 스모크 테스트.
 - 병합 전 `bandscribe eval run --suite quick`(dev 3곡 또는 합성 세트).

@@ -61,6 +61,12 @@ does not use PoPE).
   (`tests/test_sep_upstream_parity.py` compares against a pristine checkout, SNR > 60 dB per stem).
 - AMP: upstream `demix` wraps inference in `torch.cuda.amp.autocast(enabled=training.use_amp)` (deprecated API,
   fp16 on CUDA only); we use `torch.autocast("cuda", dtype=torch.float16)` - same effect.
+- RAM (2026-10-05, `demix.py` is ours, so no sha256 row changes): the mix is shared with the caller
+  (`torch.from_numpy`, never written), the padded working copy is dropped before the final division, and the
+  NaN/inf replacement runs in place (`torch.nan_to_num_`, same values as upstream's `np.nan_to_num`: NaN -> 0,
+  +-inf -> the largest finite float32) instead of numpy's, which allocated several full-size boolean masks.
+  Measured on a synthetic 10-min stereo input with the identity model on the CPU: peak working set 3.83 ->
+  2.32 GB, peak commit 4.60 -> 3.08 GB; old and new outputs bitwise identical (incl. injected NaN/inf).
 
 ## Updating
 

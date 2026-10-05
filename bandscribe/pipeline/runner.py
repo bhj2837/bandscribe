@@ -186,9 +186,10 @@ def plan(song_key: str, cfg: Any, *, until: str = graph.DEFAULT_UNTIL, force: It
     return _prepare(song_key, cfg, until, force, store, missing_ok=missing_ok)[2]
 
 
-def degraded_message(stage: str, gpu_run: dict[str, Any], song: str) -> str:
+def degraded_message(stage: str, gpu_run: dict[str, Any], song: str, *, fresh: bool = False) -> str:
     label = (gpu_run.get("rung") or {}).get("label") or "?"
-    return (f"{stage}: 낮은 칸({label})으로 만든 캐시입니다. 여유가 있을 때 "
+    what = "실행했습니다(VRAM 부족 또는 시스템 메모리로 넘침)" if fresh else "만든 캐시입니다"
+    return (f"{stage}: 낮은 칸({label})으로 {what}. 여유가 있을 때 "
             f"'bandscribe run {song} --force {stage}' 로 다시 만드세요.")
 
 
@@ -196,14 +197,21 @@ def _wrap(st: Stage, progress: Progress | None) -> None:
     inner = st.run
 
     def run(ctx: Any) -> None:
+        from bandscribe import vram
+
         if progress is not None:
             try:
-                ctx.progress = progress  # the stages' notifiers look here (vram_wait)
+                ctx.progress = progress  # the stages' notifiers look here (vram_wait, warning)
             except AttributeError:
                 pass
         _emit(progress, "stage_start", {"stage": st.name, "key12": ctx.key[:12], "device": st.device})
         t0 = time.monotonic()
         inner(ctx)
+        if st.device == "gpu":  # a lower rung than the top one: say so now, not only on the next cached run
+            gr = vram.read_gpu_run(Path(ctx.out_dir))
+            if gr and gr.get("degraded"):
+                _emit(progress, "warning", {"stage": st.name, "message": degraded_message(
+                    st.name, gr, ctx.song_key, fresh=True).split(": ", 1)[1]})
         _emit(progress, "stage_done", {"stage": st.name, "key12": ctx.key[:12], "device": st.device,
                                        "duration_s": round(time.monotonic() - t0, 3)})
 
@@ -266,13 +274,40 @@ def stage_summary(results: dict[str, Path], items: list[RunPlanItem] | None = No
     return rows
 
 
+GPU_STAGES = ("beats", "sep", "amt_ms1", "amt_gtr")
+
+
 def run_warnings(results: dict[str, Path], *, exclude_stages: Iterable[str] = ()) -> list[str]:
-    """Korean warnings worth showing after a run, also for stages that came from the cache: grid repairs
-    (``grid.json`` hypotheses), leftover energy (``stems``), a skipped Basic Pitch pass (``amt_bp``
+    """Korean warnings worth showing after a run, also for stages that came from the cache: GPU stages made on a
+    lower rung, slow or with worker warnings (``gpu_run.json``; for older ``sep`` dirs ``sep.json``), grid
+    repairs (``grid.json`` hypotheses), leftover energy (``stems``), a skipped Basic Pitch pass (``amt_bp``
     ``skipped.json``) and instrumentation warnings (``instr``). ``exclude_stages``: stages whose warnings were
-    already shown live during this run (``warning`` progress events)."""
+    already shown live during this run (``warning`` progress events). A cached degraded stage also produced a
+    ``stage_degraded_cache`` event with the same text; the CLI prints each text once."""
+    from bandscribe import vram
+
     skip = set(exclude_stages)
     out: list[str] = []
+    for stage in GPU_STAGES:
+        d = results.get(stage)
+        if stage in skip or d is None:
+            continue
+        gr = vram.read_gpu_run(Path(d)) or {}
+        if gr.get("degraded"):
+            out.append(degraded_message(stage, gr, Path(d).parents[2].name))
+        if "warnings" in gr:  # written since 2026-10-05: the worker's own warnings
+            worker_warnings = [str(w) for w in gr.get("warnings") or []]
+        elif stage == "sep" and (Path(d) / "sep.json").is_file():  # older sep dirs: sep.json has them
+            try:
+                worker_warnings = [str(w) for w in atomic.read_json(Path(d) / "sep.json").get("warnings") or []]
+            except (OSError, ValueError):
+                worker_warnings = []
+        else:
+            worker_warnings = []
+        out += [f"{stage}: {w}" for w in worker_warnings]
+        if gr.get("slow") and not any("느림" in w for w in worker_warnings):
+            out.append(f"{stage}: 기준보다 느리게 실행된 칸이 있었습니다(다른 GPU 작업과 경합했거나 시스템 메모리로 "
+                       "넘쳤을 수 있음).")
 
     def doc(stage: str, name: str) -> dict[str, Any] | None:
         d = results.get(stage)

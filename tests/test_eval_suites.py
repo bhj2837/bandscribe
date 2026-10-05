@@ -4,6 +4,7 @@ the Tier B remix part selection."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -179,6 +180,86 @@ def test_b0_plans_with_the_eval_profile_and_finds_the_mix_pass(tmp_path, monkeyp
     assert pred is not None and len(pred.notes) == 2
     (d / "aaaaaaaaaaaa" / "raw" / "mix_mono__muscriptor.json").unlink()
     assert suites.make_system("b0", cfg).predict(item) is None  # no eval run: B0 skipped (Korean hint logged)
+
+
+def _stage(key: str, stage: str, key12: str, rel: str, view: str, pitches: list[int], mtime: int) -> Path:
+    import os
+
+    sd = paths.JOBS / key / "stages" / stage / key12
+    sd.mkdir(parents=True)
+    (sd / "manifest.json").write_text("{}", encoding="utf-8")
+    atomic.write_text(sd / rel, _noteset(view, pitches).model_dump_json())
+    os.utime(sd, (mtime, mtime))
+    return sd
+
+
+def test_job_stage_never_silently_scores_another_settings_result(tmp_path, monkeypatch, caplog):
+    """Review 2026-10-05: when the planned (current settings) stage dir was missing, the newest dir made with other
+    settings was scored under the same system name with only a log line. Now the item is skipped with a Korean
+    warning; ``allow_stale`` opts in, and the metrics note says which stage key (and that it is stale)."""
+    monkeypatch.setattr(paths, "JOBS", tmp_path / "jobs")
+    key = "f-00aa11bb22cc33ff"
+    _stage(key, "amt_gtr", "aaaaaaaaaaaa", "raw/guitar_mono__muscriptor.json", "guitar_mono", [60, 62], 1000)
+    _stage(key, "amt_gtr", "bbbbbbbbbbbb", "raw/guitar_mono__muscriptor.json", "guitar_mono", [60, 62, 64], 2000)
+    it = suites.EvalItem(item="song:verse", dataset="tierA", group="song", scenario="A", gt=None, lines=["L1"],
+                         song_key=key)
+    cfg = config.load_config()
+    planned = {key: {"amt_gtr": "cccccccccccc", "sep": "dddddddddddd"}}  # the current settings' keys: not on disk
+    sysobj = suites.make_system("job:amt_gtr", cfg)
+    sysobj._planned = dict(planned)
+    with caplog.at_level("WARNING"):
+        assert sysobj.predict(it) is None
+    assert len(sysobj.warnings) == 1 and "cccccccccccc" in sysobj.warnings[0] and "allow_stale" in sysobj.warnings[0]
+    assert "bandscribe run f-00aa11bb22cc33ff --until amt_gtr" in sysobj.warnings[0]
+    stale = suites.make_system("job:amt_gtr", cfg, allow_stale=True)
+    stale._planned = dict(planned)
+    pred = stale.predict(it)
+    assert pred is not None and [n.pitch for n in pred.notes] == [60, 62, 64]  # the newest of the old dirs
+    assert stale.note_for(it) == "stage=bbbbbbbbbbbb (stale)"
+    assert stale.stage_keys() == {"song:verse": {"amt_gtr": "bbbbbbbbbbbb (stale)"}}
+    # the planned dir exists: used as is, no warning, note = its key
+    _stage(key, "amt_gtr", "cccccccccccc", "raw/guitar_mono__muscriptor.json", "guitar_mono", [67], 500)
+    ok = suites.make_system("job:amt_gtr", cfg)
+    ok._planned = dict(planned)
+    assert [n.pitch for n in ok.predict(it).notes] == [67] and not ok.warnings
+    assert ok.note_for(it) == "stage=cccccccccccc"
+    # a job that cannot be planned at all (no config, foreign layout): the newest dir, as before
+    unplanned = suites.make_system("job:amt_gtr", cfg)
+    unplanned._planned = {key: {}}
+    assert [n.pitch for n in unplanned.predict(it).notes] == [60, 62, 64] and not unplanned.warnings
+
+
+def test_suite_records_stage_keys_and_skips_stale_items(tmp_path, monkeypatch):
+    from bandscribe.schema.gt import GtNote, GtNotes
+
+    monkeypatch.setattr(paths, "JOBS", tmp_path / "jobs")
+    key = "f-00aa11bb22cc33ee"
+    pitches = [52, 55, 57, 59]
+    _stage(key, "notes", "111111111111", "guitar_all.json", "guitar_all", pitches, 1000)
+    gt = GtNotes(format="bandscribe.gtnotes/1", song_id="song", tpb=48, bars=[], notes=[
+        GtNote(line="L1", ref_track=1, bar=1, tick=float(i), dur_ticks=10.0, pitch=p, string=None, fret=None,
+               onset_s=round(0.5 + 0.25 * i, 6), offset_s=round(0.7 + 0.25 * i, 6)) for i, p in enumerate(pitches)])
+    item = suites.EvalItem(item="song:verse", dataset="tierA", group="song", scenario="A", gt=gt, lines=["L1"],
+                           song_key=key)
+    monkeypatch.setattr(suites, "items_for_suite", lambda suite, cfg, args=None: [item])
+    plans = {"notes": "222222222222"}
+    monkeypatch.setattr(suites.JobStage, "_planned_keys", lambda self, song_key: dict(plans))
+    with pytest.raises(suites.SuiteError, match="222222222222"):
+        suites.run_suite("tierA", "job:notes", config.load_config(), out=tmp_path / "runs", gitsha="abcdef1")
+    res = suites.run_suite("tierA", "job:notes", config.load_config(), out=tmp_path / "runs", gitsha="abcdef1",
+                           args={"allow_stale": True})
+    run_json = json.loads((res.run_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_json["stage_keys"]["job:notes"] == {"song:verse": {"notes": "111111111111 (stale)"}}
+    assert run_json["allow_stale"] is True and any("allow_stale" in w for w in res.summary["warnings"])
+    text = (res.run_dir / "metrics.csv").read_text(encoding="utf-8")
+    assert "stage=111111111111 (stale)" in text
+    plans["notes"] = "111111111111"  # now the current settings' dir exists
+    res = suites.run_suite("tierA", "job:notes", config.load_config(), out=tmp_path / "runs2", gitsha="abcdef1")
+    assert not any("notes" in w for w in res.summary.get("warnings", []))  # only B0's "run --profile eval" hint
+    assert all("B0" in w for w in res.summary.get("warnings", []))
+    assert json.loads((res.run_dir / "run.json").read_text(encoding="utf-8"))["stage_keys"] == {
+        "job:notes": {"song:verse": {"notes": "111111111111"}}}
+    assert "stage=111111111111" in (res.run_dir / "metrics.csv").read_text(encoding="utf-8")
 
 
 def test_tier_a_report_includes_b0_and_no_split_baselines(tmp_path, monkeypatch):

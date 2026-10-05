@@ -339,8 +339,10 @@ def test_bp_min_note_frames(no_user: Path) -> None:
     for bad in ("0", "31", "4.5", "true"):
         with pytest.raises(ConfigError, match="amt.bp_min_note_frames"):
             load_config(overrides=[f"amt.bp_min_note_frames={bad}"], user_config=no_user)
-    with pytest.raises(ConfigError, match="127.7 ms"):  # = upstream default, refused (DESIGN S6)
-        load_config(overrides=["amt.bp_min_note_frames=12"], user_config=no_user)
+    for at_or_above in ("12", "13", "30"):  # >= upstream default (127.7 ms), refused (DESIGN S6; review 2026-10-05)
+        with pytest.raises(ConfigError, match="127.7 ms"):
+            load_config(overrides=[f"amt.bp_min_note_frames={at_or_above}"], user_config=no_user)
+    assert load_config(overrides=["amt.bp_min_note_frames=11"], user_config=no_user).amt.bp_min_note_frames == 11
 
 
 def test_chunk_ladder_validation(no_user: Path) -> None:

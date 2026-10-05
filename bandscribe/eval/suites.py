@@ -231,12 +231,21 @@ def _gt_note_rows(it: EvalItem) -> list[tuple[float, float, int, str, bool]]:
 class System:
     name = "system"
     rung = ""
+    warnings: Sequence[str] = ()  # Korean, user-facing (systems that warn keep their own list)
 
     def predict(self, it: EvalItem) -> Any | None:
         raise NotImplementedError
 
     def rung_for(self, it: EvalItem) -> str:
         return self.rung
+
+    def note_for(self, it: EvalItem) -> str:
+        """Provenance for the metrics ``note`` column of ``it`` (job systems: the stage key used)."""
+        return ""
+
+    def stage_keys(self) -> dict[str, dict[str, str]]:
+        """{item: {stage: key12}} of the job stage dirs this system read (run.json provenance)."""
+        return {}
 
 
 class Oracle(System):
@@ -333,21 +342,39 @@ def with_profile(cfg: Any, profile: str) -> Any:
 class JobStage(System):
     """NoteSets of a job's stage: ``job:notes`` (guitar_all.json), ``job:amt_gtr`` (raw guitar view), …
 
+    The stage dir is the one the **current settings** would make (the planned key, ``runner.plan``). When that
+    dir does not exist the item is skipped with a Korean warning: the newest dir made with other settings is a
+    different system, and scoring it under this name silently mixes results (review 2026-10-05). Opt in with
+    ``allow_stale=True`` (``bandscribe eval run ... --arg allow_stale=true``): the newest finished dir is used
+    and its note says ``(stale)``. Only when the job cannot be planned at all (no config, a foreign layout) is
+    the newest dir used without that flag. Every item's metrics note records ``stage=<key12>``; run.json
+    lists all stage keys read (``stage_keys``).
+
     ``b0`` (baseline B0) needs the full-mix transcription, which only the ``eval`` profile runs (2026-10-04: the
-    default ``quality`` profile skips it for speed). So B0 plans its stage keys with ``run.profile = "eval"`` and
-    otherwise takes the newest ``amt_ms1`` dir that has the mix file; without one B0 is skipped with a Korean hint
-    to run ``bandscribe run <곡> --profile eval``.
+    default ``quality`` profile skips it for speed). So B0 plans its stage keys with ``run.profile = "eval"``;
+    without that dir B0 is skipped with a Korean hint to run ``bandscribe run <곡> --profile eval``.
     """
 
-    def __init__(self, stage: str, *, mode: str = "lines", cfg: Any = None) -> None:
+    def __init__(self, stage: str, *, mode: str = "lines", cfg: Any = None, allow_stale: bool = False) -> None:
         self.stage = stage
         self.mode = mode
         self.name = f"job:{stage}" if mode == "lines" else mode
         self.cfg = with_profile(cfg, "eval") if mode == "b0" else cfg
+        self.allow_stale = bool(allow_stale)
         self._need = B0_FILE if mode == "b0" else None
         self._warned: set[str] = set()
         self._rung: dict[str, str] = {}
         self._planned: dict[str, dict[str, str]] = {}
+        self._dirs: dict[str, dict[str, str]] = {}  # song_key -> {stage: key12 [+ " (stale)"]}
+        self._item_song: dict[str, str] = {}
+        self._note: dict[str, str] = {}
+        self._skipped_stale: set[tuple[str, str]] = set()
+        self.warnings: list[str] = []
+
+    def _warn(self, msg: str) -> None:
+        if msg not in self.warnings:
+            self.warnings.append(msg)
+            log.warning("%s", msg)
 
     def _planned_keys(self, song_key: str) -> dict[str, str]:
         """{stage: key12} the current config would use for this job (``bandscribe.pipeline.runner.plan``), or {} when
@@ -368,27 +395,45 @@ class JobStage(System):
             self._planned[song_key] = keys
         return self._planned[song_key]
 
-    def _stage_dir(self, song_key: str, stage: str, need: str | None = None) -> Path | None:
-        """The stage dir made with the current settings (planned key), else the newest finished one; with
-        ``need`` (a file relative to the stage dir) only dirs that contain it."""
+    def _stage_dir(self, song_key: str, stage: str, need: str | None = None, *, quiet: bool = False) -> Path | None:
+        """The stage dir made with the current settings (planned key; with ``need``, a file relative to the stage
+        dir, it must contain it). Missing: None with a Korean warning (``quiet``: none, for provenance lookups),
+        or the newest finished dir under ``allow_stale``. Unplannable job: the newest finished dir."""
         d = paths.JOBS / song_key / "stages" / stage
         key12 = self._planned_keys(song_key).get(stage)
 
         def ok(p: Path) -> bool:
             return (p / "manifest.json").is_file() and (need is None or (p / need).is_file())
 
+        def used(p: Path, stale: bool = False) -> Path:
+            self._dirs.setdefault(song_key, {})[stage] = p.name + (" (stale)" if stale else "")
+            return p
+
         if key12 and ok(d / key12):
-            return d / key12
+            return used(d / key12)
         cands = sorted((p for p in d.glob("*") if ok(p)), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
-        if cands and key12:
-            log.warning("%s/%s: 현재 설정의 단계(%s)가 없어 가장 최근 결과(%s)를 씁니다", song_key, stage, key12,
-                        cands[-1].name)
-        return cands[-1] if cands else None
+        if not cands:
+            return None
+        if key12 is None:  # the job could not be planned (no config, a foreign layout): newest is all there is
+            return used(cands[-1])
+        if not self.allow_stale:
+            if quiet:
+                return None
+            self._skipped_stale.add((song_key, stage))
+            prof = " --profile eval" if self.mode == "b0" else ""
+            self._warn(f"{song_key}: 현재 설정으로 만든 {stage} 단계 결과({key12})가 없어 이 곡을 평가에서 뺍니다(다른 설정의 "
+                       f"결과 {len(cands)}개는 쓰지 않음). 'bandscribe run {song_key} --until {stage}{prof}' 로 만든 뒤 다시 "
+                       "평가하거나, 예전 결과로 평가하려면 --arg allow_stale=true 를 주세요.")
+            return None
+        if not quiet:
+            self._warn(f"{song_key}: 현재 설정의 {stage} 단계({key12})가 없어 가장 최근 결과({cands[-1].name})로 "
+                       "평가합니다(allow_stale: 다른 설정의 결과, 지표 note 에 stale 표시).")
+        return used(cands[-1], stale=True)
 
     def _read_rung(self, song_key: str) -> str:
         labels = []
         for st in ("sep", "amt_ms1" if self.mode == "b0" else "amt_gtr"):
-            sd = self._stage_dir(song_key, st, self._need if st == "amt_ms1" else None)
+            sd = self._stage_dir(song_key, st, self._need if st == "amt_ms1" else None, quiet=True)
             gr = sd / "gpu_run.json" if sd else None
             if gr and gr.is_file():
                 lab = (atomic.read_json(gr).get("rung") or {}).get("label")
@@ -402,14 +447,15 @@ class JobStage(System):
 
         if not it.song_key:
             return None
+        stage = "amt_ms1" if self.mode == "b0" else self.stage
         if self.mode == "b0":
             sd = self._stage_dir(it.song_key, "amt_ms1", B0_FILE)
             f = sd / B0_FILE if sd else None
             if not f or not f.is_file():
-                if it.song_key not in self._warned:
+                if it.song_key not in self._warned and (it.song_key, "amt_ms1") not in self._skipped_stale:
                     self._warned.add(it.song_key)
-                    log.warning("%s: B0 는 eval 프로필의 믹스 전사가 필요합니다. 'bandscribe run %s --profile eval' 로 "
-                                "만든 뒤 다시 평가하세요(B0 생략).", it.song_key, it.song_key)
+                    self._warn(f"{it.song_key}: B0 는 eval 프로필의 믹스 전사가 필요합니다. 'bandscribe run {it.song_key} "
+                               "--profile eval' 로 만든 뒤 다시 평가하세요(B0 생략).")
                 return None
             pred = b0(NoteSet.model_validate_json(f.read_bytes()), item=it.item)
         else:
@@ -419,11 +465,19 @@ class JobStage(System):
                 return None
             ns = NoteSet.model_validate_json(f.read_bytes())
             pred = no_split(ns, item=it.item, system=self.name)
+        self._item_song[it.item] = it.song_key
+        self._note[it.item] = f"stage={self._dirs.get(it.song_key, {}).get(stage, sd.name if sd else '')}"
         self._rung[it.item] = self._read_rung(it.song_key)
         return pred
 
     def rung_for(self, it: EvalItem) -> str:
         return self._rung.get(it.item, "")
+
+    def note_for(self, it: EvalItem) -> str:
+        return self._note.get(it.item, "")
+
+    def stage_keys(self) -> dict[str, dict[str, str]]:
+        return {item: dict(self._dirs.get(song, {})) for item, song in sorted(self._item_song.items())}
 
     @staticmethod
     def _guitar_file(sd: Path) -> Path | None:
@@ -512,7 +566,8 @@ def _item_audio(it: EvalItem) -> Path | None:
     return root / tr.mix if tr.mix else None
 
 
-def make_system(name: str, cfg: Any, *, work_root: Path | None = None) -> System:
+def make_system(name: str, cfg: Any, *, work_root: Path | None = None, allow_stale: bool = False) -> System:
+    """``allow_stale``: job systems may score a stage dir made with other settings (``JobStage``)."""
     seed = int(_cfg(cfg, "eval.seed", stats.DEFAULT_SEED))
     if name == "oracle":
         return Oracle()
@@ -521,13 +576,13 @@ def make_system(name: str, cfg: Any, *, work_root: Path | None = None) -> System
     if name == "majority":
         return Majority()
     if name == "b0":
-        return JobStage("amt_ms1", mode="b0", cfg=cfg)
+        return JobStage("amt_ms1", mode="b0", cfg=cfg, allow_stale=allow_stale)
     if name == "no_split":
-        return JobStage("amt_gtr", mode="no_split", cfg=cfg)
+        return JobStage("amt_gtr", mode="no_split", cfg=cfg, allow_stale=allow_stale)
     if name == "basicpitch":
         return BasicPitchWorker(cfg, work_root or paths.DATA / "tmp")
     if name.startswith("job:"):
-        return JobStage(name.split(":", 1)[1], cfg=cfg)
+        return JobStage(name.split(":", 1)[1], cfg=cfg, allow_stale=allow_stale)
     if name.startswith("external:"):
         return External(name.split(":", 1)[1])
     raise SuiteError(f"알 수 없는 시스템 '{name}' (oracle, oracle-noisy, majority, b0, no_split, job:<단계>, external:<이름>)")
@@ -688,21 +743,29 @@ def items_for_suite(suite: str, cfg: Any, args: dict | None = None) -> list[Eval
 BASELINE_METRICS = ("note_f1_onset50", "tick_f1", "assign_macro")
 
 
+def join_notes(*parts: str) -> str:
+    return "; ".join(p for p in parts if p)
+
+
 def _job_baselines(items: Sequence[EvalItem], system: str, cfg: Any, *, suite: str, note: str,
-                   onset_tol: float) -> list[dict[str, Any]]:
+                   onset_tol: float, allow_stale: bool = False,
+                   used: list[System] | None = None) -> list[dict[str, Any]]:
     """DESIGN 8.5 "기준선 (모든 리포트에 포함)": for items that come from a job (Tier A songs), score B0 (guitar
     classes of the mix transcription) and no-split (the guitar-stem transcription as one line) next to the
-    system. Their rows go to metrics.csv with their own ``system``; jobs without those stages are skipped."""
+    system. Their rows go to metrics.csv with their own ``system``; jobs without those stages are skipped.
+    ``used`` collects the baseline systems (their warnings and stage keys go to summary.json / run.json)."""
     if system in ("b0", "no_split") or not any(it.song_key for it in items):
         return []
     out: list[dict[str, Any]] = []
     for bname in ("b0", "no_split"):
-        bsys = make_system(bname, cfg)
+        bsys = make_system(bname, cfg, allow_stale=allow_stale)
+        if used is not None:
+            used.append(bsys)
         for it in items:
             pred = bsys.predict(it)
             if pred is not None:
-                out += evaluate_item(it, pred, suite=suite, system=bsys.name, rung=bsys.rung_for(it), note=note,
-                                     onset_tol=onset_tol).rows
+                out += evaluate_item(it, pred, suite=suite, system=bsys.name, rung=bsys.rung_for(it),
+                                     note=join_notes(note, bsys.note_for(it)), onset_tol=onset_tol).rows
     return out
 
 
@@ -741,7 +804,8 @@ def run_suite(suite: str, system: str | None, cfg: Any, *, out: Path | None = No
         raise SuiteError(f"'{suite}' 에 평가할 항목이 없습니다{hint}")
     run_dir = runs.new_run_dir(system, root=out, now=now, gitsha=gitsha)
     started = runs.utc_now()
-    sysobj = make_system(system, cfg, work_root=run_dir)
+    allow_stale = _truthy((args or {}).get("allow_stale"))
+    sysobj = make_system(system, cfg, work_root=run_dir, allow_stale=allow_stale)
     if isinstance(sysobj, BasicPitchWorker):
         sysobj.prepare(items, run_worker=run_worker)
     n = int(_cfg(cfg, "eval.bootstrap_iterations", stats.DEFAULT_ITERATIONS))
@@ -759,17 +823,27 @@ def run_suite(suite: str, system: str | None, cfg: Any, *, out: Path | None = No
         if pred is None:
             skipped.append(it.item)
             continue
-        r = evaluate_item(it, pred, suite=suite, system=sysobj.name, rung=sysobj.rung_for(it), note=note,
-                          onset_tol=onset_tol)
+        r = evaluate_item(it, pred, suite=suite, system=sysobj.name, rung=sysobj.rung_for(it),
+                          note=join_notes(note, sysobj.note_for(it)), onset_tol=onset_tol)
         rows += r.rows
         worst += r.worst_bars
         details.append({"item": it.item, "scenario": it.scenario, "confusion": r.confusion, "coverage": r.coverage})
     if not rows:
-        raise SuiteError(f"시스템 '{system}' 의 예측이 하나도 없습니다 (건너뜀 {len(skipped)}개)")
+        hint = "".join(f"\n- {w}" for w in sysobj.warnings)
+        raise SuiteError(f"시스템 '{system}' 의 예측이 하나도 없습니다 (건너뜀 {len(skipped)}개){hint}")
     summ, aggs = _summary(rows, n=n, seed=seed, mde=mde)
     summary = {"suite": suite, "system": sysobj.name, "n_items": len({r["item"] for r in rows}),
                "skipped": sorted(skipped), "note": note, **summ}
-    base_rows = _job_baselines(items, sysobj.name, cfg, suite=suite, note=note, onset_tol=onset_tol)
+    base_systems: list[System] = []
+    base_rows = _job_baselines(items, sysobj.name, cfg, suite=suite, note=note, onset_tol=onset_tol,
+                               allow_stale=allow_stale, used=base_systems)
+    warnings = [w for s in [sysobj, *base_systems] for w in s.warnings]
+    if warnings:
+        summary["warnings"] = list(dict.fromkeys(warnings))
+        if progress:
+            for w in summary["warnings"]:
+                progress("message", {"message": f"주의: {w}"})
+    stage_keys = {s.name: s.stage_keys() for s in [sysobj, *base_systems] if s.stage_keys()}
     if base_rows:
         from bandscribe.eval.experiments import aggregate_rows
 
@@ -786,9 +860,17 @@ def run_suite(suite: str, system: str | None, cfg: Any, *, out: Path | None = No
         "suite": suite, "system": sysobj.name, "args": args or {}, "git_sha": run_dir.name.split("_")[1],
         "started_utc": started, "finished_utc": runs.utc_now(),
         "config": cfg.model_dump(mode="json") if hasattr(cfg, "model_dump") else None,
+        **({"stage_keys": stage_keys, "allow_stale": allow_stale} if stage_keys or allow_stale else {}),
         **runs.provenance()})
     report.write_suite_report(run_dir, summary, rows + aggs, details, worst)
     return SuiteRun(run_dir, summary)
+
+
+def _truthy(v: Any) -> bool:
+    """``--arg allow_stale=true`` arrives as JSON (bool) or as a string."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "y", "on")
+    return bool(v)
 
 
 def _write_worst_bars(path: Path, worst: Sequence[dict[str, Any]]) -> None:

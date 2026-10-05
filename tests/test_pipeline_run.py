@@ -247,3 +247,37 @@ def test_real_cpu_stages_are_byte_deterministic(real_grid_job):
     assert first == second
     assert set(first["grid"]) == {"grid.json", "onsets.npz"}
     assert set(first["resid1"]) == {"repeat_resid_pass1.wav", "resid1.json"}
+
+
+def test_run_warnings_surface_cached_gpu_flags(job, fakes):
+    """Review 2026-10-05: cached GPU stages keep their lower rung, slowness and the worker's warnings in
+    gpu_run.json (older sep dirs: sep.json); run_warnings shows them, except for stages already shown live."""
+    store, key = job
+    res = runner.run(key, None, store=store, until="amt_gtr")
+    slow = "chunk=352256: 실시간 배수 1.4x 로 기준보다 느림(다른 GPU 작업과 경합했을 수 있음)"
+    atomic.write_json(res["sep"] / "sep.json", {"warnings": [slow]})  # an old sep dir: no "warnings" in gpu_run
+    gr = atomic.read_json(res["amt_gtr"] / "gpu_run.json")
+    eos = "guitar_mono: MuScriptor 가 1개 구간에서 끝 토큰(EOS) 없이 생성 한도에 닿았습니다(12 s 부근)."
+    atomic.write_json(res["amt_gtr"] / "gpu_run.json", {**gr, "degraded": True, "slow": True, "warnings": [eos],
+                                                         "rung": {"index": 1, "label": "small", "device": "cuda"}})
+    atomic.write_json(res["beats"] / "gpu_run.json", {**atomic.read_json(res["beats"] / "gpu_run.json"),
+                                                       "slow": True, "warnings": []})
+    w = runner.run_warnings(res)
+    assert f"sep: {slow}" in w
+    assert f"amt_gtr: 낮은 칸(small)으로 만든 캐시입니다. 여유가 있을 때 'bandscribe run {key} --force amt_gtr' 로 다시 만드세요." in w
+    assert f"amt_gtr: {eos}" in w
+    assert any(x.startswith("amt_gtr: 기준보다 느리게") for x in w) and any(x.startswith("beats: 기준보다 느리게") for x in w)
+    assert not any(x.startswith("sep: 기준보다 느리게") for x in w)  # the worker's own slow text is enough
+    w2 = runner.run_warnings(res, exclude_stages={"sep", "amt_gtr", "beats"})
+    assert not any(x.split(":")[0] in ("sep", "amt_gtr", "beats") for x in w2)
+
+
+def test_fresh_degraded_gpu_stage_warns_live(job, fakes):
+    store, key = job
+    fakes.degraded = {"beats"}
+    ev: list = []
+    runner.run(key, None, store=store, until="grid", progress=lambda k, i: ev.append((k, i)))
+    warn = [i for k, i in ev if k == "warning"]
+    assert [w["stage"] for w in warn] == ["beats"]
+    assert warn[0]["message"].startswith("낮은 칸(low)으로 실행했습니다")
+    assert f"bandscribe run {key} --force beats" in warn[0]["message"]

@@ -41,8 +41,13 @@ def windowing_array(window_size: int, fade_size: int) -> torch.Tensor:
 def demix(model: nn.Module, mix: np.ndarray, *, chunk_size: int, num_overlap: int, num_stems: int,
           device: torch.device, batch_size: int = 1, use_amp: bool = True,
           on_chunk: Callable[[float, float], None] | None = None, sample_rate: int = 44100) -> np.ndarray:
-    """Separate ``mix`` (channels, time) float32 -> (num_stems, channels, time) float32 numpy array."""
-    mix_t = torch.tensor(np.asarray(mix, dtype=np.float32), dtype=torch.float32)  # CPU
+    """Separate ``mix`` (channels, time) float32 -> (num_stems, channels, time) float32 numpy array.
+
+    ``mix`` is shared, not copied (``torch.from_numpy``; nothing here writes into it): the reflect padding
+    below makes the one working copy. Peak RAM is the caller's mix + the padded copy + ``result`` (num_stems x
+    the mix) + ``counter``; the padded copy is released before the final division (review 2026-10-05).
+    """
+    mix_t = torch.from_numpy(np.ascontiguousarray(mix, dtype=np.float32))  # CPU, shares the caller's array
     acc_device = torch.device("cpu")
 
     fade_size = chunk_size // 10
@@ -63,6 +68,7 @@ def demix(model: nn.Module, mix: np.ndarray, *, chunk_size: int, num_overlap: in
             counter = torch.zeros(total, dtype=torch.float32, device=acc_device)
 
             i = 0
+            part = None
             batch_data: list[torch.Tensor] = []
             batch_locations: list[tuple[int, int]] = []
             while i < total:
@@ -96,11 +102,16 @@ def demix(model: nn.Module, mix: np.ndarray, *, chunk_size: int, num_overlap: in
                         done = min(i, total) / total * total_s if total else total_s
                         on_chunk(done, total_s)
 
+            del mix_t, part, batch_data  # the padded working copy (and any chunk view of it) is not needed now
             estimated = result.div_(counter)
+            del counter
             if padded:
                 estimated = estimated[..., border:-border]
-            out = estimated.numpy()  # a view of `result` (trimmed); no second 0.5 GB copy
-            np.nan_to_num(out, copy=False, nan=0.0)
+            # NaN (positions no window covers) -> 0, +-inf -> the largest finite float32, exactly as upstream's
+            # np.nan_to_num; but in place: numpy's version builds several full-size boolean masks (isnan, isposinf,
+            # isneginf and their temporaries), the peak of the whole worker on long songs (review 2026-10-05)
+            torch.nan_to_num_(estimated, nan=0.0)
+            out = estimated.numpy()  # a view of `result` (trimmed); no second copy
     return out
 
 
