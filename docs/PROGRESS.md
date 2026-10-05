@@ -40,7 +40,8 @@ n = our bar n for bars 2–116; GT 117 (2/4) sits at the end of our 6-beat bar 1
   of any song lies between −50 and −40 dB; the matched SC bass notes are all within 12 dB of the reference. The
   guitar levels are not bimodal on KH/aotonat (604 aotonat notes at −50…−40 dB stay): no guitar GT there yet.
   Left in SC bars 4–6: a loud falling line in the bass stem (F2 → G1, −4 → −30 dB) where the score has dead notes
-  then rests; the user should listen (0:03–0:06).
+  then rests. **User (2026-10-05): it is one long slide down from fret 3**, written by us as separate notes
+  (3 1 0 4 3 … on the tab). Slide detection belongs to M5 (bass techniques).
 - **`hints.title`:** `[hints] title = "..."` in a job's `hints.toml` names the song in the score, GP5, viewer and
   `status` (input files stay read-only). SC's job has `title = "seisyun complex"`.
 - The eval `job:notes` system reads `guitar_all.json`, so guitar suites now score the gated output; bass suites read
