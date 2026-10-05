@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}} · bandscribe</title>
 <style>
-  :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --accent: #2f6f5e; --chip: #efeee9; }
+  :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --accent: #2f6f5e; --chip: #efeee9;
+          --sel: #d9480f; --warn: #b4540a; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --bg: #1b1c1a; --fg: #ecebe6; --muted: #a3a29b; --line: #34352f; --accent: #7cc4ad; --chip: #2a2b27; }
+    :root:not([data-theme="light"]) { --bg: #1b1c1a; --fg: #ecebe6; --muted: #a3a29b; --line: #34352f; --accent: #7cc4ad;
+                                     --chip: #2a2b27; --warn: #f0a050; }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, "Malgun Gothic", sans-serif; }
@@ -21,16 +23,35 @@
   h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; }
   button, select { font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line);
                    border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 84px; }
   button[aria-pressed="false"] { opacity: .55; }
   .time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 110px; }
   .info { width: 100%; color: var(--muted); font-size: 13px; }
+  #edit { width: 100%; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 14px; }
+  #sel { flex: 1 1 260px; min-width: 0; }
+  #sel b { font-weight: 600; }
+  #msg { color: var(--warn); }
+  #counts { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #edit button { padding: 3px 10px; }
   #status { color: var(--muted); padding: 24px 16px; }
   /* notation is drawn in black: the score area stays white in dark mode too */
   #at { background: #fff; color: #000; padding: 0 8px 64px; min-height: 60vh; }
   .at-cursor-bar { background: rgba(47, 111, 94, .14); }
   .at-cursor-beat { background: #2f6f5e; width: 3px; }
   .at-highlight * { fill: #2f6f5e; stroke: #2f6f5e; }
+  .sel-box { position: absolute; border: 2px solid var(--sel); border-radius: 4px; pointer-events: none;
+             box-shadow: 0 0 0 3px rgba(217, 72, 15, .2); z-index: 5; }
+  body.busy #at { cursor: progress; }
+  #help { position: fixed; right: 16px; top: 64px; z-index: 20; max-width: min(440px, calc(100vw - 32px));
+          background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+          box-shadow: 0 8px 28px rgba(0, 0, 0, .18); font-size: 14px; }
+  #help[hidden] { display: none; }
+  #help h2 { font-size: 15px; margin: 0 0 6px; }
+  #help table { border-collapse: collapse; }
+  #help td { padding: 2px 8px 2px 0; vertical-align: top; }
+  #help td:first-child { white-space: nowrap; font-family: ui-monospace, Consolas, monospace; color: var(--accent); }
+  #help p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -42,7 +63,33 @@
     <option value="0.75">75%</option><option value="0.5">50%</option></select></label>
   <span id="tracks"></span>
   <div class="info">{{INFO}}</div>
+  <div id="edit">
+    <span id="sel">음을 누르면 골라집니다.</span>
+    <span id="msg" role="status" aria-live="polite"></span>
+    <span id="counts"></span>
+    <button id="undo" title="되돌리기 (Ctrl+Z)" disabled>↶ 되돌리기</button>
+    <button id="redo" title="다시 하기 (Ctrl+Y)" disabled>↷ 다시</button>
+    <button id="helpBtn" title="편집 키 (?)" aria-expanded="false" aria-controls="help">?</button>
+  </div>
 </header>
+<div id="help" hidden>
+  <h2>편집 키</h2>
+  <table>
+    <tr><td>클릭</td><td>음 고르기 (그 자리로 재생 위치도 옮김)</td></tr>
+    <tr><td>← →</td><td>앞 / 뒤 음</td></tr>
+    <tr><td>↑ ↓</td><td>반음 올리기 / 내리기</td></tr>
+    <tr><td>Shift + ↑ ↓</td><td>옥타브 올리기 / 내리기</td></tr>
+    <tr><td>Delete</td><td>지우기</td></tr>
+    <tr><td>S / Shift+S</td><td>다른 줄에서 치기 (탭 트랙)</td></tr>
+    <tr><td>1 / 2</td><td>기타 / 베이스 트랙으로 옮기기</td></tr>
+    <tr><td>A</td><td>재생 위치에 음 넣기 (고른 음 높이, 16분음표)</td></tr>
+    <tr><td>[ / ]</td><td>이 마디 첫 박을 한 박 앞 / 뒤로 (뒤 마디도 함께)</td></tr>
+    <tr><td>D</td><td>여기가 마디 첫 박 (재생 중엔 모았다가 멈추면 적용)</td></tr>
+    <tr><td>Ctrl+Z / Ctrl+Y</td><td>되돌리기 / 다시</td></tr>
+    <tr><td>Space / Esc</td><td>재생·멈춤 / 고르기 해제</td></tr>
+  </table>
+  <p>고칠 때마다 작업 폴더의 edits.jsonl 에 기록되고, export 의 악보·GP5·MIDI 도 바로 고쳐집니다.</p>
+</div>
 <audio id="audio" src="/audio" preload="auto"></audio>
 <main id="viewport" tabindex="-1">
   <div id="status">악보를 불러오는 중…</div>
@@ -51,17 +98,22 @@
 <script src="/alphatab/alphaTab.min.js"></script>
 <script>
 (() => {
-  const audio = document.getElementById("audio");
-  const playBtn = document.getElementById("play");
-  const timeEl = document.getElementById("time");
-  const status = document.getElementById("status");
-  const viewport = document.getElementById("viewport");
+  const TOKEN = "{{TOKEN}}";
+  const $ = (id) => document.getElementById(id);
+  const audio = $("audio"), playBtn = $("play"), timeEl = $("time"), status = $("status"), viewport = $("viewport");
+  const selEl = $("sel"), msgEl = $("msg"), countsEl = $("counts"), undoBtn = $("undo"), redoBtn = $("redo");
+  const helpEl = $("help"), helpBtn = $("helpBtn");
   const fmt = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
+  const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const pitchName = (p) => `${NAMES[p % 12]}${Math.floor(p / 12) - 1}`;
+  const TRACK_KO = { guitar_all: "기타", bass_raw: "베이스" };
 
   // absolute URLs: the render worker's importScripts() rejects a path-only URL
   const abs = (p) => new URL(p, location.href).href;
-  const api = new alphaTab.AlphaTabApi(document.getElementById("at"), {
-    core: { fontDirectory: abs("/alphatab/font/"), scriptFile: abs("/alphatab/alphaTab.min.js"), engine: "svg" },
+  const api = new alphaTab.AlphaTabApi($("at"), {
+    // includeNoteBounds: note heads in the bounds lookup (clicking a note and the selection box need them)
+    core: { fontDirectory: abs("/alphatab/font/"), scriptFile: abs("/alphatab/alphaTab.min.js"), engine: "svg",
+            includeNoteBounds: true },
     display: { layoutMode: alphaTab.LayoutMode.Page, scale: 0.95 },
     player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia, enableCursor: true,
               enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollMode: alphaTab.ScrollMode.Continuous,
@@ -79,7 +131,6 @@
     play() { audio.play(); },
     pause() { audio.pause(); },
   };
-  window.bandscribeViewer = { api, audio };  // for checks from the console
   let raf = 0;
   const tick = () => {
     if (api.player) api.player.output.updatePosition(audio.currentTime * 1000);
@@ -87,29 +138,35 @@
     if (!audio.paused) raf = requestAnimationFrame(tick);
   };
   const connect = () => { if (api.player && api.player.output) api.player.output.handler = handler; };
-  api.playerReady.on(() => { connect(); playBtn.disabled = false; });
+  api.playerReady.on(() => { connect(); playBtn.disabled = false; tick(); });
   connect();
   audio.addEventListener("play", () => { playBtn.textContent = "⏸ 일시정지"; cancelAnimationFrame(raf); tick(); });
-  audio.addEventListener("pause", () => { playBtn.textContent = "▶ 재생"; tick(); });
+  audio.addEventListener("pause", () => { playBtn.textContent = "▶ 재생"; tick(); flushTaps(); });
   audio.addEventListener("seeked", tick);
   audio.addEventListener("loadedmetadata", tick);
   audio.addEventListener("ended", () => api.stop());
   playBtn.addEventListener("click", () => api.playPause());
-  document.getElementById("speed").addEventListener("change", (e) => { api.playbackSpeed = Number(e.target.value); });
-  document.addEventListener("keydown", (e) => {
-    if (e.code === "Space" && (e.target === document.body || e.target === viewport)) { e.preventDefault(); api.playPause(); }
-  });
+  $("speed").addEventListener("change", (e) => { api.playbackSpeed = Number(e.target.value); });
   viewport.focus({ preventScroll: true });  // arrow keys and Page Down scroll the score, as they scrolled the page
+
+  // ------------------------------------------------------------------------------------------- the score
+  let doc = { version: 0, map: null, readonly: "" };  // the server's snapshot (alphaTex + note map + counts)
+  let shown = null;          // track indices the user keeps visible
+  let selected = null;       // note id ("<track>:<index>")
+  let busy = false;
+  let afterRender = null;
+  const taps = [];           // downbeat taps while playing, sent when playback stops
 
   api.scoreLoaded.on((score) => {
     status.remove();
-    const box = document.getElementById("tracks");
+    const box = $("tracks");
     box.innerHTML = "";
-    let shown = score.tracks.map((t) => t.index);
+    const all = score.tracks.map((t) => t.index);
+    if (!shown || shown.some((i) => !all.includes(i))) shown = all;
     score.tracks.forEach((t) => {
       const b = document.createElement("button");
       b.textContent = t.name;
-      b.setAttribute("aria-pressed", "true");
+      b.setAttribute("aria-pressed", String(shown.includes(t.index)));
       b.addEventListener("click", () => {
         const on = shown.includes(t.index);
         if (on && shown.length === 1) return;
@@ -120,12 +177,222 @@
       box.appendChild(b);
     });
   });
+  api.renderFinished.on(() => {
+    const f = afterRender;
+    afterRender = null;
+    if (f) f();
+    drawSelection();
+  });
   api.error.on((e) => { status.textContent = "악보를 열지 못했습니다: " + (e && e.message ? e.message : e); });
 
-  fetch("/score.alphatex").then((r) => {
-    if (!r.ok) throw new Error(`score.alphatex: HTTP ${r.status}`);
-    return r.text();
-  }).then((tex) => api.tex(tex, "all")).catch((e) => { status.textContent = String(e); });
+  // resolves when alphaTab has drawn the new score (or after 20 s), so no click lands on the old drawing
+  async function load(keepScroll) {
+    const r = await fetch("/api/score", { cache: "no-store" });
+    if (!r.ok) throw new Error(`/api/score: HTTP ${r.status}`);
+    const d = await r.json();
+    doc = d;
+    showCounts(d);
+    const top = viewport.scrollTop;
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 20000);
+      afterRender = () => { clearTimeout(timer); if (keepScroll) { viewport.scrollTop = top; tick(); } resolve(); };
+      api.tex(d.tex, shown ? shown : "all");
+      showSelection();
+    });
+  }
+
+  // ------------------------------------------------------------------------------------------ selection
+  const selBox = document.createElement("div");
+  selBox.className = "sel-box";
+  const keyOf = (note, fretted) => {
+    const staff = note.beat.voice.bar.staff;
+    return fretted ? "s" + (staff.tuning.length + 1 - note.string) : "p" + note.realValue;  // ours: string 1 = highest
+  };
+  function uidOf(note) {
+    if (!doc.map) return null;
+    const ti = note.beat.voice.bar.staff.track.index;
+    const tr = doc.map.tracks[ti];
+    if (!tr) return null;
+    return doc.map.pos[`${ti}:${note.beat.voice.bar.index}:${note.beat.index}:${keyOf(note, tr.fretted)}`] || null;
+  }
+  function noteOf(uid) {
+    const at = doc.map && doc.map.at[uid];
+    const track = at && api.score && api.score.tracks[at[0]];
+    if (!track) return null;
+    const bar = track.staves[0].bars[at[1]];
+    const beat = bar && bar.voices[0].beats[at[2]];
+    if (!beat) return null;
+    const fretted = doc.map.tracks[at[0]].fretted;
+    return beat.notes.find((n) => keyOf(n, fretted) === at[3]) || null;
+  }
+  function drawSelection() {
+    const note = selected && noteOf(selected);
+    const lookup = api.boundsLookup;
+    const bb = note && lookup && lookup.findBeat(note.beat);
+    const nb = bb && bb.notes && bb.notes.find((x) => x.note === note);
+    if (!nb) { selBox.remove(); return null; }
+    const r = nb.noteHeadBounds;
+    const host = document.querySelector("#at .at-cursors") || $("at");
+    if (selBox.parentNode !== host) host.appendChild(selBox);
+    Object.assign(selBox.style, { left: `${r.x - 4}px`, top: `${r.y - 4}px`, width: `${r.w + 8}px`, height: `${r.h + 8}px` });
+    return selBox;
+  }
+  function showSelection() {
+    const n = selected && doc.map && doc.map.notes[selected];
+    if (!n) {
+      selEl.textContent = doc.readonly ? `읽기 전용: ${doc.readonly}` : "음을 누르면 골라집니다. 키 목록은 ? 버튼.";
+      return;
+    }
+    const pos = n.string ? ` · ${n.string}번 줄 ${n.fret}프렛${n.pinned ? " (고정)" : ""}` : "";
+    const at = doc.map.at[selected];  // the bar number printed on the score (alphaTab counts written bars from 1)
+    selEl.innerHTML = `<b>${TRACK_KO[n.track] || n.track}</b> · 마디 ${at ? at[1] + 1 : "?"} · ` +
+                      `<b>${pitchName(n.pitch)}</b>${pos}` + (n.added ? " · 넣은 음" : "");
+  }
+  function select(uid, reveal) {
+    selected = uid;
+    showSelection();
+    const box = drawSelection();
+    if (box && reveal) {
+      const b = box.getBoundingClientRect(), v = viewport.getBoundingClientRect();
+      if (b.top < v.top + 8 || b.bottom > v.bottom - 8) viewport.scrollTop += b.top - v.top - v.height / 3;
+    }
+  }
+  api.noteMouseDown.on((note) => { const uid = uidOf(note); if (uid) select(uid); });
+  function step(dir) {
+    const [tid, k] = selected.split(":");
+    for (let i = Number(k) + dir; i >= 0; i += dir) {
+      const uid = `${tid}:${i}`;
+      if (!doc.map.notes[uid]) return;
+      if (doc.map.at[uid]) { select(uid, true); return; }
+    }
+  }
+  function currentBar() {
+    if (selected && doc.map && doc.map.at[selected]) return doc.map.at[selected][1];
+    const tc = api.tickCache;
+    const res = tc && tc.findBeat(new Set([0]), api.tickPosition);
+    return res && res.beat ? res.beat.voice.bar.index : null;
+  }
+
+  // -------------------------------------------------------------------------------------------- edits
+  let msgTimer = 0;
+  function flash(text) {
+    msgEl.textContent = text || "";
+    clearTimeout(msgTimer);
+    if (text) msgTimer = setTimeout(() => { msgEl.textContent = ""; }, 6000);
+  }
+  function showCounts(d) {
+    undoBtn.disabled = !d.undo || !!d.readonly;
+    redoBtn.disabled = !d.redo || !!d.readonly;
+    countsEl.textContent = d.readonly ? "" : `편집 ${d.edits || 0}개` + (d.unmatched ? ` · 못 찾은 편집 ${d.unmatched}` : "") +
+                                              (d.skipped ? ` · 적용 못 한 편집 ${d.skipped}` : "");
+    if (d.export_error) flash(d.export_error);
+  }
+  const setBusy = (b) => { busy = b; document.body.classList.toggle("busy", b); };
+  // one command; the caller holds `busy` (so no other key is sent before the page shows the result)
+  async function run(cmd, reload = true) {
+    const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json",
+      "X-Bandscribe-Token": TOKEN }, body: JSON.stringify({ ...cmd, version: doc.version }) });
+    const d = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+    if (r.status === 409 && d.stale) { flash(d.error); await load(true); return null; }
+    if (!r.ok) { flash(d.error || `HTTP ${r.status}`); return null; }
+    flash(d.message);
+    doc.version = d.version;
+    showCounts(d);
+    if (d.applied) {
+      selected = d.select || (cmd.cmd === "delete" ? cmd.uid : null);
+      if (reload) await load(true);
+    }
+    return d;
+  }
+  async function send(cmd) {
+    if (doc.readonly) { flash(`편집할 수 없습니다: ${doc.readonly}`); return null; }
+    if (busy) return null;
+    setBusy(true);
+    try { return await run(cmd); } catch (e) { flash(String(e)); return null; } finally { setBusy(false); }
+  }
+  function tap() {
+    if (!audio.paused) { taps.push(audio.currentTime); flash(`첫 박 표시 ${taps.length}개 · 멈추면 적용`); return; }
+    send({ cmd: "tap", t_s: audio.currentTime });
+  }
+  async function flushTaps() {
+    if (!taps.length || doc.readonly) return;
+    while (busy) await new Promise((res) => setTimeout(res, 50));
+    const list = taps.splice(0);
+    let applied = 0;
+    setBusy(true);
+    try {
+      for (const t of list) {
+        const d = await run({ cmd: "tap", t_s: t }, false);
+        if (d && d.applied) applied += 1;
+      }
+      if (applied) await load(true);
+      flash(`첫 박 ${list.length}개 중 ${applied}개로 마디선을 옮겼습니다`);
+    } catch (e) {
+      flash(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const selectedNote = () => (selected && doc.map && doc.map.notes[selected]) || null;
+  undoBtn.addEventListener("click", () => send({ cmd: "undo" }));
+  redoBtn.addEventListener("click", () => send({ cmd: "redo" }));
+  const toggleHelp = (force) => {
+    const show = force === undefined ? helpEl.hidden : force;
+    helpEl.hidden = !show;
+    helpBtn.setAttribute("aria-expanded", String(show));
+  };
+  helpBtn.addEventListener("click", () => toggleHelp());
+  // after a header button, keys go to the score again (Space on a focused ↶ would press it once more)
+  document.querySelector("header").addEventListener("click", (e) => {
+    if (e.target.closest("button")) viewport.focus({ preventScroll: true });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+    const onPage = t === document.body || t === viewport;
+    if (e.code === "Space" && (onPage || (t && t.tagName === "BUTTON"))) { e.preventDefault(); api.playPause(); return; }
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === "z") { e.preventDefault(); send({ cmd: e.shiftKey ? "redo" : "undo" }); }
+      else if (k === "y") { e.preventDefault(); send({ cmd: "redo" }); }
+      return;
+    }
+    if (e.altKey) return;
+    const n = selectedNote();
+    switch (e.key) {
+      case "Escape": toggleHelp(false); select(null); break;
+      case "?": toggleHelp(); break;
+      case "ArrowLeft": case "ArrowRight":
+        if (n) { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
+        break;
+      case "ArrowUp": case "ArrowDown":
+        if (n) { e.preventDefault(); send({ cmd: "pitch", uid: selected, delta: (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1) }); }
+        break;
+      case "Delete": case "Backspace":
+        if (n) { e.preventDefault(); send({ cmd: "delete", uid: selected }); }
+        break;
+      case "s": case "S":
+        if (n) send({ cmd: "string", uid: selected, dir: e.shiftKey ? -1 : 1 });
+        break;
+      case "1": case "2":
+        if (n) send({ cmd: "assign", uid: selected, track: e.key === "1" ? "guitar_all" : "bass_raw" });
+        break;
+      case "a": case "A":
+        send({ cmd: "add", track: n ? n.track : "guitar_all", t_s: audio.currentTime, pitch: n ? n.pitch : 0 });
+        break;
+      case "[": case "]": {
+        const bi = currentBar();
+        if (bi !== null && bi !== undefined) send({ cmd: "barline", bar_index: bi, delta: e.key === "[" ? -1 : 1 });
+        break;
+      }
+      case "d": case "D": tap(); break;
+      default: return;
+    }
+  });
+  window.bandscribeViewer = { api, audio, send, select, get doc() { return doc; }, get selected() { return selected; } };
+
+  load(false).catch((e) => { status.textContent = String(e); });
 })();
 </script>
 </body>

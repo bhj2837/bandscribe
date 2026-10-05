@@ -1,6 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-05 (after M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
+Last updated: 2026-10-05 (**M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
+After M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
 **M3 done with known gaps**: first tabs, see "M3 (2026-10-05)" below and
 `docs/acceptance/M3.md`. Before that: M1a accepted and tagged `m1a`; M2 tagged `m2` with known gaps, see
 `docs/acceptance/M1a_M2.md`; fixes for the two code reviews, see "Review fixes (2026-10-05)"; E3c run and rejected. 2026-10-04: distractor measurement, rename gtab → bandscribe, folder `D:\bandscribe`, speed fix + review
@@ -18,8 +19,40 @@ fixes).
 | Experiments | ✅ run or closed for M2 (see table below); E3b still pre-registered only |
 | Review → Fix → Acceptance | ✅ two reviews (0 blockers), 14 fixes, acceptance report `docs/acceptance/M1a_M2.md`: **M1a 13/13 pass** (tag `m1a`); **M2 19 pass / 3 fail / 3 blocked** (tag `m2`, accepted with known gaps by the user's decision) |
 | M3 first tabs | ✅ quantisation, A4, tuning, Viterbi fretting (E12 → E12b), alphaTex/GP5/MIDI export, synced viewer; acceptance `docs/acceptance/M3.md`: **9 pass / 1 fail / 3 blocked** (tag `m3`) |
+| M4a editing | ✅ keyboard edits in `bandscribe view`, `edits.jsonl`, replay + re-export, re-applied after `run`; acceptance `docs/acceptance/M4a.md`: **4 pass / 1 blocked** (human baseline) (tag `m4a`) |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`).
+
+## M4a (2026-10-05): editing in the viewer
+
+**User decision:** extend the existing HTML viewer (no FastAPI/Vite build), then M4a. `bandscribe view <job>` is the
+editor (`--read-only` to only look). Code: `bandscribe/tab/edits.py` (log, anchors, replay, re-export, `Session`),
+`bandscribe/tab/viewer.py` (`/api/score`, `POST /api/cmd` with a per-server token header and a Host check),
+`bandscribe/tab/viewer/index.html` (selection box, keys, help), `fretting.assign(pins=)`, and `stage.py` split into
+reusable `fret_tracks` / `write_score` / `score_doc` / `title_for` (stage outputs unchanged).
+
+- Keys after clicking a note (each one keystroke): ←/→ next note, ↑/↓ semitone, Shift+↑/↓ octave, Delete, S / Shift+S
+  other string (pinned; neighbours re-fretted around it), 1/2 to guitar/bass, A add at the playback position, [ / ]
+  bar line one beat earlier/later (later bar lines move too), D tap "this is a downbeat" (taps during playback are
+  applied on pause), Ctrl+Z / Ctrl+Y.
+- `edits.jsonl` (job dir) is append-only; every edit is stored absolute; undo/redo are entries that switch an earlier
+  edit off/on. Anchors: (track, raw onset, pitch); added notes by edit id; bar lines by beat time (within a third
+  of a beat). After a re-run an anchor takes the nearest note of its pitch within 30 ms, else it is reported
+  unmatched.
+- Each edit re-quantises (bar lines only) and re-frets the changed track, renders, and the export is rewritten in
+  the background: 0.3–0.6 s per note edit, 1.4 s per bar-line edit on seisyun complex. `bandscribe run` re-applies
+  the log after publishing (`edits.reapply`) and warns about unmatched edits.
+- With every edit undone the export is byte-identical to the stage outputs (score.json differs only in its time).
+- One review (8 defects, all fixed with tests): pickup bar kept, edits logged only after they replay and render,
+  torn log lines repaired, a viewer never writes an older run over a newer export (it reloads), export written
+  aside and swapped GP5 first, bar-line anchors by beat time, page focus/busy fixes, no framing. One viewer per job
+  (`edits.lock`).
+- Acceptance: `docs/acceptance/M4a.md`.
+- **Found while measuring drift (not M4a): the beat grids of aotonat, AIZO and AZ contain spurious beats 50–100 ms
+  after real ones** (8.4 / 10.0 / 3.5 % of intervals shorter than half the median; SC and KH 0 %). The pairs are
+  already in `t_raw_s`. Inside such bars the cursor is up to ~300 ms off and the quantisation is bent. Fixed in a
+  separate session (grid stage); its first finding: the downbeat snap adds no beat, Beat This!'s activation is
+  two-peaked there and the peak picking turns one beat into two beats 80–120 ms apart.
 
 ## After M3 (2026-10-05, user feedback on seisyun complex)
 
@@ -359,8 +392,10 @@ mask the backing used:
    the user. The first `bandscribe run` per existing job recomputes `beats` (new key: beat-this version) and its CPU
    descendants once.
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
-5. ~~M3~~ done 2026-10-05 (tag `m3`, see "M3 (2026-10-05)" at the top). Next: **M4a** (editing on the viewer, edit log,
-   re-export; NVML pre-check item 6 below belongs there), or first the M3 gaps (fretting toward 75 %: same fingering
+5. ~~M3~~ done 2026-10-05 (tag `m3`). ~~M4a~~ done 2026-10-05 (tag `m4a`, see "M4a" at the top; the NVML pre-check
+   item 6 stays open: the editor never starts GPU runs). Next: **M5** (bass: octave anchors, slides — the user
+   confirmed SC bars 4–6 are one slide we write as separate notes), the grid's spurious beats (aotonat/AIZO/AZ, see
+   "M4a"), or first the M3 gaps (fretting toward 75 %: same fingering
    for repeated sections, chord-shape templates; E16 if a detuned song shows up). Original M3 item: **First task of M3 (done
    2026-10-05: `tick_prf` and `evaluate_item` now match over the whole song and give a section the pairs whose GT
    note is inside, the unmatched GT notes inside and the unmatched estimates starting inside; partition counts add

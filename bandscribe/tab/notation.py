@@ -29,6 +29,7 @@ class WNote:
     string: int | None = None
     fret: int | None = None
     tie: bool = False  # tie destination (continues the same note from the previous beat)
+    src: tuple[str, ...] = ()  # ids of the notes this written note stands for (M4a: a click finds its notes)
 
 
 @dataclass
@@ -282,7 +283,7 @@ def spell_bar(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, 
             t = end
         for j, (s, d, v, dots, tu) in enumerate(pieces):
             tie = cont or j > 0
-            ns = [] if notes is None else [WNote(n.pitch, n.string, n.fret, tie) for n in notes]
+            ns = [] if notes is None else [WNote(n.pitch, n.string, n.fret, tie, n.src) for n in notes]
             beats.append(WBeat(start=s, dur=d, value=v, dots=dots, tuplet=tu, notes=ns))
     return beats
 

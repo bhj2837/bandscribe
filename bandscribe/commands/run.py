@@ -186,6 +186,22 @@ def run_cmd(
     out.print(t)
 
     export = Path(job.job_dir) / "export"
+    if "score" in results and export.is_dir():  # M4a: the user's edits (edits.jsonl) on the fresh export
+        from bandscribe.tab import edits as E
+
+        try:
+            ed = E.reapply(Path(job.job_dir))
+        except Exception as e:  # noqa: BLE001 - the run itself succeeded; its export stays without the edits
+            ed = None
+            notices.append(f"편집 기록을 다시 적용하지 못했습니다(export 는 편집 전 결과): {e}")
+            err.print(f"[yellow]경고:[/] {escape(notices[-1])}", soft_wrap=True)
+        if ed:
+            out.print(f"편집 {ed['applied']}개를 다시 적용했습니다(edits.jsonl).")
+            lost = [u.get("id") for u in ed["unmatched_edits"]] + list(ed["skipped"])
+            if lost:
+                notices.append(f"편집 {len(lost)}개는 새 결과에서 해당 음·마디를 찾지 못했거나 적용할 수 없어 빠졌습니다: "
+                               f"{lost[:8]}")
+                err.print(f"[yellow]경고:[/] {escape(notices[-1])}", soft_wrap=True)
     if "notes" in results and export.is_dir():
         out.print("결과 파일:")
         for p in sorted(x for x in export.rglob("*") if x.is_file()):

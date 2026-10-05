@@ -144,13 +144,21 @@ def _assignments(options: Sequence[Sequence[tuple[int, int]]], max_span: int) ->
 
 
 def candidates(pitches: Sequence[int], inst: Instrument, w: Mapping[str, float],
-               limit: int = MAX_CANDIDATES) -> tuple[list[tuple[tuple[int, int], ...]], list[int]]:
+               limit: int = MAX_CANDIDATES, fixed: Mapping[int, tuple[int, int]] | None = None
+               ) -> tuple[list[tuple[tuple[int, int], ...]], list[int]]:
     """(fingerings, indices of dropped pitches). Fingerings list one (string, fret) per kept pitch, in the
-    order of the kept pitches; cheapest ``limit`` by static cost."""
+    order of the kept pitches; cheapest ``limit`` by static cost. ``fixed`` = {pitch index: (string, fret)}
+    the user chose (M4a): that note may only be played there (ignored when the position cannot sound it)."""
     keep = list(range(len(pitches)))
     dropped: list[int] = []
+
+    def options(i: int) -> list[tuple[int, int]]:
+        pos = inst.positions(pitches[i])
+        pin = (fixed or {}).get(i)
+        return [tuple(pin)] if pin is not None and tuple(pin) in pos else pos
+
     while keep:
-        opts = [inst.positions(pitches[i]) for i in keep]
+        opts = [options(i) for i in keep]
         if all(opts) and len(keep) <= inst.n_strings:
             fings = _assignments(opts, inst.max_span)
             if fings:
@@ -168,7 +176,7 @@ def candidates(pitches: Sequence[int], inst: Instrument, w: Mapping[str, float],
                 rest = keep[:j] + keep[j + 1:]
                 cost = 1e6
                 if len(rest) <= inst.n_strings:
-                    ro = [inst.positions(pitches[i]) for i in rest]
+                    ro = [options(i) for i in rest]
                     fs = _assignments(ro, inst.max_span) if all(ro) else []
                     cost = min((_static(f, w) for f in fs), default=1e6)
                 doubled = any(pitches[k] % 12 == pitches[keep[j]] % 12 for k in rest)
@@ -318,18 +326,20 @@ def _assign_window(events: Sequence[Event], cands: list[_Cands | None], runs: li
 
 
 def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, float] | None = None, *,
-           model: str = DEFAULT_MODEL) -> list[Assignment]:
+           model: str = DEFAULT_MODEL, pins: Mapping[Any, tuple[int, int]] | None = None) -> list[Assignment]:
     """Fingering of every note of ``events`` (one Assignment per pitch, events in order).
 
     ``model``: ``v1`` (E12: a fingering's hand is its mean fretted fret, every change of it is a shift) or
-    ``window`` (E12b: hand-position states, see ``_window_states``)."""
+    ``window`` (E12b: hand-position states, see ``_window_states``). ``pins`` = {note id: (string, fret)}: the
+    user's positions (M4a edits); the path is chosen around them."""
     if model not in ("v1", "window"):
         raise ValueError(f"unknown fretting model {model!r}")
     w = {**DEFAULT_WEIGHTS, **(weights or {})}
     cands: list[_Cands | None] = []
     drops: list[list[int]] = []
     for ev in events:
-        fings, dropped = candidates(ev.pitches, inst, w)
+        fixed = {pi: pins[nid] for pi, nid in enumerate(ev.ids) if nid in pins} if pins and ev.ids else None
+        fings, dropped = candidates(ev.pitches, inst, w, fixed=fixed)
         kept = [i for i in range(len(ev.pitches)) if i not in dropped]
         cands.append(_pack(fings, kept, inst.n_strings, w) if fings else None)
         drops.append(dropped)

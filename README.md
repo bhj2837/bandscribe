@@ -53,6 +53,24 @@
 `bandscribe view <작업>` 이 악보를 브라우저로 연다(127.0.0.1 에서만). 원곡을 재생하면 커서가 따라가고, 악보를 누르면 그
 위치로 이동한다. 속도를 50–100 % 로 늦출 수 있다(음높이 유지). 곡 전체에서 커서와 박 격자의 차이는 최대 31 ms였다.
 
+**편집(M4a):** 같은 화면에서 음을 누르고 키보드로 고친다. 음을 고른 뒤 한 번씩 누르면 된다.
+
+| 키 | 하는 일 |
+|---|---|
+| ← → | 앞 / 뒤 음 |
+| ↑ ↓, Shift + ↑ ↓ | 반음, 옥타브 올리기·내리기 |
+| Delete | 지우기 |
+| S (Shift+S) | 같은 음을 다른 줄에서(탭 트랙). 고른 자리는 고정되고, 이웃 음의 운지가 그에 맞춰 바뀐다 |
+| 1 / 2 | 기타 / 베이스 트랙으로 옮기기 |
+| A | 재생 위치에 음 넣기(고른 음 높이, 16분음표) |
+| [ / ] | 이 마디의 첫 박을 한 박 앞 / 뒤로(뒤 마디도 함께) |
+| D | 지금이 마디 첫 박(재생 중에는 모았다가 멈추면 적용) |
+| Ctrl+Z / Ctrl+Y | 되돌리기 / 다시 |
+
+고칠 때마다 작업 폴더의 `edits.jsonl` 에 한 줄씩 남고, `export` 의 악보(alphaTex·GP5·텍스트 탭·양자화 MIDI·score.json)가
+그 결과로 바로 바뀐다. 그래픽카드 단계는 다시 돌지 않는다(편집 한 번 0.3–0.6 초, 마디선 이동 약 1.4 초). `bandscribe run` 을
+다시 해도 편집은 다시 적용되고, 새 결과에서 찾지 못한 편집은 경고한다. 읽기만 하려면 `--read-only`.
+
 함께 있는 도구:
 
 - `bandscribe doctor`: GPU 셀프테스트, ffmpeg 빌드 옵션, Node, 디스크, NVML 등 환경 점검. 필수 항목이 실패하면 종료 코드 1.
@@ -62,8 +80,8 @@
 - `bandscribe gt ...`: Guitar Pro 정답 가져오기(반복·다른 엔딩 펼침), 참조 렌더, DTW 정렬, 다운비트 탭 보정.
 - `bandscribe data ...`: 평가용 데이터셋(Cambridge-MT, EGDB, GuitarSet, IDMT-SMT-Bass, FiloBass, MedleyDB) 받기·검증·로더.
 
-**아직 없는 것:** 기타 파트(Line) 분리(M6–M8; 그래서 기타는 오선보만), 편집 UI(M4a), 베이스 완성(M5: 옥타브 앵커 등),
-주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
+**아직 없는 것:** 기타 파트(Line) 분리(M6–M8; 그래서 기타는 오선보만), 베이스 완성(M5: 옥타브 앵커, 슬라이드 같은 주법),
+A/B 믹서·검토 큐(M4b), 화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
 
 ## 마일스톤
 
@@ -77,8 +95,8 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 | **M1b** | Tier A: 실제로 치는 곡의 구간 정답(Guitar Pro) 구축 | 대기: 후보 5곡 등록, 정답 파일 필요 |
 | **M2** | 첫 수직 슬라이스: 분리, 전사, 편성 추정, MIDI, 연습용 반주, GPU 벤치 | **완료, 알려진 한계 있음** (인수 25개 중 통과 19 · 미달 3 · 보류 3, 태그 `m2`; [인수 문서](docs/acceptance/M1a_M2.md)) |
 | **M3** | 첫 탭: 양자화, 튜닝·Viterbi 운지, .gp5/alphaTex 내보내기(기타는 합친 트랙, 베이스는 원시 탭), 원곡 동기 뷰어 | **완료, 알려진 한계 있음** (기준 13개 중 통과 9 · 미달 1 · 보류 3, 태그 `m3`; [인수 문서](docs/acceptance/M3.md)) |
-| M4a | 편집 UI(뷰어 위 키보드 편집, 수정 로그, 다시 내보내기) | 다음 |
-| M5 | 베이스 완성: 옥타브 앵커, 튜닝 후보, 주법 | 계획 |
+| **M4a** | 편집 UI(뷰어 위 키보드 편집, 수정 로그, 다시 내보내기) | **완료, 알려진 한계 있음** (기준 5개 중 통과 4 · 보류 1, 태그 `m4a`; [인수 문서](docs/acceptance/M4a.md)) |
+| M5 | 베이스 완성: 옥타브 앵커, 튜닝 후보, 주법 | 다음 |
 | **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리** | 계획 (핵심) |
 | **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | 계획 (핵심) |
 | M4b | A/B 믹서, 검토 큐 | 계획 |
@@ -126,11 +144,16 @@ flowchart LR
     quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi"]
     a4 --> tab
     tab --> score["score<br/>alphaTex · GP5 · 양자화 MIDI"]
+    score --> edit["편집 (M4a)<br/>edits.jsonl 재생<br/>export 다시 쓰기"]
     classDef gpu fill:#fde2c8,stroke:#c46a1b,color:#000
     classDef m3 fill:#d8efe5,stroke:#2f6f5e,color:#000
     class beats,sep,ms1,gtr gpu
-    class a4,quant,tab,score m3
+    class a4,quant,tab,score,edit m3
 ```
+
+`notes` 는 MuScriptor 가 무음 스템 위에 지어낸 음을 뺀다(`amt.silence_gate_db`). 편집은 단계가 아니다: 뷰어와
+`bandscribe run` 이 `edits.jsonl` 을 단계 결과 위에 다시 재생해 export 를 고친다(마디선 편집은 양자화부터, 음 편집은 운지부터
+다시 계산하고 GPU 단계·튜닝 탐색은 다시 하지 않는다).
 
 ### 계획 (M4–M8)
 
@@ -386,7 +409,7 @@ cd node && npm ci && cd ..
 bandscribe.cmd doctor                              :: 환경 점검 (GPU 셀프테스트 포함)
 bandscribe.cmd run "C:\music\song.flac"            :: 기본: --until score, --profile quality
 bandscribe.cmd run "C:\music\song.flac" --parts 1  :: 기타를 한 대로 보고 기타 탭까지
-bandscribe.cmd view "C:\music\song.flac"           :: 악보를 브라우저로 (작업 키 앞부분만 써도 됨)
+bandscribe.cmd view "C:\music\song.flac"           :: 악보를 브라우저로 보고 키보드로 고치기 (작업 키 앞부분만 써도 됨)
 bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만 보기
 bandscribe.cmd status                              :: 작업 목록
 bandscribe.cmd config show                         :: 지금 적용되는 설정
@@ -447,7 +470,8 @@ bandscribe/            core 패키지 (torch import 금지)
   pipeline/              13단계 그래프, 실행기, export 게시
   analysis/              박·마디 격자, 구간·반복, 보컬 활동, 반복 잔차, 스테레오 특징
   sep/                   분리 단계, 파생 스템·모노 뷰·연습용 반주
-  amt/                   전사 단계, 표본 존재 패스, 편성 추정, MIDI 쓰기
+  amt/                   전사 단계, 표본 존재 패스, 편성 추정, 무음 게이트, MIDI 쓰기
+  tab/                   양자화, 기준음, 튜닝·운지, 악보 쓰기(alphaTex·GP5·텍스트 탭), 뷰어, 편집(edits.jsonl)
   workers/               GPU·bp310 워커: sep_msst, amt_muscriptor, beats_beatthis, amt_basicpitch
   gpu.py, winjob.py      GPU 락, Job Object (ctypes)
   vram.py, sysmon.py     VRAM 사다리·대기, NVML·성능 카운터
