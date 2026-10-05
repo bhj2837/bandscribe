@@ -1,22 +1,30 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-05 (fixes for the two M1a/M2 code reviews, see "Review fixes (2026-10-05)"; E3c run and
-rejected. 2026-10-04: distractor measurement, rename gtab → bandscribe, folder `D:\bandscribe`, speed fix + review
+Last updated: 2026-10-05 (M1a accepted and tagged `m1a`; M2 tagged `m2` with known gaps, see
+`docs/acceptance/M1a_M2.md`; fixes for the two code reviews, see "Review fixes (2026-10-05)"; E3c run and rejected. 2026-10-04: distractor measurement, rename gtab → bandscribe, folder `D:\bandscribe`, speed fix + review
 fixes).
 
 ## Where things stand
 
 | Milestone / phase | State |
 |---|---|
-| M0 foundation | ✅ done, on `main` as `287aead` |
+| M0 foundation | ✅ done, tag `m0` |
 | M1a+M2 spec (`docs/M1_M2_SPEC.md`) | ✅ done (30-point critique applied) |
 | P0 contracts + 5 owners (SEP, AMT, GRID, EVAL, DATA) | ✅ implemented |
 | Integration | ✅ 1174 tests passed (1 skipped) after the 2026-10-04 speed/presence fix; all 5 `D:\backing` songs + 1 Cambridge-MT mix run end to end |
 | Rename gtab → bandscribe | ✅ done (`docs/RENAME.md`): 0 stage keys changed, old files load as is. Folder moved to `D:\bandscribe`, all three venvs re-created: keys again unchanged, 1198 tests passed (1 skipped) |
-| Experiments | 🟡 mostly done (see table below) |
-| Review → Fix → Acceptance | 🟡 two reviews (correctness, GPU/Windows) done; fixes applied 2026-10-05, not committed; acceptance pending |
+| Experiments | ✅ run or closed for M2 (see table below); E3b still pre-registered only |
+| Review → Fix → Acceptance | ✅ two reviews (0 blockers), 14 fixes, acceptance report `docs/acceptance/M1a_M2.md`: **M1a 13/13 pass** (tag `m1a`); **M2 19 pass / 3 fail / 3 blocked** (tag `m2`, accepted with known gaps by the user's decision) |
 
-All work is on **`main`** (the M0 commit is tagged `m0`). M1a/M2 is implemented but its review and acceptance are still pending; tag it `m2` once accepted.
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`).
+
+**M2 known gaps** (accepted by the user on 2026-10-05 so that M3 can start; none blocks M3):
+- FAIL b10: MuScriptor latency residual 10.9 ms vs < 10 ms (provisional threshold).
+- FAIL b13b: per-song instrumentation table of the current estimator needs E3b (pre-registered, not run).
+- FAIL b15i: E24-sep / E24-amt closed as 판단 보류 without running (GPU cost 40 min+).
+- BLOCKED b3: Sysmem Fallback on/off bench needs the user to switch the NVIDIA setting.
+- BLOCKED b12: gate-m2 passes numerically (Δ +8.1) but contamination is unknown; needs uncontaminated distorted GT.
+- BLOCKED b13c: Tier A instrumentation GT (and M1b in general) needs the user's Guitar Pro files.
 
 ### Experiments (`docs/decisions.md`)
 
@@ -288,7 +296,7 @@ mask the backing used:
    check acceptance against DESIGN §10 M1a/M2 (evidence list in M1_M2_SPEC §11). Tier A GP ground truth is BLOCKED on
    the user. The first `bandscribe run` per existing job recomputes `beats` (new key: beat-this version) and its CPU
    descendants once.
-4. Commit the milestone on `main` and tag it (`m2`).
+4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
 5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export). **First task of M3:** note
    scoring drops matches at section boundaries (`eval/metrics.py` `tick_prf` ~201-206 filters estimates by the GT bar
    of their onset, `eval/suites.py` `evaluate_item` ~578-585 by onset inside the section windows): a note played up to
