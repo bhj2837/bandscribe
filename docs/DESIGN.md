@@ -1861,4 +1861,6 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 | 범위 밖 음 | (정의 없음) | 줄 하나로도 못 치는 음(4현 베이스의 Bb0 등)은 옥타브를 옮겨 탭에 쓰고 `octave_shift` 로 표시 | 원시 전사의 옥타브 오류를 지우지 않고 보이게 |
 | 오선보 전용 기타 | alphaTex 오선보 staff | `\staff {score}` + 음이름(`C#4`) 음표. GP5 에는 넣지 않는다 | alphaTab 1.8.4 로 확인. 메타데이터 인자는 모두 괄호로 싼다(`\section "A"` 다음 음을 두 번째 인자로 먹는다) |
 | GP5 문자열 | — | cp1252, 한글이 있으면 cp949 | GP5 는 1바이트 코드 페이지. alphaTab 으로 읽을 때 `euc-kr` |
-| 뷰어 | 정적 alphaTab 뷰어 | `bandscribe view`: 127.0.0.1 전용 작은 HTTP 서버(오디오 Range, alphaTab dist 는 `node/node_modules`) | alphaTab 의 렌더 워커·폰트는 file:// 에서 동작하지 않는다 |
+| 뷰어 | 정적 alphaTab 뷰어 | `bandscribe view`: 127.0.0.1 전용 작은 HTTP 서버(오디오 Range, alphaTab dist 는 `node/node_modules`). 머리말은 고정하고 악보 영역만 스크롤한다(alphaTab `scrollElement`, 지금 줄은 머리말 12 px 아래) | alphaTab 의 렌더 워커·폰트는 file:// 에서 동작하지 않는다. 페이지 전체를 스크롤하면 지금 줄이 고정 머리말 밑에 깔렸다(1280×800 에서 86 px) |
+| 무음 위의 전사 음 | (정의 없음) | `notes` 단계가 기타·베이스 음 중 시작 부근(−30 ms…+120 ms)에서 그 악기 스템이 믹스의 큰 소리(10 Hz 프레임 p95)보다 50 dB 넘게 작은 음을 뺀다(`amt.silence_gate_db`, −200 = 끔, `bandscribe/amt/silence.py`). `quant` 는 베이스도 `notes/bass_raw.json` 에서 읽는다 | MuScriptor 가 무음 스템 위에 같은 음·화음을 되풀이해 적는다: seisyun complex 의 베이스 쉼(정답 5–17마디)에 G1 81개(스템 −109 dBFS, 킥과 무관), 怪獣の花唄 기타 685·베이스 93개, 青と夏 기타 800·베이스 33개. 정답과 맞는 베이스 음은 모두 기준 −12 dB 안이고 어느 곡도 −50…−40 dB 에 베이스 음이 없다. seisyun complex 베이스 마디 F1 86.0 → 90.1(맞은 음 735개 그대로) |
+| 곡 제목 | 입력 파일 이름 | 작업 `hints.toml` 의 `[hints] title` 이 있으면 악보·GP5·뷰어·`status` 가 그 제목을 쓴다 | 입력 파일은 읽기 전용으로 두고 이름만 고친다 |

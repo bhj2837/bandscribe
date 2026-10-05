@@ -43,10 +43,11 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("instr", ("amt_ms1", "stems", "sections", "grid"), "bandscribe.amt.stage"),
     ("amt_gtr", ("stems", "instr"), "bandscribe.amt.stage"),
     ("s35", ("instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"), "bandscribe.amt.stage"),
-    ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35"), "bandscribe.amt.stage"),
+    # notes reads the stems' energy.npz for its silence gate (2026-10-05); quant reads the gated bass from notes
+    ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"), "bandscribe.amt.stage"),
     # M3 (CPU only): A4 reference, quantisation, tuning + string/fret
     ("a4", ("stems",), "bandscribe.tab.stage"),
-    ("quant", ("notes", "amt_ms1", "grid", "sections"), "bandscribe.tab.stage"),
+    ("quant", ("notes", "grid", "sections"), "bandscribe.tab.stage"),
     ("tab", ("quant", "a4"), "bandscribe.tab.stage"),
     ("score", ("tab", "quant", "grid", "sections"), "bandscribe.tab.stage"),
 )

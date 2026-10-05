@@ -1,6 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-05 (**M3 done with known gaps**: first tabs, see "M3 (2026-10-05)" below and
+Last updated: 2026-10-05 (after M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
+**M3 done with known gaps**: first tabs, see "M3 (2026-10-05)" below and
 `docs/acceptance/M3.md`. Before that: M1a accepted and tagged `m1a`; M2 tagged `m2` with known gaps, see
 `docs/acceptance/M1a_M2.md`; fixes for the two code reviews, see "Review fixes (2026-10-05)"; E3c run and rejected. 2026-10-04: distractor measurement, rename gtab → bandscribe, folder `D:\bandscribe`, speed fix + review
 fixes).
@@ -19,6 +20,31 @@ fixes).
 | M3 first tabs | ✅ quantisation, A4, tuning, Viterbi fretting (E12 → E12b), alphaTex/GP5/MIDI export, synced viewer; acceptance `docs/acceptance/M3.md`: **9 pass / 1 fail / 3 blocked** (tag `m3`) |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`).
+
+## After M3 (2026-10-05, user feedback on seisyun complex)
+
+The user put Guitar Pro PDF exports of SC (**seisyun complex**, 青春コンプレックス; "SC" was only a file name) for
+every part in their sheet folder. A throwaway extractor and comparison live in `data/tmp/sheets_sc/` (gitignored;
+`pdf_tab.py` needs `--with pypdfium2`; `eval_sc.py`, `bass_rest_sc.py`, `gate_energy_check.py`, `barmap_sc.py`). GT bar
+n = our bar n for bars 2–116; GT 117 (2/4) sits at the end of our 6-beat bar 116, so later bars are ours = GT − 1.
+
+- **Viewer:** following the playback scrolled the page and put the current line under the sticky header (86 px
+  hidden at 1280×800). Only the score area scrolls now (alphaTab `scrollElement`), the line 12 px below the header.
+- **Silence gate (`notes`, `amt.silence_gate_db = -50`, `bandscribe/amt/silence.py`):** MuScriptor writes notes over
+  silent stems, often one note or chord again and again. SC: 81 G1 in bars 5–17 where the score's bass rests; the
+  bass stem there is −109 dBFS and the onsets do not follow the kick (12 % within 40 ms, chance 13 %). Notes that
+  start where their stem is > 50 dB under the mix's p95 frame level are dropped from `guitar_all` and the bass
+  (`notes/bass_raw.json`, which `quant` now reads; `notes` depends on `stems` for `energy.npz`). Dropped: SC bass 78,
+  KH guitar 685 + bass 93, aotonat guitar 800 + bass 33, AIZO guitar 16 (after the song ends), AZ 0. SC bass bar-bag
+  F1 86.0 → 90.1 (verse 23.3 → 100; all 735 matched notes kept); SC guitar unchanged (nothing dropped). No bass note
+  of any song lies between −50 and −40 dB; the matched SC bass notes are all within 12 dB of the reference. The
+  guitar levels are not bimodal on KH/aotonat (604 aotonat notes at −50…−40 dB stay): no guitar GT there yet.
+  Left in SC bars 4–6: a loud falling line in the bass stem (F2 → G1, −4 → −30 dB) where the score has dead notes
+  then rests; the user should listen (0:03–0:06).
+- **`hints.title`:** `[hints] title = "..."` in a job's `hints.toml` names the song in the score, GP5, viewer and
+  `status` (input files stay read-only). SC's job has `title = "seisyun complex"`.
+- The eval `job:notes` system reads `guitar_all.json`, so guitar suites now score the gated output; bass suites read
+  the raw `amt_ms1` file as before.
 
 ## M3 (2026-10-05)
 

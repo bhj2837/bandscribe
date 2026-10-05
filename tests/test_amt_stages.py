@@ -176,7 +176,7 @@ def _run_chain(job, cfg: dict, tag: str) -> dict[str, Path]:
     for stage, deps in (("amt_ms1", ("stems", "grid", "sections")), ("amt_bp", ("stems",)),
                         ("instr", ("amt_ms1", "stems", "sections", "grid")), ("amt_gtr", ("stems", "instr")),
                         ("s35", ("instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp")),
-                        ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35"))):
+                        ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"))):
         o = job.store.job_dir(SONG) / "stages" / stage / tag
         ctx = _ctx(job, stage, o, {k: d[k] for k in deps}, cfg)
         S.STAGES[stage]["run"](ctx)
@@ -274,6 +274,37 @@ def test_full_chain_without_basic_pitch(job, monkeypatch):
     mid = mido.MidiFile(str(n / "midi" / "bass_raw.mid"))
     assert [t.name for t in mid.tracks] == ["tempo", "electric_bass"]
     assert mid.tracks[1][1].program == 33
+    bass = NoteSet.model_validate(atomic.read_json(n / "bass_raw.json"))  # what quant reads
+    assert len(bass.notes) == 16 and bass.view == "bass_mono"
+    gate = summ["silence_gate"]  # every stem sounds in the fixture: nothing dropped
+    assert gate["db"] == -50.0 and gate["guitar_all"]["gated"] and gate["guitar_all"]["view"] == "guitar_mono"
+    assert gate["guitar_all"]["dropped"] == 0 and gate["bass_raw"]["dropped"] == 0
+
+
+def test_notes_drop_what_starts_over_a_silent_stem(job, monkeypatch):
+    """2026-10-05: MuScriptor wrote 81 G1 over the silent bass stem of seisyun complex (bars 5-17). Notes that start
+    where their stem is silent leave guitar_all, bass_raw.json and both MIDI files; the other stem's notes stay."""
+    monkeypatch.setattr(S, "bp310_python", lambda: job.root / "no-bp310" / "python.exe")
+    with np.load(job.deps["stems"] / "energy.npz") as z:
+        e = {k: np.array(z[k]) for k in z.files}
+    e["bass"][20:30] = -200.0  # 2.0-3.0 s: bass onsets 2.10 2.35 2.60 2.85 (after the 20 ms latency)
+    e["guitar"][40:] = -200.0  # from 4.0 s: guitar onsets 4.10 .. 5.10
+    np.savez(job.deps["stems"] / "energy.npz", **e)
+    out = _run_chain(job, _cfg(), "g")
+    n = out["notes"]
+    bass = atomic.read_json(n / "bass_raw.json")["notes"]
+    assert len(bass) == 12 and not [x for x in bass if 2.0 < x["onset_s"] < 3.0]
+    gtr = atomic.read_json(n / "guitar_all.json")["notes"]
+    assert len(gtr) == 15 and max(x["onset_s"] for x in gtr) < 4.0
+    gate = atomic.read_json(n / "notes_summary.json")["silence_gate"]
+    assert gate["bass_raw"]["dropped"] == 4 and gate["bass_raw"]["spans_s"] == [[2.1, 2.85]]
+    assert gate["guitar_all"]["dropped"] == 5
+    for name, k in (("bass_raw.mid", 12), ("guitar_all.mid", 15)):
+        mid = mido.MidiFile(str(n / "midi" / name))
+        assert sum(1 for m in mid.tracks[1] if m.type == "note_on" and m.velocity > 0) == k
+    off = _run_chain(job, _cfg(silence_gate_db=-200.0), "o")  # amt.silence_gate_db = -200: the gate is off
+    assert len(atomic.read_json(off["notes"] / "bass_raw.json")["notes"]) == 16
+    assert atomic.read_json(off["notes"] / "notes_summary.json")["silence_gate"]["bass_raw"]["reason"] == "off"
 
 
 def test_eval_profile_adds_b0_and_the_full_pass_but_estimates_like_quality(job, monkeypatch):
@@ -532,7 +563,7 @@ def test_muscriptor_stages_forward_the_workers_warnings(job, monkeypatch):
 
 def test_stage_code_versions_were_bumped_for_the_profile_change():
     assert {n: S.STAGES[n]["code_version"] for n in ("amt_ms1", "instr", "amt_gtr", "s35", "notes")} == {
-        "amt_ms1": "3", "instr": "4", "amt_gtr": "2", "s35": "4", "notes": "4"}
+        "amt_ms1": "3", "instr": "4", "amt_gtr": "2", "s35": "4", "notes": "5"}
 
 
 def test_load_presence_falls_back_to_an_m2_full_pass(tmp_path):
@@ -570,7 +601,7 @@ def test_notes_warns_when_many_guitar_pass_notes_are_dropped(job, monkeypatch):
     out = _run_chain(job, cfg, "w")
     o = job.store.job_dir(SONG) / "stages" / "notes" / "w2"
     ctx = _ctx(job, "notes", o, {"amt_gtr": out["amt_gtr"], "amt_ms1": out["amt_ms1"], "amt_bp": out["amt_bp"],
-                                 "grid": job.deps["grid"], "s35": out["s35"]}, cfg)
+                                 "grid": job.deps["grid"], "s35": out["s35"], "stems": job.deps["stems"]}, cfg)
     ctx.progress = lambda event, data: seen.append((event, data))
     S.STAGES["notes"]["run"](ctx)
     msgs = [d["message"] for e, d in seen if e == "warning"]
@@ -580,7 +611,7 @@ def test_notes_warns_when_many_guitar_pass_notes_are_dropped(job, monkeypatch):
     out2 = _run_chain(job, _cfg(guitar_mask="guitar_only"), "n")
     ctx2 = _ctx(job, "notes", job.store.job_dir(SONG) / "stages" / "notes" / "n2",
                 {"amt_gtr": out2["amt_gtr"], "amt_ms1": out2["amt_ms1"], "amt_bp": out2["amt_bp"],
-                 "grid": job.deps["grid"], "s35": out2["s35"]}, _cfg())
+                 "grid": job.deps["grid"], "s35": out2["s35"], "stems": job.deps["stems"]}, _cfg())
     ctx2.progress = lambda event, data: seen.append((event, data))
     S.STAGES["notes"]["run"](ctx2)
     assert not seen

@@ -137,6 +137,8 @@ class HintsCfg(_Section):
     # (bandscribe.amt.instruments), which also rejects unknown family names.
     instruments: str = "auto"
     parts: str = "auto"  # used from M6 on; stored now
+    # The song's title in the score, the viewer and `status`; empty = the input's file name (YouTube: video title).
+    title: str = ""
 
 
 class SepCfg(_Section):
@@ -221,6 +223,9 @@ class AmtCfg(_Section):
     bp_max_freq_hz: float = Field(0.0, ge=0.0)
     bp_melodia_trick: bool = True
     bp_threads: int = Field(4, ge=1, le=64)  # onnxruntime intra-op threads, pinned (stable NoteSets)
+    # notes stage: drop guitar/bass notes that start where their stem is this far below the mix's loud level
+    # (p95 of its 10 Hz frames); MuScriptor writes notes over silent stems (bandscribe.amt.silence). -200 = off.
+    silence_gate_db: float = Field(-50.0, ge=-200.0, le=0.0)
 
     @field_validator("bp_min_note_frames", mode="before")
     @classmethod

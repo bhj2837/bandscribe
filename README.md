@@ -405,6 +405,10 @@ bandscribe.cmd config show                         :: 지금 적용되는 설정
 
   를 적거나 한 번만 `--set tab.guitar_tuning="E standard"`. 그 튜닝으로 낼 수 없는 음은 옥타브를 옮겨 적고 경고한다.
   자동 판정은 `tab/tab.json` 의 `auto_label` 에 남는다.
+- 곡 제목은 입력 파일 이름이다. 바꾸려면 같은 `hints.toml` 에 `[hints]` 아래 `title = "곡 제목"` 을 적는다(악보·GP5·뷰어·`status`).
+- 전사기(MuScriptor)는 소리가 없는 스템 위에도 음을 지어낸다. 그래서 기타·베이스 음 중 그 악기 스템이 곡의 큰 소리보다
+  50 dB 넘게 작은 곳에서 시작한 음은 뺀다(`amt.silence_gate_db`, `-200` 이면 끔). 뺀 개수와 구간은
+  `stages\notes\<키>\notes_summary.json` 의 `silence_gate` 에 남는다.
 - 프로필: `fast`(표본 창 절반), `quality`(기본), `eval`(B0 믹스 전사와 piano+other 전곡 전사를 추가 출력으로 더함, 훨씬 느림).
 - 설정 우선순위: `bandscribe/defaults.toml` → `data/config.toml` → 작업 `hints.toml` → `--set 키=값`. 틀린 키는
   무시하지 않고 오류로 멈춘다.

@@ -52,7 +52,13 @@ def job_files(job_dir: Path) -> dict[str, Any]:
         meta = atomic.read_json(job_dir / "input" / "meta.json")
     except (OSError, ValueError):
         pass
-    title = Path(str((meta.get("source") or {}).get("filename") or job_dir.name)).stem
+    title = ""
+    try:  # the score's own title (hints.title or the file name), so the page and the score agree
+        if (export / "score.json").is_file():
+            title = str((atomic.read_json(export / "score.json").get("song") or {}).get("title") or "")
+    except (OSError, ValueError):
+        pass
+    title = title or Path(str((meta.get("source") or {}).get("filename") or job_dir.name)).stem
     info = ""
     try:
         tab = atomic.read_json(export / "tab" / "tab.json") if (export / "tab" / "tab.json").is_file() else {}

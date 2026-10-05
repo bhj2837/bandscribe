@@ -156,6 +156,20 @@ def test_viewer_serves_the_job_with_ranges(tmp_path):
     assert isinstance(t, threading.Thread)
 
 
+def test_viewer_title_is_the_scores_title(tmp_path):
+    """The page shows the score's title (hints.title), falling back to the input's file name."""
+    from bandscribe.tab import viewer
+
+    job = tmp_path / "f-test"
+    (job / "export" / "tab").mkdir(parents=True)
+    (job / "input").mkdir()
+    (job / "export" / "tab" / "score.alphatex").write_text("\\title (\"x\")\n", encoding="utf-8")
+    (job / "input" / "meta.json").write_text(json.dumps({"source": {"filename": "SC.mp3"}}), encoding="utf-8")
+    assert viewer.job_files(job)["title"] == "SC"
+    (job / "export" / "score.json").write_text(json.dumps({"song": {"title": "seisyun complex"}}), encoding="utf-8")
+    assert viewer.job_files(job)["title"] == "seisyun complex"
+
+
 def test_bars_before_a_pickup_tile_the_timeline_once():
     """Notes before the first beat of a song with a 2-beat pickup: the extrapolated bars must have the TempoMap's
     length (bar starts -192, -96, 0 here), or the spelled bars overlap and a note is written twice (2026-10-05)."""

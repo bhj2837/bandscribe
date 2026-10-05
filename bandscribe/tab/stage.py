@@ -2,8 +2,8 @@
 
 - ``a4`` (CPU): ``a4.json`` - the recording's A4 offset in cents from the pitched stem views
   (``bandscribe.tab.a4``); a Korean warning from 25 cents (varispeed is E16, not applied).
-- ``quant`` (CPU): ``quant.json`` - ``notes/guitar_all.json`` (track ``guitar_all``) and the pass-1 bass
-  transcription (track ``bass_raw``) quantised on the grid with one subdivision decision per beat, the meter
+- ``quant`` (CPU): ``quant.json`` - ``notes/guitar_all.json`` (track ``guitar_all``) and ``notes/bass_raw.json``
+  (the pass-1 bass, track ``bass_raw``) quantised on the grid with one subdivision decision per beat, the meter
   re-read (shuffle vs 12/8) and the triplet feel per section (``bandscribe.tab.quantize``).
 - ``tab`` (CPU): ``tab.json`` + ``text/<track>.txt`` - guitar and bass tuning chosen jointly
   (``bandscribe.tab.tuning``, fake low guitar notes left out of the evidence), the bass fretted
@@ -37,7 +37,7 @@ from bandscribe.tab import tuning as TU
 log = logging.getLogger(__name__)
 
 A4_VIEWS = ("guitar_mono", "bass_mono", "piano_other_mono")
-BASS_RAW = "raw/bass_mono__muscriptor.json"
+BASS_RAW = "bass_raw.json"  # in the notes stage dir: the pass-1 bass minus the notes over a silent stem
 
 
 class TabStageError(RuntimeError):
@@ -76,9 +76,10 @@ def quant_params(cfg: Any) -> dict[str, Any]:
 
 
 def quant_tracks(dep_dirs: dict[str, Path]) -> dict[str, list[dict[str, Any]]]:
-    """{track id: notes} the quantiser reads: guitar classes of the guitar pass, and the pass-1 bass."""
+    """{track id: notes} the quantiser reads: guitar classes of the guitar pass, and the pass-1 bass (both from the
+    notes stage, without the notes over a silent stem)."""
     gtr = atomic.read_json(Path(dep_dirs["notes"]) / "guitar_all.json").get("notes") or []
-    bass_path = Path(dep_dirs["amt_ms1"]) / BASS_RAW
+    bass_path = Path(dep_dirs["notes"]) / BASS_RAW
     bass = (atomic.read_json(bass_path).get("notes") or []) if bass_path.is_file() else []
     return {"guitar_all": gtr, "bass_raw": bass}
 
@@ -210,7 +211,7 @@ TRACK_NAMES = {"guitar_all": ("Guitar (all parts)", "Gtr"), "bass_raw": ("Bass (
 
 
 def score_params(cfg: Any) -> dict[str, Any]:
-    return {"tempo_change_ratio": 0.04}
+    return {"tempo_change_ratio": 0.04, "title": str(_cfg_get(cfg, "hints.title", "") or "").strip()}
 
 
 def _job_meta(ctx: Any) -> dict[str, Any]:
@@ -221,6 +222,10 @@ def _job_meta(ctx: Any) -> dict[str, Any]:
 
 
 def _title(ctx: Any) -> str:
+    """``hints.title`` when set, else the input's file name without its extension."""
+    hint = str((getattr(ctx, "params", None) or {}).get("title") or "").strip()
+    if hint:
+        return hint
     meta = _job_meta(ctx)
     name = (meta.get("source") or {}).get("filename") or meta.get("title") or getattr(ctx, "song_key", "song")
     return Path(str(name)).stem

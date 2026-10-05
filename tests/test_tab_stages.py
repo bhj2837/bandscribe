@@ -22,11 +22,11 @@ def _ctx(tmp_path, deps: dict, params: dict, name: str):
 def test_quant_stage_reads_guitar_all_and_pass1_bass(tmp_path):
     times = beat_times(8 * 4 + 4, warp=True)
     notes, _ = performance(times, 8, seed=2)
-    d = {k: tmp_path / k for k in ("notes", "amt_ms1", "grid", "sections")}
+    d = {k: tmp_path / k for k in ("notes", "grid", "sections")}
     for p in d.values():
         p.mkdir()
     atomic.write_json(d["notes"] / "guitar_all.json", {"notes": notes})
-    atomic.write_json(d["amt_ms1"] / "raw" / "bass_mono__muscriptor.json", {"notes": notes[::3]})
+    atomic.write_json(d["notes"] / "bass_raw.json", {"notes": notes[::3]})  # the gated bass (notes stage)
     atomic.write_json(d["grid"] / "grid.json", grid_doc(times))
     atomic.write_json(d["sections"] / "sections.json", {"sections": [{"id": "S1", "start_bar": 1, "end_bar": 9}]})
     ctx = _ctx(tmp_path, d, T.quant_params(None), "quant")
@@ -140,6 +140,17 @@ def test_instrument_choice_does_not_depend_on_hash_order():
     outs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                            env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout.strip() for seed in range(12)}
     assert outs == {"electricguitarclean"}
+
+
+def test_score_title_is_the_title_hint_else_the_file_name(tmp_path):
+    assert T.score_params({"hints.title": "  seisyun complex "})["title"] == "seisyun complex"
+    assert T.score_params(None)["title"] == ""
+    atomic.write_json(tmp_path / "jobs" / "k" / "input" / "meta.json", {"source": {"filename": "SC.mp3"}})
+    ctx = SimpleNamespace(song_key="k", store=SimpleNamespace(job_dir=lambda key: tmp_path / "jobs" / key),
+                          params=T.score_params(None))
+    assert T._title(ctx) == "SC"
+    ctx.params = T.score_params({"hints.title": "seisyun complex"})
+    assert T._title(ctx) == "seisyun complex"
 
 
 def test_tab_params_take_a_user_tuning_by_name_or_alias():

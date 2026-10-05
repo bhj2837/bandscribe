@@ -182,8 +182,22 @@ def _fmt_flags(flags: dict[str, Any]) -> str:
     return ", ".join(parts) or "없음"
 
 
+def _hint_title(job_dir: Path) -> str:
+    """``hints.title`` of the job's ``hints.toml`` ('' when unset or unreadable; ``run`` reports a broken file)."""
+    p = Path(job_dir) / "hints.toml"
+    if not p.is_file():
+        return ""
+    try:
+        import tomllib
+
+        data = tomllib.loads(p.read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return ""
+    return str((data.get("hints") or {}).get("title") or "").strip()
+
+
 def _print_meta(c: Console, meta: dict[str, Any], job_dir: Path) -> None:
-    title = _dig(meta, "youtube", "title") or _dig(meta, "source", "filename")
+    title = _hint_title(job_dir) or _dig(meta, "youtube", "title") or _dig(meta, "source", "filename")
     if title:
         c.print(f"제목: {escape(str(title))}", soft_wrap=True)
     kind, ref = _dig(meta, "source", "kind"), _dig(meta, "source", "ref")
@@ -412,7 +426,7 @@ def status(
                 table.add_row(escape(name), "", escape(", ".join(sources[name])), "", "[red]폴더 없음[/]", "")
                 continue
             meta = _read_meta(job_dir)
-            title = _dig(meta, "youtube", "title") or _dig(meta, "source", "filename") or ""
+            title = _hint_title(job_dir) or _dig(meta, "youtube", "title") or _dig(meta, "source", "filename") or ""
             kind = _dig(meta, "source", "kind") or ", ".join(k.split(":", 1)[0] for k in sources.get(name, []))
             done = sum(1 for r in _stage_rows(job_dir) if r["complete"])
             table.add_row(

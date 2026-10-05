@@ -67,6 +67,7 @@ profile = "quality"            # fast | quality | eval   (max = later milestones
 [hints]                        # user hints; CLI flags write these via --set
 instruments = "auto"           # "auto" or comma list of families: guitar,keys,synth,bass,strings,brass,winds,vocals
 parts = "auto"                 # used from M6 on; stored now
+title = ""                     # song title in the score, viewer and status; "" = the input's file name
 
 [sep]
 backend = "sw_msst"
@@ -112,6 +113,8 @@ bp_min_freq_hz = 0.0                               # 0 = backend default
 bp_max_freq_hz = 0.0
 bp_melodia_trick = true
 bp_threads = 4                                     # onnxruntime intra-op threads (pinned: output must not depend on core count)
+silence_gate_db = -50.0                            # notes: drop guitar/bass notes starting where their stem is this far below the
+                                                   # mix's loud level (p95); MuScriptor writes notes over silent stems. -200 = off
 
 [instr]
 threshold = 0.5                                    # E3

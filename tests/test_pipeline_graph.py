@@ -20,12 +20,12 @@ EXPECTED = {
     "instr": {"amt_ms1", "stems", "sections", "grid"},
     "amt_gtr": {"stems", "instr"},
     "s35": {"instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"},
-    "notes": {"amt_gtr", "amt_ms1", "amt_bp", "grid", "s35"},
+    "notes": {"amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"},  # stems: energy.npz for the silence gate
 }
 M2_STAGES = set(EXPECTED)
 EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},
-    "quant": {"notes", "amt_ms1", "grid", "sections"},
+    "quant": {"notes", "grid", "sections"},  # the bass comes gated from notes (2026-10-05)
     "tab": {"quant", "a4"},
     "score": {"tab", "quant", "grid", "sections"},
 })

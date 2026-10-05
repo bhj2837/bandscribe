@@ -19,8 +19,9 @@ imports this module lazily. Stage functions depend only on ``ctx.params``, their
 - ``s35`` (CPU): ``s35.json`` index of the S3.5 artifacts (paths relative to the job dir). ``guitar_pass`` is the
   **raw** guitar view: with ``guitar+present`` it may hold notes labelled with a present keys/synth class
   (counted in ``guitar_pass_non_guitar``); S4+ read ``notes/guitar_all.json`` (guitar classes only).
-- ``notes`` (CPU): ``guitar_all.json`` + ``midi/*.mid`` + ``notes_summary.json``; a Korean warning when the guitar
-  pass labelled >= 10 % of its notes non-guitar.
+- ``notes`` (CPU): ``guitar_all.json`` + ``bass_raw.json`` + ``midi/*.mid`` + ``notes_summary.json``; a Korean
+  warning when the guitar pass labelled >= 10 % of its notes non-guitar. Both drop the notes MuScriptor wrote over
+  a silent stem (``bandscribe.amt.silence``, ``amt.silence_gate_db``; the stems stage's ``energy.npz``).
 
 Transcriptions go through the shared cache (``bandscribe.amt.cache``): views without an entry are sent to the worker,
 which writes raw NoteSets under ``_worker/raw/`` (provenance); the stage stores them in the cache under the rung
@@ -41,6 +42,7 @@ from bandscribe import atomic, models, paths, vram
 from bandscribe.amt import cache as amt_cache
 from bandscribe.amt import instruments as I
 from bandscribe.amt import presence as P
+from bandscribe.amt import silence as SG
 from bandscribe.config import RUN_PROFILES, Config, ConfigError
 
 log = logging.getLogger(__name__)
@@ -85,6 +87,7 @@ AMT_DEFAULTS: dict[str, Any] = {
     "amt.bp_max_freq_hz": 0.0,
     "amt.bp_melodia_trick": True,
     "amt.bp_threads": 4,
+    "amt.silence_gate_db": -50.0,  # 2026-10-05, bandscribe.amt.silence
     "instr.threshold": 0.5,
     "instr.guitar_threshold": 0.15,
     "instr.guitar_stem_active_ratio": 0.05,
@@ -856,6 +859,11 @@ def _only(doc: Mapping[str, Any], classes: tuple[str, ...]) -> dict[str, Any]:
     return out
 
 
+def notes_params(cfg: Any) -> dict[str, Any]:
+    return {"silence_gate_db": float(amt_value(cfg, "amt.silence_gate_db")),
+            "silence_window_s": list(SG.DEFAULT_WINDOW_S)}
+
+
 def run_notes(ctx: Any) -> None:
     from bandscribe.amt import midi
 
@@ -863,6 +871,10 @@ def run_notes(ctx: Any) -> None:
     dd = {k: Path(v) for k, v in ctx.dep_dirs.items()}
     s35 = atomic.read_json(dd["s35"] / "s35.json")
     grid = atomic.read_json(dd["grid"] / "grid.json")
+    # silence gate (bandscribe.amt.silence): notes starting where their stem is silent are MuScriptor's, not the band's
+    energy, fps = _load_energy(dd["stems"])
+    gate_db = float(ctx.params.get("silence_gate_db", SG.FLOOR_DB))
+    window = tuple(ctx.params.get("silence_window_s") or SG.DEFAULT_WINDOW_S)
     gtr_files = [f for f in _raw_files(dd["amt_gtr"]) if f.name.endswith("__muscriptor.json")]
     if len(gtr_files) != 1:
         raise AmtStageError(f"amt_gtr 단계의 기타 전사 파일을 찾지 못했습니다: {[f.name for f in gtr_files]}")
@@ -871,6 +883,9 @@ def run_notes(ctx: Any) -> None:
     # (guitar+present mask), and those notes must not end up in the guitar MIDI.
     guitar_all = _only(gtr, I.GUITAR_CLASSES)
     dropped = non_guitar_counts(gtr)
+    kept, gate_gtr = SG.gate(guitar_all["notes"], energy, str(gtr.get("view") or ""), fps, gate_db=gate_db,
+                             window_s=window)
+    guitar_all["notes"] = list(kept)
     validate_noteset(guitar_all)
     atomic.write_json(out_dir / "guitar_all.json", guitar_all)
 
@@ -879,8 +894,19 @@ def run_notes(ctx: Any) -> None:
     summ = midi.write_performance_midi(out_dir / "midi" / "guitar_all.mid", tracks, grid)
     files["midi/guitar_all.mid"] = {"n_notes": summ["n_notes"], "tracks": [t[0] for t in tracks]}
 
+    # the pass-1 bass as later stages read it (quant): bass_raw.json, gated like the guitar
     bass_path = dd["amt_ms1"] / "raw" / "bass_mono__muscriptor.json"
-    bass = atomic.read_json(bass_path) if bass_path.is_file() else {"notes": []}
+    bass: dict[str, Any] = {"notes": []}
+    gate_bass = None
+    if bass_path.is_file():
+        bass = atomic.read_json(bass_path)
+        kept, gate_bass = SG.gate(bass.get("notes") or [], energy, "bass_mono", fps, gate_db=gate_db, window_s=window)
+        bass = {**bass, "notes": list(kept)}
+        validate_noteset(bass)
+        atomic.write_json(out_dir / "bass_raw.json", bass)
+    for name, rep in (("guitar_all", gate_gtr), ("bass_raw", gate_bass)):
+        if rep and rep["dropped"]:
+            log.info("notes: %s - %d notes over a silent stem dropped (%s)", name, rep["dropped"], rep["spans_s"][:4])
     btracks = midi.class_tracks(bass, tuple(reversed(I.BASS_CLASSES)))  # electric first
     s = midi.write_performance_midi(out_dir / "midi" / "bass_raw.mid", btracks, grid)
     files["midi/bass_raw.mid"] = {"n_notes": s["n_notes"], "tracks": [t[0] for t in btracks]}
@@ -918,6 +944,7 @@ def run_notes(ctx: Any) -> None:
         "guitar_view_notes": n_view,
         "guitar_classes": {c: counts[c] for c in I.GUITAR_CLASSES if c in counts},
         "non_guitar_dropped": dropped,
+        "silence_gate": {"db": gate_db, "window_s": list(window), "guitar_all": gate_gtr, "bass_raw": gate_bass},
         "files": files,
         "basic_pitch": not bp_skipped(dd["amt_bp"]),
         "s35": s35.get("format"),
@@ -935,7 +962,8 @@ STAGES: dict[str, dict] = {
     # attribution, bass pass evidence, mix pass reported only, guitar+present back to keys/synth. amt_gtr 2.
     # s35 3 = presence entry; 4 = guitar_pass_mask / guitar_pass_non_guitar. notes 2 = non_guitar_dropped;
     # 3 = guitar_view_notes + dropped-share warning; 4 (2026-10-05) = MIDI lead-in tempo kept within 30-300 BPM
-    # (eighth/sixteenth lead-in bars, tiny lead-ins absorbed into the first beat).
+    # (eighth/sixteenth lead-in bars, tiny lead-ins absorbed into the first beat); 5 (2026-10-05) = silence gate on
+    # guitar_all and the bass (bandscribe.amt.silence, energy.npz from a new dep on stems) + bass_raw.json.
     "amt_ms1": {"run": run_amt_ms1, "code_version": "3", "params": amt_ms1_params, "device": "gpu",
                 "models": ms_models},
     "amt_bp": {"run": run_amt_bp, "code_version": "1", "params": bp_params, "device": "cpu", "models": bp_models},
@@ -945,6 +973,6 @@ STAGES: dict[str, dict] = {
                 "models": ms_models},
     "s35": {"run": run_s35, "code_version": "4", "params": lambda cfg: {}, "device": "cpu",
             "models": lambda cfg: {}},
-    "notes": {"run": run_notes, "code_version": "4", "params": lambda cfg: {}, "device": "cpu",
+    "notes": {"run": run_notes, "code_version": "5", "params": notes_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

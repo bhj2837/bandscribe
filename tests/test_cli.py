@@ -366,6 +366,19 @@ def test_status_list(root: Path, runner: CliRunner) -> None:
     assert "f-deadbeefdeadbeef" in out and "폴더 없음" in out
 
 
+def test_status_shows_the_title_hint(root: Path, runner: CliRunner) -> None:
+    """hints.title (the job's hints.toml) names the song in the list and the job view; the file name otherwise."""
+    make_jobs(paths.JOBS)
+    hints = paths.JOBS / "f-0123456789abcdef" / "hints.toml"
+    hints.write_text('[hints]\ntitle = "seisyun complex"\n', encoding="utf-8")
+    out = runner.invoke(cli.app, ["status"]).stdout
+    assert "seisyun complex" in out and "song [live].flac" not in out
+    out = runner.invoke(cli.app, ["status", "f-012345"]).stdout
+    assert "제목: seisyun complex" in out
+    hints.write_text("[hints\nbroken", encoding="utf-8")  # unreadable: the file name again (run reports the error)
+    assert "song [live].flac" in runner.invoke(cli.app, ["status"]).stdout
+
+
 def test_status_one_job_by_prefix(root: Path, runner: CliRunner) -> None:
     make_jobs(paths.JOBS)
     result = runner.invoke(cli.app, ["status", "f-012345"])
