@@ -1,6 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-05 (M1a accepted and tagged `m1a`; M2 tagged `m2` with known gaps, see
+Last updated: 2026-10-05 (**M3 done with known gaps**: first tabs, see "M3 (2026-10-05)" below and
+`docs/acceptance/M3.md`. Before that: M1a accepted and tagged `m1a`; M2 tagged `m2` with known gaps, see
 `docs/acceptance/M1a_M2.md`; fixes for the two code reviews, see "Review fixes (2026-10-05)"; E3c run and rejected. 2026-10-04: distractor measurement, rename gtab → bandscribe, folder `D:\bandscribe`, speed fix + review
 fixes).
 
@@ -15,8 +16,34 @@ fixes).
 | Rename gtab → bandscribe | ✅ done (`docs/RENAME.md`): 0 stage keys changed, old files load as is. Folder moved to `D:\bandscribe`, all three venvs re-created: keys again unchanged, 1198 tests passed (1 skipped) |
 | Experiments | ✅ run or closed for M2 (see table below); E3b still pre-registered only |
 | Review → Fix → Acceptance | ✅ two reviews (0 blockers), 14 fixes, acceptance report `docs/acceptance/M1a_M2.md`: **M1a 13/13 pass** (tag `m1a`); **M2 19 pass / 3 fail / 3 blocked** (tag `m2`, accepted with known gaps by the user's decision) |
+| M3 first tabs | ✅ quantisation, A4, tuning, Viterbi fretting (E12 → E12b), alphaTex/GP5/MIDI export, synced viewer; acceptance `docs/acceptance/M3.md`: **9 pass / 1 fail / 3 blocked** (tag `m3`) |
 
-All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`).
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`).
+
+## M3 (2026-10-05)
+
+**What a run produces now** (`bandscribe run <song>`, default `--until score`): `export/tab/score.alphatex` (Guitar
+(all parts) as a staff, Bass (raw) as tab, one `\sync` per bar at the recording's bar time), `export/tab/score.gp5`
+(fretted tracks only), `export/tab/*.txt`, `export/tab/tab.json` (tuning + fingering), `export/midi/*_quantized.mid`,
+`export/score.json` (schema v0). `--parts 1` frets the merged guitar too. `bandscribe view <song>` serves the score
+with alphaTab in external-media mode on 127.0.0.1 (cursor within 31 ms of the grid over a whole song).
+
+**New stages (CPU, ~13 s per song together):** `a4` (A4 offset from the pitched stem views), `quant` (per-beat
+binary/ternary/swung Viterbi, 12/8 vs shuffle re-read, triplet feel per section), `tab` (joint guitar + bass tuning
+search with fake-low-note guard; window-model fretting; out-of-range notes written an octave inside, flagged),
+`score` (rhythm spelling → alphaTex, GP5, quantised MIDI, score.json). Code in `bandscribe/tab/`.
+
+**Decisions:** E12 hold (v1 Viterbi 57.4 vs tuttut 46.7 per track, short of 75), E12b adopted (window model 69.3 per
+track / 74.6 % per note). E14 (quantisation settings) and E16 (A4 varispeed) pre-registered and waiting (Tier A GT;
+GPU). σ 30 ms is provisional.
+
+**M3 known gaps** (`docs/acceptance/M3.md`):
+- FAIL c7: fretting ≥ 75 % on GuitarSet test (69.3 per track, 74.6 % per note); ≥ tuttut passes.
+- BLOCKED c1/c3/c8: Tier A ground truth (downbeat F1 / bar count, notation match, oracle-line fretting).
+- BLOCKED c10 (TuxGuitar half): opening the GP5 in TuxGuitar is a manual check (alphaTab and PyGuitarPro read it).
+- Not done: A4 varispeed (E16); the 5 test songs are +2–4 cents, so it does not apply to them.
+- Asked the user (no answer yet): KH guitar tuning (Drop D?), real tempo of 青と夏 / AIZO (grid at 93 / 95 BPM may be
+  half tempo, which writes 8ths as 16ths).
 
 **M2 known gaps** (accepted by the user on 2026-10-05 so that M3 can start; none blocks M3):
 - FAIL b10: MuScriptor latency residual 10.9 ms vs < 10 ms (provisional threshold).
@@ -42,6 +69,10 @@ All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`).
 | E24-sep, E24-amt (fp16 cast) | Closed as 판단 보류 without a run (GPU cost > 40 min). E24-sep amended 2026-10-05 (merged references) in case it is re-registered. |
 | stereo-preservation (last entry in decisions.md) | Pre-registered only, not run. |
 | Tier A descriptive pass on the 5 songs | Started (`data/scratch/exp/tiera_desc.py`), killed at the pause. Partial output is in `data/scratch/exp/tierA/`. |
+| E12 fretting v1 vs tuttut (GuitarSet, dev = progression 1, test = 2–3) | **Hold (target missed)** 2026-10-05: dev-best v1 57.4 vs tuttut 46.7 points per track, Δ +10.65 [+8.91, +12.47]; registered target ≥ 75 not met. |
+| E12b fretting window model vs E12's best v1 | **Adopted** 2026-10-05: `window`, shift 0.5, height 0, open 0 → 69.3 points per track (74.6 % per note) vs 57.4, Δ +11.96 [+8.41, +15.34]; solos +21.2. M3 fretting criterion (≥ 75 per track) still missed. |
+| E14 quantisation settings (σ, levels, 24 vs 48 tick) | Pre-registered, waits for Tier A GT. σ 30 ms provisional (synthetic 0.990, fewer spurious 32nds on real songs). |
+| E16 A4 varispeed threshold | Pre-registered, not run (GPU ~20–30 min). M3 measures and warns only; the 5 songs are +2–4 cents. |
 
 ## Review fixes (2026-10-05)
 
@@ -297,7 +328,9 @@ mask the backing used:
    the user. The first `bandscribe run` per existing job recomputes `beats` (new key: beat-this version) and its CPU
    descendants once.
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
-5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export). **First task of M3 (done
+5. ~~M3~~ done 2026-10-05 (tag `m3`, see "M3 (2026-10-05)" at the top). Next: **M4a** (editing on the viewer, edit log,
+   re-export; NVML pre-check item 6 below belongs there), or first the M3 gaps (fretting toward 75 %: same fingering
+   for repeated sections, chord-shape templates; E16 if a detuned song shows up). Original M3 item: **First task of M3 (done
    2026-10-05: `tick_prf` and `evaluate_item` now match over the whole song and give a section the pairs whose GT
    note is inside, the unmatched GT notes inside and the unmatched estimates starting inside; partition counts add
    up to the song's, tests in `test_eval_metrics.py`):** note

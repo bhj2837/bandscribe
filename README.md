@@ -1,19 +1,23 @@
 # bandscribe
 
 > **English summary.** bandscribe is a personal, local Windows tool whose goal is to turn one band recording into
-> one guitar tab per part plus a bass tab (drum and piano scores come later). **It does not produce tabs yet.**
-> Today (milestone M2 of M0–M12) it separates 6 stems, transcribes guitar and bass to MIDI with a tempo map, and
-> builds practice backing tracks. Splitting several guitars into parts, the core of the project, is planned for
-> M6–M8. Engineering highlights: a one-model-at-a-time GPU worker inside Windows Job Objects, a content-addressed
-> stage cache, pre-registered experiments judged with song-block bootstrap CIs, and a sampled presence pass (plus
-> moving a baseline pass out of the default profile) that cut a full run from 12–25 min to 6–8 min per song on an
-> RTX 2060. The documentation is in Korean.
+> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestone M3 of M0–M12) it
+> separates 6 stems, transcribes guitar and bass, quantises them onto the beat grid, picks the tuning, assigns
+> strings and frets by Viterbi, and writes a **bass tab** and a **staff for all guitars together** (alphaTex, Guitar
+> Pro 5, MIDI) that a local alphaTab viewer plays in sync with the original recording. Splitting several guitars into
+> parts, the core of the project, is planned for M6–M8 (`--parts 1` already frets the merged guitar as one part).
+> Engineering highlights: a one-model-at-a-time GPU worker inside Windows Job Objects, a content-addressed stage
+> cache, pre-registered experiments judged with song-block bootstrap CIs (the fretting model was chosen that way:
+> 74.6 % string/fret agreement per note on GuitarSet vs 55.9 % for the open-source tuttut), and a sampled presence
+> pass that cut a full run from 12–25 min to 6–8 min per song on an RTX 2060. The documentation is in Korean.
 
 밴드 녹음 한 곡을 넣으면 **기타 파트마다 탭 하나와 베이스 탭**을 만드는 것이 목표인 Windows 로컬 도구다.
 드럼·피아노 악보는 그 다음 계획이다. 기타가 두 대 이상인 곡에서 "누가 어떤 음을 쳤는가"는 오디오 분리만으로는
 거의 가를 수 없다. 그래서 bandscribe는 분리와 전사로 음표 후보와 증거(스테레오 위치, 음색 클래스, 반복, 기호 규칙)를
-모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M2까지 구현되어 6 스템 분리, 기타·베이스 MIDI,
-연습용 반주를 만든다. **탭과 기타 파트 분리는 아직 없다.**
+모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M3까지 구현되어 6 스템 분리, 기타·베이스 전사,
+양자화, 튜닝 추정, 줄·프렛 배정을 거쳐 **베이스 탭과 기타 전체 오선보**(alphaTex·Guitar Pro 5·MIDI)를 만들고,
+원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. **기타 파트 분리는 아직 없다**(합친 기타를 한 대로 보고 탭을
+만드는 `--parts 1` 은 있다).
 
 - 설계서: [`docs/DESIGN.md`](docs/DESIGN.md) · 구현 명세: [`docs/M0_SPEC.md`](docs/M0_SPEC.md), [`docs/M1_M2_SPEC.md`](docs/M1_M2_SPEC.md)
 - 실험 등록부: [`docs/decisions.md`](docs/decisions.md) · 현재 상태와 측정 기록: [`docs/PROGRESS.md`](docs/PROGRESS.md)
@@ -32,18 +36,22 @@
 
 ## 지금 되는 것과 아직 안 되는 것
 
-`bandscribe run <파일|URL> --until notes`(기본 프로필 `quality`)가 만드는 것:
+`bandscribe run <파일|URL>`(기본 프로필 `quality`, 기본 `--until score`)가 `jobs/<작업>/export/` 에 만드는 것:
 
 | 결과 | 설명 |
 |---|---|
+| 악보 `tab/score.alphatex` | 모든 트랙: **Guitar (all parts)** 는 오선보(파트를 아직 못 나누므로 운지 없음), **Bass (raw)** 는 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
+| `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(기본: 베이스. `--parts 1` 이면 기타도) |
+| `tab/*.txt` | 운지된 트랙의 텍스트 탭(대략적인 미리보기) |
+| 튜닝 | 기타·베이스 함께 추정(표준·드롭·반음/온음 다운·카포·오픈 튜닝, 7현은 D2 아래 음이 있을 때만). `tab/tab.json` |
+| MIDI | 연주 그대로(`guitar_all.mid`, `bass_raw.mid`)와 양자화판(`*_quantized.mid`) |
 | 6 스템 | vocals, drums, bass, guitar, piano, other (+ `nonvox` = 믹스 − 보컬·드럼·베이스, `leftover` = 믹스 − 6 스템 합) |
 | 박·마디 격자 | Beat This! 비트·다운비트에 자체 후처리(곡 안의 반/배 박 전환 정리, 동적 계획법 마디선)를 더한 템포맵·박자표 |
 | 편성 추정 | 악기 클래스별 존재 확률(`instrumentation.json`, 건반·신스·현악 등). 기타 전사의 악기 마스크를 정하는 데 쓴다 |
-| `guitar_all.mid` | 기타 스템 전사(MuScriptor). **파트별이 아니다.** 모든 기타를 음색 클래스(어쿠스틱·클린·디스토션)별 트랙으로만 나눈다 |
-| `bass_raw.mid` | 베이스 스템 원시 전사. 옥타브 보정·주법은 M5 |
 | 연습용 반주 | 기타 뺀 믹스, 베이스 뺀 믹스, 베이스 스템. 분리 오차가 그대로 남는다 |
 
-MIDI는 오디오 시간축을 그대로 두고 템포맵만 격자에 맞춘다. DAW에 넣으면 마디선이 곡과 맞는다.
+`bandscribe view <작업>` 이 악보를 브라우저로 연다(127.0.0.1 에서만). 원곡을 재생하면 커서가 따라가고, 악보를 누르면 그
+위치로 이동한다. 속도를 50–100 % 로 늦출 수 있다(음높이 유지). 곡 전체에서 커서와 박 격자의 차이는 최대 31 ms였다.
 
 함께 있는 도구:
 
@@ -54,7 +62,7 @@ MIDI는 오디오 시간축을 그대로 두고 템포맵만 격자에 맞춘다
 - `bandscribe gt ...`: Guitar Pro 정답 가져오기(반복·다른 엔딩 펼침), 참조 렌더, DTW 정렬, 다운비트 탭 보정.
 - `bandscribe data ...`: 평가용 데이터셋(Cambridge-MT, EGDB, GuitarSet, IDMT-SMT-Bass, FiloBass, MedleyDB) 받기·검증·로더.
 
-**아직 없는 것:** 탭(.gp5, alphaTex)과 양자화·운지(M3), 기타 파트(Line) 분리(M6–M8), 편집 UI(M4a), 베이스 완성(M5),
+**아직 없는 것:** 기타 파트(Line) 분리(M6–M8; 그래서 기타는 오선보만), 편집 UI(M4a), 베이스 완성(M5: 옥타브 앵커 등),
 주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
 
 ## 마일스톤
@@ -68,8 +76,8 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 | **M1a** | 측정 도구: 지표, 곡 블록 부트스트랩, 사전 등록 실험 러너, 정답 가져오기·DTW 정렬, 합성 리믹스, 데이터셋 로더 | **완료** (인수 13/13, 태그 `m1a`) |
 | **M1b** | Tier A: 실제로 치는 곡의 구간 정답(Guitar Pro) 구축 | 대기: 후보 5곡 등록, 정답 파일 필요 |
 | **M2** | 첫 수직 슬라이스: 분리, 전사, 편성 추정, MIDI, 연습용 반주, GPU 벤치 | **완료, 알려진 한계 있음** (인수 25개 중 통과 19 · 미달 3 · 보류 3, 태그 `m2`; [인수 문서](docs/acceptance/M1a_M2.md)) |
-| M3 | 첫 탭: 양자화, 튜닝·Viterbi 운지, .gp5/alphaTex 내보내기(기타는 합친 트랙, 베이스는 원시 탭) | 다음 |
-| M4a | 로컬 웹 뷰어(alphaTab)와 기본 편집, 수정 로그 | 계획 |
+| **M3** | 첫 탭: 양자화, 튜닝·Viterbi 운지, .gp5/alphaTex 내보내기(기타는 합친 트랙, 베이스는 원시 탭), 원곡 동기 뷰어 | **완료, 알려진 한계 있음** (기준 13개 중 통과 9 · 미달 1 · 보류 3, 태그 `m3`; [인수 문서](docs/acceptance/M3.md)) |
+| M4a | 편집 UI(뷰어 위 키보드 편집, 수정 로그, 다시 내보내기) | 다음 |
 | M5 | 베이스 완성: 옥타브 앵커, 튜닝 후보, 주법 | 계획 |
 | **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리** | 계획 (핵심) |
 | **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | 계획 (핵심) |
@@ -86,10 +94,10 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 
 ## 파이프라인
 
-### 지금 (M2, 13단계)
+### 지금 (M3, 17단계)
 
-입력 처리(ingest) 뒤에 13단계가 돈다. 주황색이 GPU 단계다. 주요 의존만 그렸고, 정확한 의존 관계는
-[`bandscribe/pipeline/graph.py`](bandscribe/pipeline/graph.py)에 있다.
+입력 처리(ingest) 뒤에 17단계가 돈다. 주황색이 GPU 단계다. 주요 의존만 그렸고, 정확한 의존 관계는
+[`bandscribe/pipeline/graph.py`](bandscribe/pipeline/graph.py)에 있다. M3 단계(초록)는 모두 CPU 이고 곡당 몇 초다.
 
 ```mermaid
 flowchart LR
@@ -112,11 +120,21 @@ flowchart LR
     bp --> s35
     s35 --> notes["notes<br/>guitar_all.mid<br/>bass_raw.mid"]
     grid -. 템포맵 .-> notes
+    stems --> a4["a4<br/>기준음 (A440 대비 cents)"]
+    notes --> quant["quant<br/>박마다 16분·셋잇단 선택<br/>셔플·12/8 · 셋잇단 느낌"]
+    grid --> quant
+    quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi"]
+    a4 --> tab
+    tab --> score["score<br/>alphaTex · GP5 · 양자화 MIDI"]
     classDef gpu fill:#fde2c8,stroke:#c46a1b,color:#000
+    classDef m3 fill:#d8efe5,stroke:#2f6f5e,color:#000
     class beats,sep,ms1,gtr gpu
+    class a4,quant,tab,score m3
 ```
 
-### 계획 (M3–M8)
+### 계획 (M4–M8)
+
+M3 의 양자화·튜닝·운지·내보내기(초록)는 이미 있다. 그 앞에 파트 분리가 들어간다.
 
 ```mermaid
 flowchart LR
@@ -126,10 +144,12 @@ flowchart LR
     tx --> fuse["S7 음표 융합<br/>블리드 감점 · 반복 합의"]
     fuse --> diar["S8 파트 다이어라이저 (M7)<br/>파트 수 K · 음표별 배정"]
     fuse --> bass["S11 베이스 (M5)"]
-    diar --> quant["S12 양자화 (M3)"]
+    diar --> quant["S12 양자화 (M3, 있음)"]
     bass --> quant
-    quant --> fret["S13 튜닝 · 운지 Viterbi (M3)"]
-    fret --> export["S15 .gp5 · alphaTex · MIDI"]
+    quant --> fret["S13 튜닝 · 운지 Viterbi (M3, 있음)"]
+    fret --> export["S15 .gp5 · alphaTex · MIDI (M3, 있음)"]
+    classDef m3 fill:#d8efe5,stroke:#2f6f5e,color:#000
+    class quant,fret,export m3
 ```
 
 단계별 입력·출력·위험은 [`docs/DESIGN.md`](docs/DESIGN.md) §2–§3에 있다.
@@ -298,13 +318,17 @@ J-pop·J-rock 밴드 녹음에는 기타 위에 신스 패드·리드, 건반, �
 | 곡당 실행 시간 | 5.7–7.7분 (이전 12.4–24.6분) | `quality`, 3.4–4.6분 상용곡 3곡, 처음부터 실행한 단계 시간 합. 가장 큰 단계는 기타 전사(141–197초) |
 | 분리 단계 | 52–99초 (실시간의 3.6–5.6배) | 상용곡 5곡 + Cambridge-MT 1곡 |
 | VRAM (reserved 피크) | 분리 1.69 GB · MuScriptor 1.74 GB · Beat This! 0.3–0.4 GB | 한 번에 하나만 올라간다 |
-| 캐시된 재실행 | 약 0.8초 | 13단계 모두 캐시, `run --until notes` |
+| 캐시된 재실행 | 약 0.8초 | 17단계 모두 캐시(기본 `run`, 怪獣の花唄 3회 0.81–0.82초) |
 | E23 Basic Pitch 튜닝 | onset F1 66.0 → 72.6, **Δ +6.6 [+3.8, +9.9]** | EGDB 공식 test 25클립 × 앰프 렌더 5종(Basic Pitch 학습 밖). dev에서 60개 조합 중 골랐다. 업스트림 기본 최소 음 길이(127.7 ms)는 빠른 16분음표를 지운다. 최적값이 탐색 격자의 끝에 있다 |
 | MuScriptor onset 지연 | 상수 −3 ms, 보정 후 \|잔차\| 중앙값 **10.9 ms** [10.5, 11.3] | GuitarSet 연주자 00–02로 추정, 03–05로 보고. 목표 10 ms에 못 미친다. 출력 시각이 10 ms 격자로 양자화돼 있고 정답 onset의 오차도 섞인다. 오염 불명이라 절대 정확도는 주장하지 않는다 |
 | gate-m2 (디스토션, MuScriptor − Basic Pitch) | Δ +8.1 [+2.1, +13.5] → **판단 보류** | 문턱 +5를 넘지만, MuScriptor 학습 데이터에 EGDB가 있는지 알 수 없어 사전 등록 규칙대로 통과로 쓰지 않았다 |
 | E1, E2, E3 | 판단 보류 | 라우드니스 정규화, 전사 입력 뷰, 악기 마스크. 모두 CI가 0을 포함해 기본값 유지. 여러 기타 Line이 함께 친 음을 참조에서 두 번 센 상태로 잰 수치라 편향이 있다(2026-10-05 리뷰, 이후 실험은 병합해 잰다) |
 | E3c 기타 패스 마스크 단순화 | `guitar_only` − 제품 마스크 Δ −2.35 [−8.22, +0.47] → **기각** | distractors 측정에 쓰지 않은 5개 구간. 제품 마스크가 실제로 달라진 구간은 2개: JetB에서 건반 마스크가 피아노 블리드 191음을 걸러 F1 61.9(기타만) → 76.3(제품), Zeno에서는 제품 마스크가 1점 낮았다 |
 | 방해 소리(distractors, 서술) | 신스 패드 재현율 **−3.7** [−6.1, −2.2]점 · 현악 F1 −5.9점(기타만 마스크로는 +0.5) · 전체 믹스 재현율 −5.6 [−10.1, −1.7]점 | Cambridge-MT 10곡 × 75초, 기준은 참 기타 스템 합의 MuScriptor 전사(절대 성능 아님). 곡이 범주당 2–3개뿐이고, 들리지 않는 잡음만으로 2/10 구간이 크게 바뀌어(디코딩 불안정) 작은 차이는 해석하지 않는다. GPU 약 62분 |
+| 운지 (E12 → E12b, GuitarSet 줄 정답) | 음 단위 일치 **74.6 %** (트랙 평균 69.3점) vs tuttut 55.9 % (46.7점); 손 위치 창 모델이 v1 보다 **Δ +12.0 [+8.4, +15.3]**점 | 정답 음높이를 넣고 줄·프렛만 맞힌다. dev = 진행 1, test = 진행 2·3(20곡 블록). 솔로에서 +21점. M3 목표 75(트랙 평균)는 미달. 연주 불가능한 운지 0 |
+| 양자화 (합성, 박 격자를 앎) | ±20 ms 흔들림에서 정확한 (마디, tick) **99.0 %**, ±30 ms 에서 97.8 % | 16분·32분·셋잇단이 섞인 무작위 리듬 20곡분 6,303음. 실제 곡은 정답이 없어 측정 못 함(E14) |
+| 원곡 동기 | 뷰어 커서와 박 격자 차이 최대 31 ms, 곡 끝 근처 9 ms | 마디마다 원곡 시각을 고정(`\sync`)해서 누적되지 않는다 |
+| 처음부터 실행 (fast) | 3.7분 곡 **5분 50초** | 캐시 없는 새 작업. M3 단계(기준음·양자화·튜닝·운지·내보내기) 합 13초 |
 
 E# 실험은 각각 [`docs/decisions.md`](docs/decisions.md)에 등록 문구와 결과가 있다. 원시 측정값(작업 폴더, 실행 로그)은
 원곡 오디오 분석이라 저장소에 넣지 않았다.
@@ -360,14 +384,17 @@ cd node && npm ci && cd ..
 
 ```bat
 bandscribe.cmd doctor                              :: 환경 점검 (GPU 셀프테스트 포함)
-bandscribe.cmd run "C:\music\song.flac"            :: 기본: --until notes, --profile quality
+bandscribe.cmd run "C:\music\song.flac"            :: 기본: --until score, --profile quality
+bandscribe.cmd run "C:\music\song.flac" --parts 1  :: 기타를 한 대로 보고 기타 탭까지
+bandscribe.cmd view "C:\music\song.flac"           :: 악보를 브라우저로 (작업 키 앞부분만 써도 됨)
 bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만 보기
 bandscribe.cmd status                              :: 작업 목록
 bandscribe.cmd config show                         :: 지금 적용되는 설정
 ```
 
-- 결과는 `data\jobs\<작업 키>\export\`에 모인다: `midi\guitar_all.mid`, `midi\bass_raw.mid`, `practice\*.wav`,
-  `instrumentation.json`. 스템은 `stages\sep\<키>\stems\`에 있다.
+- 결과는 `data\jobs\<작업 키>\export\`에 모인다: `tab\score.alphatex`, `tab\score.gp5`, `tab\*.txt`, `midi\*.mid`,
+  `practice\*.wav`, `instrumentation.json`, `score.json`. 스템은 `stages\sep\<키>\stems\`에 있다.
+- `score.gp5` 는 Guitar Pro 5 형식이라 TuxGuitar(무료)·Guitar Pro·MuseScore 에서 열린다. 한글 제목이면 cp949 로 저장한다.
 - 프로필: `fast`(표본 창 절반), `quality`(기본), `eval`(B0 믹스 전사와 piano+other 전곡 전사를 추가 출력으로 더함, 훨씬 느림).
 - 설정 우선순위: `bandscribe/defaults.toml` → `data/config.toml` → 작업 `hints.toml` → `--set 키=값`. 틀린 키는
   무시하지 않고 오류로 멈춘다.
