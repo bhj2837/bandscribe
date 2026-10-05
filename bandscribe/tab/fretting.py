@@ -17,7 +17,11 @@ Cost of a path = Σ static(fingering) + Σ transition(previous, fingering):
 
 Viterbi gives the cheapest path; forward and backward passes give every event's min-marginals, and the fret
 confidence is ``1 - exp(-margin / conf_scale)`` with margin = second-best minus best min-marginal (DESIGN 6.3
-"1위 경로와 2위 경로의 비용 차이"). Weights are E12's (pre-registered in docs/decisions.md). Pure numpy.
+"1위 경로와 2위 경로의 비용 차이"). Pure numpy.
+
+Two models (``assign(model=...)``): ``v1`` (a fingering's hand = its mean fretted fret, E12) and ``window`` (hand-
+position states, one finger per fret, E12b; the default since E12b was adopted: GuitarSet test 69.3 vs 57.4 points
+per track, 74.6 % per note). ``DEFAULT_WEIGHTS`` are E12b's; ``V1_WEIGHTS`` the registered v1 values.
 
 Strings are numbered 1 = highest-pitched (tab / Guitar Pro convention); ``tuning`` lists open-string pitches
 lowest string first (``schema.score.Line.tuning``), so string s is ``tuning[n - s]``.
@@ -35,7 +39,9 @@ import numpy as np
 GUITAR_STD = (40, 45, 50, 55, 59, 64)
 BASS_STD = (28, 33, 38, 43)
 
-DEFAULT_WEIGHTS: dict[str, float] = {
+# The weights E12 / E12b were registered with (the v1 defaults at the E12 registration commit 7a53f8c). The tuning
+# search keeps using them with the v1 model: its evidence for drop / open tunings is the open-string bonus.
+V1_WEIGHTS: dict[str, float] = {
     "height": 0.15,
     "high_fret": 0.3,
     "span": 1.0,
@@ -47,6 +53,9 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "cut": 1.5,
     "conf_scale": 1.0,
 }
+# Production fingering (E12b adopted 2026-10-05): the window model, shift 0.5, no height cost, no open bonus.
+DEFAULT_MODEL = "window"
+DEFAULT_WEIGHTS: dict[str, float] = {**V1_WEIGHTS, "shift": 0.5, "height": 0.0, "open": 0.0}
 MAX_CANDIDATES = 64
 RING_TOL_S = 0.02  # a previous note still sounds if it ends later than this before the next onset
 
@@ -309,7 +318,7 @@ def _assign_window(events: Sequence[Event], cands: list[_Cands | None], runs: li
 
 
 def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, float] | None = None, *,
-           model: str = "v1") -> list[Assignment]:
+           model: str = DEFAULT_MODEL) -> list[Assignment]:
     """Fingering of every note of ``events`` (one Assignment per pitch, events in order).
 
     ``model``: ``v1`` (E12: a fingering's hand is its mean fretted fret, every change of it is a shift) or

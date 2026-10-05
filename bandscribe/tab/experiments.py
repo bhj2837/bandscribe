@@ -37,16 +37,18 @@ E12B_OPEN = (0.0, 0.3)
 
 
 def e12_arms() -> dict[str, dict[str, float]]:
-    return {f"dp_s{s}_h{h}": {"shift": s, "height": h} for s in E12_SHIFTS for h in E12_HEIGHTS}
+    """E12's v1 arms on the registered base weights (``fretting.V1_WEIGHTS``)."""
+    return {f"dp_s{s}_h{h}": {**F.V1_WEIGHTS, "shift": s, "height": h} for s in E12_SHIFTS for h in E12_HEIGHTS}
 
 
 def e12b_arms() -> dict[str, tuple[str, dict[str, float]]]:
     """{arm: (model, weights)}: E12's dev-best v1 setting (the baseline) and the window-model grid."""
-    arms = {"v1_s1.2_h0.05": ("v1", {"shift": 1.2, "height": 0.05})}
+    base = F.V1_WEIGHTS  # the registered "나머지 가중치"
+    arms = {"v1_s1.2_h0.05": ("v1", {**base, "shift": 1.2, "height": 0.05})}
     for s in E12B_SHIFTS:
         for h in E12B_HEIGHTS:
             for o in E12B_OPEN:
-                arms[f"win_s{s}_h{h}_o{o}"] = ("window", {"shift": s, "height": h, "open": o})
+                arms[f"win_s{s}_h{h}_o{o}"] = ("window", {**base, "shift": s, "height": h, "open": o})
     return arms
 
 

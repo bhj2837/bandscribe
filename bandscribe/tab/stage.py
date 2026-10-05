@@ -88,21 +88,42 @@ def run_quant(ctx: Any) -> None:
 
 def tab_params(cfg: Any) -> dict[str, Any]:
     parts = int(cfg.get("tab.guitar_parts")) if cfg is not None and hasattr(cfg, "get") else 0
-    return {"guitar_parts": parts, "tuning": dict(TU.DEFAULT_PARAMS), "weights": dict(F.DEFAULT_WEIGHTS)}
+    return {"guitar_parts": parts, "tuning": dict(TU.DEFAULT_PARAMS), "weights": dict(F.DEFAULT_WEIGHTS),
+            "model": F.DEFAULT_MODEL}
 
 
-def _fret_track(notes: list[dict[str, Any]], tun: dict[str, Any], weights: dict[str, float]) -> dict[str, Any]:
+def _octave_into_range(pitch: int, inst: F.Instrument) -> int:
+    """Shift a pitch no string can play by octaves into the instrument's range (0 if it cannot be)."""
+    lo = min(inst.open_pitch(s) for s in range(1, inst.n_strings + 1))
+    hi = max(inst.open_pitch(s) for s in range(1, inst.n_strings + 1)) + inst.max_fret - inst.capo
+    shift = 0
+    while pitch + shift < lo:
+        shift += 12
+    while pitch + shift > hi:
+        shift -= 12
+    return shift if lo <= pitch + shift <= hi else 0
+
+
+def _fret_track(notes: list[dict[str, Any]], tun: dict[str, Any], weights: dict[str, float],
+                model: str = F.DEFAULT_MODEL) -> dict[str, Any]:
+    """Fret one track. A note outside the instrument's range (a transcription octave error below a 4-string
+    bass's E1, say) is written an octave (or two) inside it and flagged ``octave_shift`` instead of dropped."""
     inst = F.Instrument(tuple(tun["tuning"]), max_fret=24, capo=int(tun["capo"]))
-    events = F.group_events(notes)
-    res = F.assign(events, inst, weights)
+    shifts = [0 if inst.positions(int(n["pitch"])) else _octave_into_range(int(n["pitch"]), inst) for n in notes]
+    shifted = [{**n, "pitch": int(n["pitch"]) + d} for n, d in zip(notes, shifts)]
+    events = F.group_events(shifted)
+    res = F.assign(events, inst, weights, model=model)
     by_id = {a.note_id: a for a in res}
     rows = []
-    for i, n in enumerate(notes):
+    for i, n in enumerate(shifted):
         a = by_id[i]
         rows.append({"i": i, "gtick": n["gtick"], "dur": n["dur"], "bar": n["bar"], "tick": n["tick"],
-                     "pitch": n["pitch"], "string": a.string, "fret": a.fret, "conf": a.confidence})
+                     "pitch": n["pitch"], "string": a.string, "fret": a.fret, "conf": a.confidence,
+                     **({"octave_shift": shifts[i]} if shifts[i] else {})})
+    check = F.playable(res, events, inst)
+    check["octave_shifted"] = sum(1 for d in shifts if d)
     return {"fretted": True, "tuning": list(inst.tuning), "capo": inst.capo, "label": tun["label"], "notes": rows,
-            "check": F.playable(res, events, inst)}
+            "check": check}
 
 
 def run_tab(ctx: Any) -> None:
@@ -117,10 +138,10 @@ def run_tab(ctx: Any) -> None:
     w = p["weights"]
     tracks: dict[str, Any] = {}
     if b_notes and tun["bass"]:
-        tracks["bass_raw"] = _fret_track(b_notes, tun["bass"], w)
+        tracks["bass_raw"] = _fret_track(b_notes, tun["bass"], w, p["model"])
     if g_notes and tun["guitar"]:
         if int(p["guitar_parts"]) == 1:
-            tracks["guitar_all"] = _fret_track(g_notes, tun["guitar"], w)
+            tracks["guitar_all"] = _fret_track(g_notes, tun["guitar"], w, p["model"])
         else:  # staff + MIDI only (DESIGN 4.2): merged parts cannot be played by one hand
             tracks["guitar_all"] = {"fretted": False, "tuning": tun["guitar"]["tuning"], "capo": tun["guitar"]["capo"],
                                     "label": tun["guitar"]["label"], "notes": [], "check": None}
@@ -148,5 +169,5 @@ STAGES: dict[str, dict] = {
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
     "quant": {"run": run_quant, "code_version": "1", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
-    "tab": {"run": run_tab, "code_version": "1", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
+    "tab": {"run": run_tab, "code_version": "3", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
 }

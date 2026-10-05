@@ -34,9 +34,9 @@ def test_ringing_arpeggio_takes_separate_strings():
     assert [(a.string, a.fret) for a in res] == [(5, 0), (4, 2), (3, 2), (2, 1), (1, 0)]
 
 
-@pytest.mark.xfail(strict=True, reason="known limit of the E12-registered model: the hand position of a single note "
-                   "is its fret, so a 12th-position line (B4-A5 on strings 1-2) is played up and down string 1 "
-                   "(frets 7-17); hand-window states would fix it (E12b candidate)")
+@pytest.mark.xfail(strict=True, reason="known limit: v1 plays this 12th-position line (B4-A5) up and down string 1 "
+                   "(frets 7-17); the window model (E12b) keeps positions but shifts from 10 to 14 instead of "
+                   "stretching 12-17")
 def test_high_melody_stays_in_position():
     """A line around the 12th fret stays in one position (frets 12-17 on strings 1-2)."""
     line = [76, 74, 72, 71, 72, 74, 76, 79, 81, 79, 76]
@@ -74,8 +74,13 @@ def test_unplayable_chords_drop_notes_and_out_of_range_pitches_are_dropped():
 
 def test_bass_tuning_and_capo():
     bass = F.Instrument(F.BASS_STD, max_fret=20)
-    res = F.assign([ev(0.0, [28]), ev(0.5, [33]), ev(1.0, [35]), ev(1.5, [40])], bass)
-    assert [(a.string, a.fret) for a in res] == [(4, 0), (3, 0), (3, 2), (2, 2)]
+    evs = [ev(0.0, [28]), ev(0.5, [33]), ev(1.0, [35]), ev(1.5, [40])]
+    res = F.assign(evs, bass)
+    assert res[0].string == 4 and res[0].fret == 0  # E1 only exists as the open 4th string
+    fretted = [a.fret for a in res if a.fret]
+    assert max(fretted) - min(fretted) <= 3  # one hand position (open position or 5th position both fine)
+    v1 = F.assign(evs, bass, F.V1_WEIGHTS, model="v1")
+    assert [(a.string, a.fret) for a in v1] == [(4, 0), (3, 0), (3, 2), (2, 2)]  # v1 likes open strings
     capo = F.Instrument(F.GUITAR_STD, capo=2)
     a = F.assign([ev(0.0, [42])], capo)[0]  # F#2 = open low string under a capo on 2: written fret 0
     assert (a.string, a.fret) == (6, 0)

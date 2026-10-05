@@ -147,9 +147,10 @@ def score(events: Sequence[F.Event], hyp: Hypothesis, p: Mapping[str, Any],
     if n == 0:
         return {"cost": hyp.prior, "unplayable": 0.0, "per_note": 0.0}
     out_of_range = sum(1 for e in events for q in e.pitches if not inst.positions(q))
-    res = F.assign(events, inst, weights)
+    # v1 model and weights: the open-string bonus is the evidence for drop and open tunings (fretting.V1_WEIGHTS)
+    w = {**F.V1_WEIGHTS, **(weights or {})}
+    res = F.assign(events, inst, w, model="v1")
     placed = sum(1 for a in res if a.string is not None)
-    w = {**F.DEFAULT_WEIGHTS, **(weights or {})}
     per_note = _path_cost(res, events, inst, w) / max(1, placed)
     unplayable = out_of_range / n
     return {"cost": float(p["unplayable"]) * unplayable + per_note + hyp.prior, "unplayable": unplayable,

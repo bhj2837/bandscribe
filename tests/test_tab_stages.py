@@ -91,3 +91,17 @@ def test_tab_stage_frets_the_bass_and_the_guitar_only_as_one_part(tmp_path):
         assert doc["tracks"]["guitar_all"]["fretted"] is (parts == 1)
         assert (ctx.out_dir / "text" / "bass_raw.txt").is_file()
         assert (ctx.out_dir / "text" / "guitar_all.txt").is_file() is (parts == 1)
+
+
+def test_out_of_range_notes_are_written_an_octave_inside():
+    from bandscribe.tab import fretting as F
+
+    bass = F.Instrument(F.BASS_STD)
+    assert T._octave_into_range(22, bass) == 12      # Bb0 on a 4-string bass -> Bb1
+    assert T._octave_into_range(100, bass) == -36    # far above fret 24 of the G string -> E4
+    assert T._octave_into_range(40, bass) == 0
+    q = [{"gtick": 0, "dur": 48, "bar": 1, "tick": 0, "pitch": 22, "onset_s": 0.0, "offset_s": 0.4},
+         {"gtick": 48, "dur": 48, "bar": 1, "tick": 48, "pitch": 33, "onset_s": 0.5, "offset_s": 0.9}]
+    tr = T._fret_track(q, {"tuning": list(F.BASS_STD), "capo": 0, "label": "E standard"}, dict(F.DEFAULT_WEIGHTS))
+    assert tr["notes"][0]["octave_shift"] == 12 and tr["notes"][0]["pitch"] == 34
+    assert tr["notes"][0]["string"] is not None and tr["check"]["octave_shifted"] == 1 and tr["check"]["dropped"] == 0

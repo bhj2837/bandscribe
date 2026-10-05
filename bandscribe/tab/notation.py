@@ -1,0 +1,309 @@
+"""Rhythm spelling: quantised events -> bars of written beats (note values, dots, tuplets, ties) (DESIGN 6.2).
+
+One voice per track: every event (the notes starting on one global tick) lasts until its own end or the next
+event, whichever comes first; gaps become rests. Segments are cut at bar lines and beat boundaries and spelled
+inside each beat by its subdivision family (``quant.json`` ``beat_families``):
+- binary quarter beat: 8 units of 6 ticks, split recursively at halves (a dotted value when a piece starts the
+  half it fills 3/4 of): 16th then 8th, never a tied 8th across the middle of a beat;
+- ternary quarter beat: a whole beat is a quarter; otherwise 8th triplets (``(3, 2)``, quarter triplets where
+  aligned) or, when a 16th-triplet point is used, 16th sextuplets (``(6, 4)``);
+- compound (dotted-quarter) beat: 8ths and 16ths without tuplets (dotted quarter, quarter, dotted 8th, 8th, 16th);
+  its binary family (duplets) is written as dotted 8ths / dotted 16ths.
+Full beats of one segment merge into a half, dotted half or whole (dotted half / dotted whole in compound meter)
+when they start on the bar's first or a strong beat; a piece that starts on a beat and lasts 1.5 beats is a dotted
+quarter. Later pieces of a split segment carry ``tie`` on every note.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+TPB = 48
+
+
+@dataclass
+class WNote:
+    pitch: int
+    string: int | None = None
+    fret: int | None = None
+    tie: bool = False  # tie destination (continues the same note from the previous beat)
+
+
+@dataclass
+class WBeat:
+    start: int  # tick in the bar
+    dur: int    # ticks
+    value: int  # 1, 2, 4, 8, 16, 32, 64
+    dots: int = 0
+    tuplet: tuple[int, int] | None = None
+    notes: list[WNote] = field(default_factory=list)  # empty = rest
+
+
+@dataclass
+class WBar:
+    bar: int            # musical bar number (quant.json)
+    start_gtick: int
+    n_beats: int
+    beat_unit: str
+    numerator: int
+    denominator: int
+    start_s: float
+    feel: str | None
+    section: str | None = None
+    beats: list[WBeat] = field(default_factory=list)
+
+    @property
+    def length(self) -> int:
+        return self.n_beats * TPB
+
+
+# ----------------------------------------------------------------------------------------- within a beat
+
+
+def _bin_pieces(a: int, b: int, lo: int = 0, hi: int = 8) -> list[tuple[int, int, bool]]:
+    """(start, end, dotted) in 6-tick units of a binary quarter beat."""
+    if a >= b:
+        return []
+    if a == lo and b == hi:
+        return [(lo, hi, False)]
+    if a == lo and hi - lo >= 4 and (b - a) * 4 == (hi - lo) * 3:
+        return [(a, b, True)]
+    mid = (lo + hi) // 2
+    out = []
+    if a < mid:
+        out += _bin_pieces(a, min(b, mid), lo, mid)
+    if b > mid:
+        out += _bin_pieces(max(a, mid), b, mid, hi)
+    return out
+
+
+_BIN_VALUE = {8: 4, 4: 8, 2: 16, 1: 32}           # units of 6 ticks -> note value
+_BIN_DOTTED = {6: 8, 3: 16}                       # dotted 8th, dotted 16th
+
+
+def _spell_binary(a: int, b: int) -> list[tuple[int, int, int, int, tuple[int, int] | None]]:
+    """[(start tick, dur, value, dots, tuplet)] of the piece [a, b) ticks inside a binary quarter beat."""
+    out = []
+    for s, e, dotted in _bin_pieces(a // 6, b // 6):
+        n = e - s
+        if dotted:
+            out.append((s * 6, n * 6, _BIN_DOTTED[n], 1, None))
+        else:
+            out.append((s * 6, n * 6, _BIN_VALUE[n], 0, None))
+    return out
+
+
+def _spell_ternary(a: int, b: int, fine: bool) -> list[tuple[int, int, int, int, tuple[int, int] | None]]:
+    """Inside a ternary quarter beat: 8th triplets (16 ticks) or, with ``fine``, 16th sextuplets (8 ticks)."""
+    if a == 0 and b == TPB:
+        return [(0, TPB, 4, 0, None)]
+    out = []
+    if fine:
+        for t in range(a, b, 8):
+            out.append((t, 8, 16, 0, (6, 4)))
+        return out
+    t = a
+    while t < b:
+        if t == 0 and b - t >= 32:
+            out.append((t, 32, 4, 0, (3, 2)))
+            t += 32
+        elif t == 16 and b - t >= 32:
+            out.append((t, 32, 4, 0, (3, 2)))
+            t += 32
+        else:
+            out.append((t, 16, 8, 0, (3, 2)))
+            t += 16
+    return out
+
+
+def _spell_compound(a: int, b: int, binary: bool) -> list[tuple[int, int, int, int, tuple[int, int] | None]]:
+    """Inside a dotted-quarter beat (48 ticks = three 8ths of 16)."""
+    if binary:  # duplets: 24 = dotted 8th, 12 = dotted 16th
+        out, t = [], a
+        while t < b:
+            step = 24 if t % 24 == 0 and b - t >= 24 else 12
+            out.append((t, step, 8 if step == 24 else 16, 1, None))
+            t += step
+        return out
+    if a == 0 and b == TPB:
+        return [(0, TPB, 4, 1, None)]
+    out, t = [], a
+    while t < b:
+        if t == 0 and b - t >= 32:
+            out.append((t, 32, 4, 0, None))
+            t += 32
+        elif t % 16 == 0 and b - t >= 24 and t == 0:
+            out.append((t, 24, 8, 1, None))
+            t += 24
+        elif t % 16 == 0 and b - t >= 16:
+            out.append((t, 16, 8, 0, None))
+            t += 16
+        else:
+            out.append((t, 8, 16, 0, None))
+            t += 8
+    return out
+
+
+# --------------------------------------------------------------------------------------------- spelling
+
+
+def bars_from_quant(quant: Mapping[str, Any], tm: Any, first_bar: int, last_bar: int,
+                    sections: Sequence[Mapping[str, Any]] | None = None) -> list[WBar]:
+    """Bars ``first_bar..last_bar`` with meter, feel and start time (bars outside the grid take the nearest
+    grid bar's meter; ``tm`` = the grid's TempoMap)."""
+    rows = {int(b["bar"]): b for b in quant["bars"]}
+    keys = sorted(rows)
+    sec_at = {int(s["start_bar"]): str(s.get("label") or s.get("id") or "") for s in (sections or [])}
+    out = []
+    for bar in range(first_bar, last_bar + 1):
+        row = rows.get(bar) or rows[min(keys, key=lambda k: (abs(k - bar), k))]
+        n = int(row["n_beats"]) if bar in rows else int(row["n_beats"]) if not row.get("pickup") else 4
+        start_beat = tm._bar_start_beat(bar)
+        start_s = float(tm.beat_to_time(start_beat))
+        num = int(row["numerator"]) if bar in rows else (3 * n if row["beat_unit"] == "dotted_quarter" else n)
+        if bar in rows and row.get("pickup"):
+            num = 3 * n if row["beat_unit"] == "dotted_quarter" else n
+        out.append(WBar(bar=bar, start_gtick=int(round(start_beat * TPB)), n_beats=n, beat_unit=str(row["beat_unit"]),
+                        numerator=num, denominator=int(row["denominator"]), start_s=max(0.0, start_s),
+                        feel=row.get("feel"), section=sec_at.get(bar)))
+    return out
+
+
+def _merge_full_beats(bar: WBar, k: int, m: int) -> list[tuple[int, int, int, int]]:
+    """(start tick, dur, value, dots) for m full beats starting at beat k of ``bar``."""
+    compound = bar.beat_unit == "dotted_quarter"
+    out, i = [], k
+    while i < k + m:
+        left = k + m - i
+        if compound:
+            if left >= 4 and i == 0 and bar.n_beats == 4:
+                out.append((i * TPB, 4 * TPB, 1, 1))
+                i += 4
+            elif left >= 2 and i % 2 == 0:
+                out.append((i * TPB, 2 * TPB, 2, 1))
+                i += 2
+            else:
+                out.append((i * TPB, TPB, 4, 1))
+                i += 1
+            continue
+        if left >= 4 and i == 0 and bar.n_beats == 4:
+            out.append((0, 4 * TPB, 1, 0))
+            i += 4
+        elif left >= 3 and i == 0 and bar.n_beats in (3, 4):
+            out.append((0, 3 * TPB, 2, 1))
+            i += 3
+        elif left >= 2 and i % 2 == 0:
+            out.append((i * TPB, 2 * TPB, 2, 0))
+            i += 2
+        else:
+            out.append((i * TPB, TPB, 4, 0))
+            i += 1
+    return out
+
+
+def spell_bar(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, bool]],
+              family_of: Mapping[int, str]) -> list[WBeat]:
+    """``segments`` = [(start tick, end tick, notes or None for a rest, continues a previous piece)] covering
+    the bar; ``family_of`` = global beat index -> "bin" | "ter" | "swing"."""
+    beats: list[WBeat] = []
+    compound = bar.beat_unit == "dotted_quarter"
+    first_beat_g = bar.start_gtick // TPB
+    for a, b, notes, cont in segments:
+        pieces: list[tuple[int, int, int, int, tuple[int, int] | None]] = []
+        t = a
+        while t < b:
+            k = t // TPB
+            beat_start, beat_end = k * TPB, (k + 1) * TPB
+            if t == beat_start and b >= beat_end:
+                m = (b - t) // TPB
+                if not compound and m == 1 and b - t >= TPB + TPB // 2 and (b - t - TPB) < TPB and \
+                        family_of.get(first_beat_g + k + 1, "bin") != "ter" and t + 72 <= b:
+                    pieces.append((t, 72, 4, 1, None))  # dotted quarter
+                    t += 72
+                    continue
+                for s, d, v, dots in _merge_full_beats(bar, k, m):
+                    pieces.append((s, d, v, dots, None))
+                t += m * TPB
+                continue
+            end = min(b, beat_end)
+            fam = family_of.get(first_beat_g + k, "ter" if compound else "bin")
+            ra, rb = t - beat_start, end - beat_start
+            if compound:
+                sub = _spell_compound(ra, rb, binary=fam == "bin" and False)
+            elif bar.beat_unit == "eighth":
+                sub = [(ra, rb - ra, 16 if rb - ra <= 24 else 8, 0, None)]
+            elif fam == "ter":
+                fine = any(x % 16 for x in (ra, rb) if 0 < x < TPB)
+                sub = _spell_ternary(ra, rb, fine)
+            else:
+                sub = _spell_binary(ra, rb)
+            pieces += [(beat_start + s, d, v, dots, tu) for s, d, v, dots, tu in sub]
+            t = end
+        for j, (s, d, v, dots, tu) in enumerate(pieces):
+            tie = cont or j > 0
+            ns = [] if notes is None else [WNote(n.pitch, n.string, n.fret, tie) for n in notes]
+            beats.append(WBeat(start=s, dur=d, value=v, dots=dots, tuplet=tu, notes=ns))
+    return beats
+
+
+def spell_track(events: Sequence[tuple[int, int, list[WNote]]], bars: Sequence[WBar],
+                family_of: Mapping[int, str]) -> list[list[WBeat]]:
+    """``events`` = [(gtick, duration ticks, notes)] sorted by gtick -> written beats per bar of ``bars``."""
+    timeline: list[tuple[int, int, list[WNote] | None]] = []
+    t0 = bars[0].start_gtick
+    t_end = bars[-1].start_gtick + bars[-1].length
+    cur = t0
+    evs = [e for e in events if t0 <= e[0] < t_end]
+    for i, (g, dur, notes) in enumerate(evs):
+        end = g + max(1, dur)
+        if i + 1 < len(evs):
+            end = min(end, evs[i + 1][0])
+        end = min(end, t_end)
+        if g > cur:
+            timeline.append((cur, g, None))
+        timeline.append((g, end, notes))
+        cur = end
+    if cur < t_end:
+        timeline.append((cur, t_end, None))
+    out = []
+    j = 0
+    for bar in bars:
+        a_bar, b_bar = bar.start_gtick, bar.start_gtick + bar.length
+        segs: list[tuple[int, int, list[WNote] | None, bool]] = []
+        while j < len(timeline) and timeline[j][1] <= a_bar:
+            j += 1
+        k = j
+        while k < len(timeline) and timeline[k][0] < b_bar:
+            s, e, notes = timeline[k]
+            a, b = max(s, a_bar), min(e, b_bar)
+            if b > a:
+                segs.append((a - a_bar, b - a_bar, notes, s < a_bar and notes is not None))
+            k += 1
+        out.append(spell_bar(bar, _snap(segs), family_of))
+    return out
+
+
+def _snap(segs: list[tuple[int, int, list[WNote] | None, bool]]) -> list[tuple[int, int, list[WNote] | None, bool]]:
+    """Piece boundaries on the 2-tick lattice that every family shares (6- and 8-tick points, 16 and 32)."""
+    return [(a, b, n, c) for a, b, n, c in segs if b > a]
+
+
+def check_bar(bar: WBar, beats: Sequence[WBeat]) -> list[str]:
+    """Problems of a spelled bar (durations must tile the bar exactly)."""
+    errs = []
+    t = 0
+    for be in beats:
+        if be.start != t:
+            errs.append(f"bar {bar.bar}: beat at {be.start}, expected {t}")
+        t = be.start + be.dur
+        base = 4 * TPB // be.value if bar.beat_unit != "dotted_quarter" else 4 * TPB // be.value
+        want = base * (3 if be.dots == 1 else 2) // 2 if be.dots else base
+        if be.tuplet:
+            want = want * be.tuplet[1] // be.tuplet[0]
+        if bar.beat_unit == "quarter" and want != be.dur:
+            errs.append(f"bar {bar.bar}: value 1/{be.value}{'.' * be.dots} {be.tuplet} = {want} ticks, not {be.dur}")
+    if t != bar.length:
+        errs.append(f"bar {bar.bar}: beats fill {t} of {bar.length} ticks")
+    return errs
