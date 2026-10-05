@@ -13,9 +13,10 @@ Score (lower is better) of a hypothesis on a sample of the track's events:
 Guitar and bass are chosen jointly: a downtune that differs between them costs ``downtune_mismatch`` (bands
 tune together, DADGP rejects songs whose instruments disagree).
 
-Fake low notes are removed from the evidence first (DESIGN 6.1 "가짜 저음 방어"): guitar notes below E2 whose
-pitch class a sounding bass note shares (bleed), and the lower note of an octave pair below E2 (octave error).
-Otherwise an E-standard song reads as drop or 7-string.
+Fake low notes are removed from the evidence first (DESIGN 6.1 "가짜 저음 방어", ``fake_low_notes``): lone guitar
+notes below E2 at the exact pitch of a sounding bass note (bleed) and isolated bare octaves below E2 (octave
+errors). Otherwise an E-standard song reads as drop or 7-string; but a drop riff's roots (repeated, in power
+chords, doubled by the bass) stay.
 
 The best hypothesis comes with the runner-up and the margin; a best cost per note above ``unknown_cost``
 marks the tuning unknown (asked in the UI later). Thresholds are provisional.
@@ -117,24 +118,36 @@ def _sample(events: Sequence[F.Event], k: int) -> list[F.Event]:
 
 
 def fake_low_notes(guitar: Sequence[Mapping[str, Any]], bass: Sequence[Mapping[str, Any]],
-                   window_s: float = 0.05) -> set[int]:
-    """Indices of guitar notes below E2 that are bass bleed (a bass note of the same pitch class sounds) or the
-    lower note of an octave pair (another guitar note 12 semitones up within ``window_s``)."""
+                   window_s: float = 0.05, isolation_s: float = 2.0, min_low_neighbours: int = 2) -> set[int]:
+    """Indices of guitar notes below E2 that are not evidence for a lower tuning (DESIGN 6.1 "가짜 저음 방어"):
+
+    - **bleed**: a lone guitar note (nothing else starts within ``window_s``) at the exact pitch of a sounding
+      bass note - the bass leaking into the guitar stem. A bass doubling the guitar's root (an octave below, or
+      under a power chord) is normal and does not count (review 2026-10-05: matching the pitch class threw away
+      every drop-D root);
+    - **octave error**: a bare octave (the note and the note 12 up, nothing else at that onset) that is
+      *isolated* - fewer than ``min_low_neighbours`` other guitar notes below E2 within ``isolation_s``. A drop
+      riff repeats its low notes; a stray octave error does not."""
     out: set[int] = set()
     b_on = np.array([float(n["onset_s"]) for n in bass]) if bass else np.zeros(0)
     b_off = np.array([float(n["offset_s"]) for n in bass]) if bass else np.zeros(0)
-    b_pc = np.array([int(n["pitch"]) % 12 for n in bass]) if bass else np.zeros(0, dtype=int)
+    b_p = np.array([int(n["pitch"]) for n in bass]) if bass else np.zeros(0, dtype=int)
     g_on = np.array([float(n["onset_s"]) for n in guitar])
     g_p = np.array([int(n["pitch"]) for n in guitar])
-    for i, n in enumerate(guitar):
-        p, t = int(n["pitch"]), float(n["onset_s"])
-        if p >= 40:
+    low = g_p < 40
+    for i in np.flatnonzero(low):
+        p, t = int(g_p[i]), float(g_on[i])
+        others = np.abs(g_on - t) <= window_s
+        others[i] = False
+        if not others.any():
+            if b_on.size and np.any((b_p == p) & (b_on <= t + window_s) & (b_off >= t - window_s)):
+                out.add(int(i))
             continue
-        if b_on.size and np.any((b_pc == p % 12) & (b_on <= t + window_s) & (b_off >= t - window_s)):
-            out.add(i)
-            continue
-        if np.any((np.abs(g_on - t) <= window_s) & (g_p == p + 12)):
-            out.add(i)
+        if others.sum() == 1 and np.any(others & (g_p == p + 12)):
+            near_low = low & (np.abs(g_on - t) <= isolation_s)
+            near_low[i] = False
+            if near_low.sum() < min_low_neighbours:
+                out.add(int(i))
     return out
 
 

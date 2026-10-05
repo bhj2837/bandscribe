@@ -92,13 +92,45 @@ def test_open_g():
     assert res["bass"] is None
 
 
-def test_fake_low_notes_from_bass_bleed_and_octave_errors():
-    g = [{"onset_s": 0.0, "offset_s": 0.4, "pitch": 36}, {"onset_s": 0.0, "offset_s": 0.4, "pitch": 48},
-         {"onset_s": 1.0, "offset_s": 1.4, "pitch": 33}, {"onset_s": 2.0, "offset_s": 2.4, "pitch": 38},
-         {"onset_s": 3.0, "offset_s": 3.4, "pitch": 45}]
-    b = [{"onset_s": 0.98, "offset_s": 1.5, "pitch": 33}]
-    # 36 has its octave (48) at the same onset; 33 is the bass's A1; 38 (D2) stays: a real low note
-    assert T.fake_low_notes(g, b) == {0, 2}
+def test_fake_low_notes_keep_drop_roots_and_drop_bleed_and_stray_octaves():
+    def n(t, p):
+        return {"onset_s": t, "offset_s": t + 0.3, "pitch": p}
+
+    g = [n(0.0, 33),                              # 0 lone A1 at the bass's exact pitch -> bleed
+         n(1.0, 38),                              # 1 lone D2, the bass plays D1 (an octave below) -> kept
+         n(5.0, 38), n(5.0, 45), n(5.0, 50),      # 2 D2 root of a power chord, the bass plays D2 too -> kept
+         n(20.0, 36), n(20.0, 48),                # 5 a bare octave with no other low note near -> octave error
+         n(40.0, 38), n(40.0, 50), n(40.5, 38), n(40.5, 50), n(41.0, 38), n(41.0, 50)]  # a repeated octave riff
+    b = [n(0.0, 33), n(1.0, 26), n(5.0, 38)]
+    assert T.fake_low_notes(g, b) == {0, 5}
+
+
+def _notes(events):
+    return [{"onset_s": e.onset_s, "offset_s": off, "pitch": p} for e in events for p, off in zip(e.pitches, e.offsets_s)]
+
+
+@pytest.mark.parametrize("octave_down", [12, 0])
+def test_drop_d_survives_the_guard_with_a_doubling_bass(octave_down):
+    """Review 2026-10-05: the first guard removed every drop-D root the bass doubled (pitch class) and every
+    power-chord root (octave pair), and the Drop D fixture came out E standard."""
+    drop = (38, 45, 50, 55, 59, 64)
+    g = _notes(riff(drop, [0, 0, 3, 5, 0, 0, 7, 5]) + song(drop, seed=3, n_bars=4))
+    b = [{**x, "pitch": x["pitch"] - octave_down} for x in g if x["pitch"] in (38, 41, 43, 45)]
+    fake = T.fake_low_notes(g, b)
+    res = T.choose(F.group_events([x for i, x in enumerate(g) if i not in fake], key="onset_s", tol=0.01),
+                   F.group_events(b, key="onset_s", tol=0.01))
+    assert res["guitar"]["label"] == "Drop D", res["guitar"]["top"]
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize("transpose,label", [(0, "E standard"), (-1, "Eb standard"), (-2, "D standard")])
+def test_transposed_renders_through_the_guard(seed, transpose, label):
+    g = _notes(song(E_STD, seed=seed, transpose=transpose))
+    b = _notes(bass_line((28, 33, 38, 43), transpose=transpose))
+    fake = T.fake_low_notes(g, b)
+    res = T.choose(F.group_events([x for i, x in enumerate(g) if i not in fake], key="onset_s", tol=0.01),
+                   F.group_events(b, key="onset_s", tol=0.01))
+    assert (res["guitar"]["label"], res["bass"]["label"]) == (label, label)
 
 
 def test_runner_up_and_margin_are_reported():

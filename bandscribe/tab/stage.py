@@ -248,7 +248,8 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
             instrument = "electricbassfinger"
         else:
             classes = [n.get("instrument") for n in Q.notes_of(quant, tid)]
-            top = max(set(classes), key=classes.count) if classes else None
+            # most frequent class; ties by name, so the output does not depend on string hashing (review)
+            top = sorted(set(classes), key=lambda c: (-classes.count(c), str(c)))[0] if classes else None
             instrument = GUITAR_INSTRUMENT.get(str(top), "electricguitarclean")
         name, short = TRACK_NAMES[tid]
         score.tracks.append(ATX.WTrack(name=name, short=short, instrument=instrument, fretted=fretted,
@@ -325,9 +326,9 @@ def run_score(ctx: Any) -> None:
 
 STAGES: dict[str, dict] = {
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
-    "quant": {"run": run_quant, "code_version": "1", "params": quant_params, "device": "cpu",
+    "quant": {"run": run_quant, "code_version": "2", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
-    "tab": {"run": run_tab, "code_version": "3", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
-    "score": {"run": run_score, "code_version": "2", "params": score_params, "device": "cpu",
+    "tab": {"run": run_tab, "code_version": "4", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
+    "score": {"run": run_score, "code_version": "3", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

@@ -154,3 +154,42 @@ def test_viewer_serves_the_job_with_ranges(tmp_path):
         httpd.shutdown()
         t.join(timeout=5)
     assert isinstance(t, threading.Thread)
+
+
+def test_bars_before_a_pickup_tile_the_timeline_once():
+    """Notes before the first beat of a song with a 2-beat pickup: the extrapolated bars must have the TempoMap's
+    length (bar starts -192, -96, 0 here), or the spelled bars overlap and a note is written twice (2026-10-05)."""
+    from bandscribe.schema.grid import Grid
+
+    times = beat_times(2 + 8 * 4, warp=False)
+    beats, bars = [], [{"bar": 0, "start_s": times[0], "end_s": times[2], "n_beats": 2, "numerator": 2,
+                        "denominator": 4, "beat_unit": "quarter", "pickup": True}]
+    for i, t in enumerate(times):
+        bar, pos = (0, i + 1) if i < 2 else (1 + (i - 2) // 4, 1 + (i - 2) % 4)
+        beats.append({"t_s": t, "t_raw_s": t, "bar": bar, "beat": pos, "is_downbeat": i >= 2 and pos == 1,
+                      "shift_ms": 0.0, "activation": None})
+    for b in range(8):
+        s = times[2 + 4 * b]
+        bars.append({"bar": b + 1, "start_s": s, "end_s": s + 2.0, "n_beats": 4, "numerator": 4, "denominator": 4,
+                     "beat_unit": "quarter", "pickup": False})
+    g = {"format": "bandscribe.grid/1", "tpb": 48, "duration_s": times[-1] + 2, "beats": beats, "bars": bars,
+         "tempo": [{"start_bar": 0, "end_bar": 9, "bpm": 120.0}], "meter": [], "beat_unit": "quarter",
+         "pickup": {"present": True, "beats": 2}, "hypotheses": {"compound": {"decision": "simple"}},
+         "confidence": {}, "params": {}}
+    Grid.model_validate(g)
+    tm = TempoMap.from_dict(g)
+    notes = [{"onset_s": times[0] - 1.5, "offset_s": times[0] - 1.0, "pitch": 50},
+             {"onset_s": times[0] - 0.75, "offset_s": times[0] - 0.5, "pitch": 52},
+             {"onset_s": times[3], "offset_s": times[4], "pitch": 55}]
+    q = Q.quantize({"g": notes}, g)
+    first = min(n["bar"] for n in q["tracks"]["g"]["notes"])
+    wb = N.bars_from_quant(q, tm, first, 2)
+    assert [(b.bar, b.start_gtick, b.n_beats, b.numerator) for b in wb] == \
+        [(-2, -192, 2, 2), (-1, -96, 2, 2), (0, 0, 2, 2), (1, 96, 4, 4), (2, 288, 4, 4)]
+    events = [(n["gtick"], n["dur"], [N.WNote(n["pitch"])]) for n in q["tracks"]["g"]["notes"]]
+    spelled = N.spell_track(events, wb, {})
+    starts = [(b.start_gtick + be.start, be.notes[0].pitch) for b, bb in zip(wb, spelled) for be in bb
+              if be.notes and not be.notes[0].tie]
+    assert starts == [(-144, 50), (-72, 52), (144, 55)]
+    for b, bb in zip(wb, spelled):
+        assert N.check_bar(b, bb) == []

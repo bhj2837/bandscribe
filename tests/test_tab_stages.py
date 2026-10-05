@@ -105,3 +105,38 @@ def test_out_of_range_notes_are_written_an_octave_inside():
     tr = T._fret_track(q, {"tuning": list(F.BASS_STD), "capo": 0, "label": "E standard"}, dict(F.DEFAULT_WEIGHTS))
     assert tr["notes"][0]["octave_shift"] == 12 and tr["notes"][0]["pitch"] == 34
     assert tr["notes"][0]["string"] is not None and tr["check"]["octave_shifted"] == 1 and tr["check"]["dropped"] == 0
+
+
+def test_text_tab_keeps_a_note_in_the_last_ticks_of_a_bar():
+    from bandscribe.tab import ascii as A
+
+    bars = [{"bar": 1, "n_beats": 4}]
+    txt = A.render([{"bar": 1, "tick": 186, "string": 1, "fret": 7}, {"bar": 1, "tick": 0, "string": 6, "fret": 3}],
+                   bars, [40, 45, 50, 55, 59, 64])
+    lines = txt.splitlines()
+    assert any(ln.startswith("e|") and "7" in ln for ln in lines) and any(ln.startswith("E|3") for ln in lines)
+
+
+def test_instrument_choice_does_not_depend_on_hash_order():
+    """Review 2026-10-05: equal class counts picked the instrument by set iteration order (PYTHONHASHSEED)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    tests_dir = str(Path(__file__).parent)
+    code = "\n".join([
+        f"import sys; sys.path.insert(0, {tests_dir!r})",
+        "from test_tab_quantize import beat_times, grid_doc",
+        "from bandscribe.tab import quantize as Q, stage as S",
+        "times = beat_times(20, warp=False); grid = grid_doc(times)",
+        "cls = ['distorted_electric_guitar', 'clean_electric_guitar']",
+        "notes = [{'onset_s': times[i], 'offset_s': times[i] + 0.2, 'pitch': 60, 'instrument': cls[i % 2]}"
+        " for i in range(8)]",
+        "q = Q.quantize({'guitar_all': notes}, grid)",
+        "score, problems = S.build_score('t', q, {'tracks': {}}, grid, [], {'tempo_change_ratio': 0.04})",
+        "print(score.tracks[0].instrument)",
+    ])
+    outs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout.strip() for seed in range(12)}
+    assert outs == {"electricguitarclean"}

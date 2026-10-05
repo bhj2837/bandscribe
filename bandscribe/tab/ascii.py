@@ -35,7 +35,10 @@ def render(notes: Sequence[Mapping[str, Any]], bars: Sequence[Mapping[str, Any]]
     for nt in notes:
         if nt.get("string") is None:
             continue
-        col = int(round(int(nt["tick"]) / TICK_RES))
+        # nearest column, but never past the bar's last one (a 32nd at tick 186 of a 4/4 bar rounds to column 16,
+        # which a 16-column bar does not draw; review 2026-10-05)
+        ncol = max(1, blen.get(int(nt["bar"]), 192) // TICK_RES)
+        col = min(int(round(int(nt["tick"]) / TICK_RES)), ncol - 1)
         prev = cells[int(nt["bar"])][col].get(int(nt["string"]))
         txt = str(int(nt["fret"]))
         cells[int(nt["bar"])][col][int(nt["string"])] = txt if prev is None else prev

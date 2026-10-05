@@ -151,21 +151,25 @@ def _spell_compound(a: int, b: int, binary: bool) -> list[tuple[int, int, int, i
 
 def bars_from_quant(quant: Mapping[str, Any], tm: Any, first_bar: int, last_bar: int,
                     sections: Sequence[Mapping[str, Any]] | None = None) -> list[WBar]:
-    """Bars ``first_bar..last_bar`` with meter, feel and start time (bars outside the grid take the nearest
-    grid bar's meter; ``tm`` = the grid's TempoMap)."""
+    """Bars ``first_bar..last_bar`` with meter, feel and start time (``tm`` = the grid's TempoMap).
+
+    Every bar's start and length come from the TempoMap, which also numbered the quantised notes, so the bars tile
+    the global ticks exactly; bars outside the grid (notes before the first or after the last beat) are
+    extrapolated the TempoMap's way (before a pickup bar: bars of the pickup's length) and take the nearest grid
+    bar's beat unit and feel. A short bar (pickup, extrapolated) gets a time signature of its own length."""
     rows = {int(b["bar"]): b for b in quant["bars"]}
     keys = sorted(rows)
     sec_at = {int(s["start_bar"]): str(s.get("label") or s.get("id") or "") for s in (sections or [])}
     out = []
     for bar in range(first_bar, last_bar + 1):
         row = rows.get(bar) or rows[min(keys, key=lambda k: (abs(k - bar), k))]
-        n = int(row["n_beats"]) if bar in rows else int(row["n_beats"]) if not row.get("pickup") else 4
         start_beat = tm._bar_start_beat(bar)
+        n = int(round(tm._bar_start_beat(bar + 1) - start_beat))
         start_s = float(tm.beat_to_time(start_beat))
-        num = int(row["numerator"]) if bar in rows else (3 * n if row["beat_unit"] == "dotted_quarter" else n)
-        if bar in rows and row.get("pickup"):
-            num = 3 * n if row["beat_unit"] == "dotted_quarter" else n
-        out.append(WBar(bar=bar, start_gtick=int(round(start_beat * TPB)), n_beats=n, beat_unit=str(row["beat_unit"]),
+        unit = str(row["beat_unit"])
+        num = int(row["numerator"]) if bar in rows and not row.get("pickup") and int(row["n_beats"]) == n else \
+            (3 * n if unit == "dotted_quarter" else n)
+        out.append(WBar(bar=bar, start_gtick=int(round(start_beat * TPB)), n_beats=n, beat_unit=unit,
                         numerator=num, denominator=int(row["denominator"]), start_s=max(0.0, start_s),
                         feel=row.get("feel"), section=sec_at.get(bar)))
     return out
@@ -203,13 +207,47 @@ def _merge_full_beats(bar: WBar, k: int, m: int) -> list[tuple[int, int, int, in
     return out
 
 
+def _grid_step(beat_unit: str, fam: str) -> int:
+    """Ticks between the points of a family in a beat of ``beat_unit`` (the quantiser's grids)."""
+    if beat_unit == "dotted_quarter":
+        return 12 if fam == "bin" else 8
+    if beat_unit == "eighth":
+        return 16 if fam == "ter" else 12
+    return 8 if fam == "ter" else 6
+
+
+def _snap_segments(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, bool]],
+                   family_of: Mapping[int, str]) -> list[tuple[int, int, list[WNote] | None, bool]]:
+    """Every boundary on the grid of its beat's family (a safety net: the quantiser already puts them there).
+    A shared boundary snaps the same way for both of its segments, so the bar stays tiled; an emptied segment
+    goes."""
+    first_beat_g = bar.start_gtick // TPB
+    default = "ter" if bar.beat_unit == "dotted_quarter" else "bin"
+
+    def snap(t: int) -> int:
+        if t % TPB == 0 or t >= bar.length:
+            return min(t, bar.length)
+        base = (t // TPB) * TPB
+        step = _grid_step(bar.beat_unit, family_of.get(first_beat_g + t // TPB, default))
+        return base + min(TPB, int(round((t - base) / step)) * step)
+
+    out = []
+    for a, b, notes, cont in segments:
+        sa, sb = snap(a), snap(b)
+        if sb > sa:
+            out.append((sa, sb, notes, cont))
+    return out
+
+
 def spell_bar(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, bool]],
               family_of: Mapping[int, str]) -> list[WBeat]:
     """``segments`` = [(start tick, end tick, notes or None for a rest, continues a previous piece)] covering
-    the bar; ``family_of`` = global beat index -> "bin" | "ter" | "swing"."""
+    the bar; ``family_of`` = global beat index -> "bin" | "ter" | "swing" (beats it does not list: binary, or
+    ternary in compound meter, as ``quantize.default_family``)."""
     beats: list[WBeat] = []
     compound = bar.beat_unit == "dotted_quarter"
     first_beat_g = bar.start_gtick // TPB
+    segments = _snap_segments(bar, segments, family_of)
     # a ternary beat is written in 16th sextuplets when any boundary inside it is a 16th-triplet point
     fine_beat = {int(t // TPB) for a, b, _n, _c in segments for t in (a, b) if t % TPB and (t % TPB) % 16}
     for a, b, notes, cont in segments:

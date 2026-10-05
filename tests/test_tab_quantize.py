@@ -252,3 +252,21 @@ def test_notes_before_the_first_beat_get_bars_before_bar_one():
     doc = Q.quantize({"g": [{"onset_s": 0.25, "offset_s": 0.4, "pitch": 50}]}, grid_doc(times))
     n = doc["tracks"]["g"]["notes"][0]
     assert n["bar"] == 0 and n["tick"] == 168  # half a beat before beat 1: the "and" of beat 4 of bar 0
+
+
+def test_every_note_end_is_on_the_grid_of_its_beat():
+    """Review 2026-10-05: a short note rounded up onto the next (triplet) beat got a binary 6-tick minimum length,
+    an end the speller cannot write (the score stage then failed on 18 of 40 such songs). Every end must be a
+    point of the family of the beat that holds it."""
+    for seed in range(20):
+        times = beat_times(24 * 4 + 8, warp=True)
+        notes, _ = performance(times, 24, seed=seed)
+        rng = np.random.default_rng(1000 + seed)
+        for n in notes:  # transcription-like lengths: many short notes
+            n["offset_s"] = n["onset_s"] + float(rng.choice([0.03, 0.04, 0.06, 0.08, 0.15, 0.3]))
+        doc = Q.quantize({"g": notes}, grid_doc(times))
+        fam = {int(b): f for b, f in doc["beat_families"]["*"]}
+        for n in doc["tracks"]["g"]["notes"]:
+            for t in (n["gtick"], n["gtick"] + n["dur"]):
+                step = 8 if fam.get(t // 48, "bin") == "ter" else 6
+                assert (t % 48) % step == 0, (seed, n, fam.get(t // 48))

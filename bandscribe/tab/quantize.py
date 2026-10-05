@@ -121,6 +121,14 @@ def _allowed(unit: str, swing: bool) -> tuple[str, ...]:
     return ("swing", "ter") if unit == "quarter" and swing else ("bin", "ter")
 
 
+def default_family(unit: str, swing: bool = False) -> str:
+    """Family of a beat no Viterbi decision covers (before the first or after the last onset): the one without
+    a prior for the beat unit (``bandscribe.tab.notation`` assumes the same)."""
+    if unit == "dotted_quarter":
+        return "ter"
+    return "swing" if unit == "quarter" and swing else "bin"
+
+
 def _choose(fr: np.ndarray, ms: float, pts: _Points, sigma: float) -> np.ndarray:
     """Index of the point each beat fraction goes to (lowest r² + penalty; ties to the lower point)."""
     r = (pts.played[None, :] - fr[:, None]) * ms / sigma
@@ -337,7 +345,7 @@ def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[st
         for k, n in enumerate(ns):
             b = int(bi[k])
             unit, sw, ms = _beat_ctx(tm, bmap, b)
-            fam = fams.get(b) or _allowed(unit, sw)[0]
+            fam = fams.get(b) or default_family(unit, sw)
             pts = _POINTS[(fam, unit)]
             c = int(_choose(fr[k:k + 1], ms, pts, sigma)[0])
             g_on = b * TPB + int(pts.ticks[c])
@@ -346,11 +354,20 @@ def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[st
             g_off_f = float(np.asarray(tm.time_to_beat(float(n["offset_s"]))))
             bo = int(math.floor(g_off_f))
             u2, sw2, ms2 = _beat_ctx(tm, bmap, bo)
-            fam2 = fams.get(bo) or _allowed(u2, sw2)[0]
+            fam2 = fams.get(bo) or default_family(u2, sw2)
             pts2 = _POINTS[(fam2, u2)]
             c2 = int(_choose(np.array([g_off_f - bo]), ms2, pts2, sigma)[0])
             g_off = bo * TPB + int(pts2.ticks[c2])
-            step = TPB // DENOM[unit][fam]
+            # the shortest note is one step of the family of the beat that HOLDS the onset: a note rounded up to
+            # the next beat's first point lives on that beat, whose family can differ (a binary 6-tick end inside
+            # a triplet beat cannot be written; review 2026-10-05)
+            b_on = g_on // TPB
+            if b_on == b:
+                u_on, f_on = unit, fam
+            else:
+                u_on, sw_on, _ms_on = _beat_ctx(tm, bmap, b_on)
+                f_on = fams.get(b_on) or default_family(u_on, sw_on)
+            step = TPB // DENOM[u_on][f_on]
             dur = max(g_off - g_on, step)
             bar, start_beat = tm._bar_of_beat(g_on / TPB)
             rows.append({"i": k, "onset_s": round(float(n["onset_s"]), 6), "offset_s": round(float(n["offset_s"]), 6),
@@ -365,15 +382,17 @@ def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[st
                       "p90_abs_resid_ms": round(float(np.percentile(res, 90)), 2) if res.size else None,
                       "levels": {str(v): lv.count(v) for v in sorted(set(lv))}},
         }
-    # family of every beat that holds an onset ("*" = all tracks when joint)
+    # family of every decided beat, with or without an onset: a note END can fall in a beat that holds no onset,
+    # and the speller must use the grid that end was quantised on ("*" = all tracks when joint)
     fam_rows: dict[str, list[list[Any]]] = {}
+    n_beats = n_ter = 0
     for grp in groups:
         if not grp or grp[0] not in decisions:
             continue
         held = {int(b) for t in grp for b in per_track[t][0]}
-        fam_rows["*" if p["joint"] else grp[0]] = [[b, f] for b, f in sorted(decisions[grp[0]].items()) if b in held]
-    n_beats = sum(len(v) for v in fam_rows.values())
-    n_ter = sum(1 for v in fam_rows.values() for _b, f in v if f == "ter")
+        fam_rows["*" if p["joint"] else grp[0]] = [[b, f] for b, f in sorted(decisions[grp[0]].items())]
+        n_beats += len(held)
+        n_ter += sum(1 for b, f in decisions[grp[0]].items() if b in held and f == "ter")
     return {
         "format": "bandscribe.quant/1",
         "tpb": TPB,
