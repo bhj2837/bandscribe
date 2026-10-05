@@ -140,3 +140,37 @@ def test_instrument_choice_does_not_depend_on_hash_order():
     outs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                            env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout.strip() for seed in range(12)}
     assert outs == {"electricguitarclean"}
+
+
+def test_tab_params_take_a_user_tuning_by_name_or_alias():
+    from bandscribe.config import ConfigError
+
+    assert T.tab_params(None)["guitar_tuning"] == "auto" and T.tab_params(None)["bass_tuning"] == "auto"
+    assert T.tab_params({"tab.guitar_tuning": "standard"})["guitar_tuning"] == "E standard"  # one cache key per tuning
+    assert T.tab_params({"tab.bass_tuning": "drop d"})["bass_tuning"] == "Drop D"
+    with pytest.raises(ConfigError, match="기타 튜닝"):
+        T.tab_params({"tab.guitar_tuning": "banana"})
+
+
+def test_tab_stage_writes_a_user_tuning_and_shifts_what_it_cannot_play(tmp_path):
+    from bandscribe.tab import quantize as Q
+
+    from test_tab_tuning import riff
+
+    drop = (38, 45, 50, 55, 59, 64)
+    times = beat_times(20 * 4 + 4, warp=False)
+    evs = riff(drop, [0, 0, 3, 5, 0, 0, 7, 5])
+    notes = [{"onset_s": e.onset_s + 0.5, "offset_s": off + 0.5, "pitch": p} for e in evs for p, off in zip(e.pitches, e.offsets_s)]
+    q = Q.quantize({"guitar_all": notes, "bass_raw": []}, grid_doc(times))
+    d = {"quant": tmp_path / "quant", "a4": tmp_path / "a4"}
+    atomic.write_json(d["quant"] / "quant.json", q)
+    atomic.write_json(d["a4"] / "a4.json", {"cents": 0.0, "a4_hz": 440.0, "confidence": 0.9})
+    params = T.tab_params({"tab.guitar_tuning": "E standard", "tab.guitar_parts": 1})
+    ctx = _ctx(tmp_path, d, params, "tab_user")
+    T.run_tab(ctx)
+    doc = atomic.read_json(ctx.out_dir / "tab.json")
+    g = doc["tuning"]["guitar"]
+    assert (g["label"], g["user"], g["auto_label"]) == ("E standard", True, "Drop D")
+    tr = doc["tracks"]["guitar_all"]
+    assert tr["tuning"] == [40, 45, 50, 55, 59, 64] and tr["check"]["octave_shifted"] > 0
+    assert tr["check"]["bad_events"] == []

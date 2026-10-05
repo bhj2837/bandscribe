@@ -395,6 +395,16 @@ bandscribe.cmd config show                         :: 지금 적용되는 설정
 - 결과는 `data\jobs\<작업 키>\export\`에 모인다: `tab\score.alphatex`, `tab\score.gp5`, `tab\*.txt`, `midi\*.mid`,
   `practice\*.wav`, `instrumentation.json`, `score.json`. 스템은 `stages\sep\<키>\stems\`에 있다.
 - `score.gp5` 는 Guitar Pro 5 형식이라 TuxGuitar(무료)·Guitar Pro·MuseScore 에서 열린다. 한글 제목이면 cp949 로 저장한다.
+- 튜닝은 자동으로 고르지만 직접 정할 수 있다: 곡 작업 폴더의 `hints.toml` 에
+
+  ```toml
+  [tab]
+  guitar_tuning = "E standard"   # "Eb standard"(또는 "하프다운"), "Drop D", "D standard", "Open G, capo 2" …
+  guitar_parts = 1               # 기타 탭까지 (--parts 1 과 같음)
+  ```
+
+  를 적거나 한 번만 `--set tab.guitar_tuning="E standard"`. 그 튜닝으로 낼 수 없는 음은 옥타브를 옮겨 적고 경고한다.
+  자동 판정은 `tab/tab.json` 의 `auto_label` 에 남는다.
 - 프로필: `fast`(표본 창 절반), `quality`(기본), `eval`(B0 믹스 전사와 piano+other 전곡 전사를 추가 출력으로 더함, 훨씬 느림).
 - 설정 우선순위: `bandscribe/defaults.toml` → `data/config.toml` → 작업 `hints.toml` → `--set 키=값`. 틀린 키는
   무시하지 않고 오류로 멈춘다.

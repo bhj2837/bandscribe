@@ -42,8 +42,12 @@ GPU). σ 30 ms is provisional.
 - BLOCKED c1/c3/c8: Tier A ground truth (downbeat F1 / bar count, notation match, oracle-line fretting).
 - BLOCKED c10 (TuxGuitar half): opening the GP5 in TuxGuitar is a manual check (alphaTab and PyGuitarPro read it).
 - Not done: A4 varispeed (E16); the 5 test songs are +2–4 cents, so it does not apply to them.
-- Asked the user (no answer yet): KH guitar tuning (Drop D?), real tempo of 青と夏 / AIZO (grid at 93 / 95 BPM may be
-  half tempo, which writes 8ths as 16ths).
+- User answers (2026-10-05): 青と夏 is **185 BPM** (our grid: 93, half tempo → 8ths written as 16ths; a tempo hint
+  or a better tempo-octave rule is open), AIZO 95 BPM (grid right). KH: the user plays it in **standard** tuning
+  (unsure whether the original is half-step down; the recording's guitar plays D2 112 times, so the search says
+  Drop D). Added `tab.guitar_tuning` / `tab.bass_tuning` (DESIGN 6.1 (f), aliases "standard", "하프다운", "drop d";
+  unplayable notes octave-shifted and warned; the automatic pick stays in `tab.json` `auto_label`). KH's job has
+  `hints.toml`: `guitar_tuning = "E standard"`, `guitar_parts = 1`.
 
 **M2 known gaps** (accepted by the user on 2026-10-05 so that M3 can start; none blocks M3):
 - FAIL b10: MuScriptor latency residual 10.9 ms vs < 10 ms (provisional threshold).

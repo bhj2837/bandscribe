@@ -94,10 +94,33 @@ def run_quant(ctx: Any) -> None:
 # ------------------------------------------------------------------------------------------------ tab
 
 
+def _cfg_get(cfg: Any, key: str, default: Any) -> Any:
+    try:
+        return cfg.get(key, default) if cfg is not None and hasattr(cfg, "get") else default
+    except Exception:  # noqa: BLE001 - a plain dict / partial config in tests
+        return default
+
+
 def tab_params(cfg: Any) -> dict[str, Any]:
-    parts = int(cfg.get("tab.guitar_parts")) if cfg is not None and hasattr(cfg, "get") else 0
-    return {"guitar_parts": parts, "tuning": dict(TU.DEFAULT_PARAMS), "weights": dict(F.DEFAULT_WEIGHTS),
-            "model": F.DEFAULT_MODEL}
+    """Stage params; a user tuning (``tab.guitar_tuning`` / ``tab.bass_tuning``, aliases allowed) is stored as
+    its canonical label, so "standard" and "E standard" share one cache key. An unknown name is a Korean
+    ConfigError before anything runs."""
+    from bandscribe.config import ConfigError
+
+    fixed: dict[str, str] = {}
+    for name, ko in (("guitar", "기타"), ("bass", "베이스")):
+        v = str(_cfg_get(cfg, f"tab.{name}_tuning", "auto")).strip()
+        if v.lower() == "auto":
+            fixed[name] = "auto"
+            continue
+        h = TU.resolve(v, name)
+        if h is None:
+            raise ConfigError(f"{ko} 튜닝 '{v}' 을(를) 모릅니다(tab.{name}_tuning). auto 또는 다음 중 하나: "
+                              f"{', '.join(TU.labels(name)[:14])} … (별칭: standard, 하프다운, drop d)")
+        fixed[name] = h.label
+    return {"guitar_parts": int(_cfg_get(cfg, "tab.guitar_parts", 0)), "tuning": dict(TU.DEFAULT_PARAMS),
+            "weights": dict(F.DEFAULT_WEIGHTS), "model": F.DEFAULT_MODEL,
+            "guitar_tuning": fixed["guitar"], "bass_tuning": fixed["bass"]}
 
 
 def _octave_into_range(pitch: int, inst: F.Instrument) -> int:
@@ -142,7 +165,8 @@ def run_tab(ctx: Any) -> None:
     b_notes = Q.notes_of(q, "bass_raw")
     fake = TU.fake_low_notes(g_notes, b_notes, float(p["tuning"]["bleed_window_s"]))
     evidence = F.group_events([n for i, n in enumerate(g_notes) if i not in fake])
-    tun = TU.choose(evidence, F.group_events(b_notes), p["tuning"])
+    tun = TU.choose(evidence, F.group_events(b_notes), p["tuning"],
+                    fixed={"guitar": p.get("guitar_tuning", "auto"), "bass": p.get("bass_tuning", "auto")})
     w = p["weights"]
     tracks: dict[str, Any] = {}
     if b_notes and tun["bass"]:
@@ -163,11 +187,16 @@ def run_tab(ctx: Any) -> None:
             title = f"{tid} — {tr['label']} ({' '.join(ascii_tab.string_names(tr['tuning'])[::-1])})"
             atomic.write_text(out / "text" / f"{tid}.txt", ascii_tab.render(tr["notes"], q["bars"], tr["tuning"],
                                                                            title=title))
-    for name in ("guitar", "bass"):
+    for name, tid in (("guitar", "guitar_all"), ("bass", "bass_raw")):
         t = tun.get(name)
+        ko = "기타" if name == "guitar" else "베이스"
         if t and t.get("unknown"):
-            _warn(ctx, f"{'기타' if name == 'guitar' else '베이스'} 튜닝을 확신하지 못합니다(최선 {t['label']}, "
+            _warn(ctx, f"{ko} 튜닝을 확신하지 못합니다(최선 {t['label']}, "
                        f"다음 {t['runner_up']['label'] if t.get('runner_up') else '-'}). 결과의 프렛 번호를 확인하세요.")
+        shifted = ((tracks.get(tid) or {}).get("check") or {}).get("octave_shifted") or 0
+        if t and t.get("user") and t.get("auto_label") != t["label"] and shifted:
+            _warn(ctx, f"{ko} 튜닝을 지정한 대로 {t['label']} 로 썼습니다(자동 판정은 {t['auto_label']}). 이 튜닝으로는 "
+                       f"낼 수 없는 음 {shifted}개를 옥타브를 옮겨 적었습니다.")
     chk = (tracks.get("guitar_all") or {}).get("check")
     if chk and chk.get("dropped"):
         _warn(ctx, f"합친 기타에서 한 손으로 칠 수 없는 음 {chk['dropped']}개를 탭에서 뺐습니다(MIDI·오선보에는 남음).")
@@ -328,7 +357,7 @@ STAGES: dict[str, dict] = {
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
     "quant": {"run": run_quant, "code_version": "2", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
-    "tab": {"run": run_tab, "code_version": "4", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
+    "tab": {"run": run_tab, "code_version": "5", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
     "score": {"run": run_score, "code_version": "3", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

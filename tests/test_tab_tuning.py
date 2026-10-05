@@ -138,3 +138,29 @@ def test_runner_up_and_margin_are_reported():
     g = res["guitar"]
     assert g["runner_up"] is not None and g["margin"] is not None and g["margin"] >= 0
     assert len(g["top"]) == 5 and g["top"][0]["label"] == g["label"]
+
+
+def test_user_tuning_overrides_the_search_and_reports_the_auto_choice():
+    """DESIGN 6.1 (f): the user's tuning wins; the bass is still chosen jointly with it; the automatic pick stays
+    visible (2026-10-05: the user plays 怪獣の花唄 in standard although the recording reads as Drop D)."""
+    drop = (38, 45, 50, 55, 59, 64)
+    evs = riff(drop, [0, 0, 3, 5, 0, 0, 7, 5]) + song(drop, seed=3, n_bars=4)
+    auto = T.choose(evs, bass_line((26, 33, 38, 43)))
+    assert auto["guitar"]["label"] == "Drop D" and not auto["guitar"]["user"]
+    res = T.choose(evs, bass_line((26, 33, 38, 43)), fixed={"guitar": "standard", "bass": "auto"})
+    g = res["guitar"]
+    assert (g["label"], g["user"], g["auto_label"]) == ("E standard", True, "Drop D")
+    assert g["unplayable"] > 0 and not g["unknown"]  # D2 is out of range in E standard, but the user said so
+    assert res["bass"]["user"] is False and res["bass"]["downtune"] == 0  # chosen jointly with a downtune-0 guitar
+    fixed_bass = T.choose(evs, bass_line((26, 33, 38, 43)), fixed={"bass": "Eb standard"})
+    assert fixed_bass["bass"]["label"] == "Eb standard" and fixed_bass["bass"]["user"]
+    with pytest.raises(ValueError):
+        T.choose(evs, [], fixed={"guitar": "banana tuning"})
+
+
+@pytest.mark.parametrize("name,label", [("standard", "E standard"), ("E standard", "E standard"), ("하프다운", "Eb standard"),
+                                        ("half-step down", "Eb standard"), ("drop d", "Drop D"), ("D standard", "D standard"),
+                                        ("open g, capo 2", "Open G, capo 2"), ("7-string B standard", "7-string B standard")])
+def test_tuning_names_and_aliases_resolve(name, label):
+    assert T.resolve(name, "guitar").label == label
+    assert T.resolve("banana", "guitar") is None and T.resolve("Drop D", "bass").label == "Drop D"

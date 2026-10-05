@@ -192,37 +192,82 @@ def _path_cost(res: Sequence[F.Assignment], events: Sequence[F.Event], inst: F.I
     return total
 
 
+# user words for a tuning -> hypothesis label (DESIGN 6.1 (f) "사용자가 입력한 튜닝")
+ALIASES: dict[str, str] = {
+    "standard": "E standard", "std": "E standard", "e std": "E standard", "스탠다드": "E standard",
+    "표준": "E standard", "레귤러": "E standard",
+    "half down": "Eb standard", "half-step down": "Eb standard", "half step down": "Eb standard",
+    "하프다운": "Eb standard", "반음 다운": "Eb standard", "eb std": "Eb standard", "d# standard": "Eb standard",
+    "whole step down": "D standard", "full step down": "D standard", "온음 다운": "D standard", "d std": "D standard",
+    "drop d": "Drop D", "드롭 d": "Drop D", "드롭d": "Drop D",
+}
+
+
+def resolve(name: str, instrument: str) -> Hypothesis | None:
+    """The hypothesis a user names (a label such as "Eb standard", "Drop D", "Open G, capo 2", or an alias such
+    as "standard" / "하프다운"); None when no hypothesis of ``instrument`` ("guitar" | "bass") has that name."""
+    key = " ".join(str(name).strip().lower().split())
+    label = ALIASES.get(key, key)
+    pool = guitar_hypotheses(allow7=True) if instrument == "guitar" else bass_hypotheses()
+    return next((h for h in pool if h.label.lower() == label.lower()), None)
+
+
+def labels(instrument: str) -> list[str]:
+    pool = guitar_hypotheses(allow7=True) if instrument == "guitar" else bass_hypotheses()
+    return [h.label for h in pool]
+
+
 def choose(guitar_events: Sequence[F.Event], bass_events: Sequence[F.Event], params: Mapping[str, Any] | None = None,
-           *, guitar_notes_low: bool = False) -> dict[str, Any]:
-    """{"guitar": {...}, "bass": {...}} with best hypothesis, runner-up, margin and unknown flag per instrument."""
+           *, guitar_notes_low: bool = False, fixed: Mapping[str, str | None] | None = None) -> dict[str, Any]:
+    """{"guitar": {...}, "bass": {...}} with best hypothesis, runner-up, margin and unknown flag per instrument.
+
+    ``fixed`` = {"guitar" | "bass": label or alias} takes the user's tuning for that instrument (DESIGN 6.1 (f));
+    the other one is still chosen jointly with it (a downtune that differs still costs). The automatic choice is
+    reported as ``auto_label`` either way."""
     p = {**DEFAULT_PARAMS, **(params or {})}
     k = int(p["max_events"])
     ge, be = _sample(guitar_events, k), _sample(bass_events, k)
+    want = {name: resolve(v, name) for name, v in (fixed or {}).items() if v and str(v).lower() != "auto"}
+    for name, v in (fixed or {}).items():
+        if v and str(v).lower() != "auto" and want.get(name) is None:
+            raise ValueError(f"unknown {name} tuning {v!r}")
     g_rows = [(h, score(ge, h, p)) for h in guitar_hypotheses()]
     # 7-string only with notes below D2 (DESIGN 6.1: "7현은 D2 아래 음이 있을 때만"), >= ``seven_min_share``
     n_g = sum(len(e.pitches) for e in ge)
     below_d2 = sum(1 for e in ge for q in e.pitches if q < 38)
     if guitar_notes_low or (n_g and below_d2 / n_g >= float(p["seven_min_share"])):
         g_rows += [(h, score(ge, h, p)) for h in guitar_hypotheses(allow7=True) if h.profile in ("std7", "drop7")]
+    if want.get("guitar") is not None and all(h != want["guitar"] for h, _s in g_rows):
+        g_rows.append((want["guitar"], score(ge, want["guitar"], p)))
     b_rows = [(h, score(be, h, p)) for h in bass_hypotheses()]
     have_g, have_b = bool(ge), bool(be)
-    best = None
-    for gh, gs in (g_rows if have_g else [(None, {"cost": 0.0})]):
-        for bh, bs in (b_rows if have_b else [(None, {"cost": 0.0})]):
-            joint = gs["cost"] + bs["cost"]
-            if gh is not None and bh is not None and gh.downtune != bh.downtune:
-                joint += float(p["downtune_mismatch"])
-            key = (joint, gh.prior if gh else 0.0, bh.prior if bh else 0.0)
-            if best is None or key < best[0]:
-                best = (key, gh, bh)
+
+    def joint_best(g_pool: list, b_pool: list) -> tuple | None:
+        best = None
+        for gh, gs in (g_pool if have_g else [(None, {"cost": 0.0})]):
+            for bh, bs in (b_pool if have_b else [(None, {"cost": 0.0})]):
+                joint = gs["cost"] + bs["cost"]
+                if gh is not None and bh is not None and gh.downtune != bh.downtune:
+                    joint += float(p["downtune_mismatch"])
+                key = (joint, gh.prior if gh else 0.0, bh.prior if bh else 0.0)
+                if best is None or key < best[0]:
+                    best = (key, gh, bh)
+        return best
+
+    auto = joint_best(g_rows, b_rows)
+    g_pool = [(h, s) for h, s in g_rows if h == want["guitar"]] if want.get("guitar") is not None else g_rows
+    b_pool = [(h, s) for h, s in b_rows if h == want["bass"]] if want.get("bass") is not None else b_rows
+    best = joint_best(g_pool, b_pool) if want else auto
     out: dict[str, Any] = {"params": dict(p)}
-    for name, rows, chosen in (("guitar", g_rows, best[1] if best else None), ("bass", b_rows, best[2] if best else None)):
+    for i, (name, rows, chosen) in enumerate((("guitar", g_rows, best[1] if best else None),
+                                              ("bass", b_rows, best[2] if best else None))):
         if chosen is None:
             out[name] = None
             continue
         ranked = sorted(rows, key=lambda hs: (hs[1]["cost"], hs[0].prior))
         runner = next(((h, s) for h, s in ranked if h != chosen), None)
         cs = dict(rows)[chosen]
+        auto_h = auto[1 + i] if auto else None
         out[name] = {
             "label": chosen.label, "profile": chosen.profile, "downtune": chosen.downtune, "capo": chosen.capo,
             "tuning": list(chosen.tuning), "cost": round(cs["cost"], 4), "per_note": round(cs["per_note"], 4),
@@ -230,7 +275,9 @@ def choose(guitar_events: Sequence[F.Event], bass_events: Sequence[F.Event], par
             "runner_up": None if runner is None else {"label": runner[0].label, "tuning": list(runner[0].tuning),
                                                        "capo": runner[0].capo, "cost": round(runner[1]["cost"], 4)},
             "margin": None if runner is None else round(runner[1]["cost"] - cs["cost"], 4),
-            "unknown": bool(cs["per_note"] > float(p["unknown_cost"])),
+            "unknown": bool(cs["per_note"] > float(p["unknown_cost"])) and name not in want,
             "top": [{"label": h.label, "cost": round(s["cost"], 4)} for h, s in ranked[:5]],
+            "user": name in want,
+            "auto_label": auto_h.label if auto_h is not None else None,
         }
     return out

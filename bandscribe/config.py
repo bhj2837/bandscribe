@@ -280,6 +280,11 @@ class TabCfg(_Section):
     # M3: 0 = auto (the merged guitar is written as staff + MIDI only, DESIGN 4.2; part splitting comes in M7a),
     # 1 = the guitars are one part: fret the merged guitar into a tab track (`bandscribe run --parts 1`)
     guitar_parts: int = Field(0, ge=0, le=1)
+    # "auto" = tuning search; else a tuning the user names ("E standard", "Eb standard"/"하프다운", "Drop D",
+    # "Open G, capo 2", ...; checked by the tab stage's params, Korean ConfigError). Usually set per song in the
+    # job's hints.toml.
+    guitar_tuning: str = Field("auto", min_length=1)
+    bass_tuning: str = Field("auto", min_length=1)
 
 
 class EvalCfg(_Section):

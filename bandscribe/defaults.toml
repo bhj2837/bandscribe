@@ -143,6 +143,8 @@ resid_min_occurrences = 3
 
 [tab]                          # M3 tabs
 guitar_parts = 0               # 0 = auto (merged guitar: staff + MIDI only), 1 = fret it as one part (--parts 1)
+guitar_tuning = "auto"          # auto = tuning search; or e.g. "E standard", "Eb standard", "Drop D" (per song: hints.toml)
+bass_tuning = "auto"
 
 [eval]
 tpb = 48

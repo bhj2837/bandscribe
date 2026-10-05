@@ -57,8 +57,8 @@ def job_files(job_dir: Path) -> dict[str, Any]:
     try:
         tab = atomic.read_json(export / "tab" / "tab.json") if (export / "tab" / "tab.json").is_file() else {}
         tun = tab.get("tuning") or {}
-        bits = [f"{ko} {tun[k]['label']}" for k, ko in (("guitar", "기타"), ("bass", "베이스"))
-                if isinstance(tun.get(k), dict) and tun[k].get("label")]
+        bits = [f"{ko} {tun[k]['label']}" + (" (지정)" if tun[k].get("user") else "")
+                for k, ko in (("guitar", "기타"), ("bass", "베이스")) if isinstance(tun.get(k), dict) and tun[k].get("label")]
         info = " · ".join(bits)
     except (OSError, ValueError):
         pass
