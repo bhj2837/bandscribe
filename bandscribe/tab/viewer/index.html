@@ -11,8 +11,13 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, "Malgun Gothic", sans-serif; }
-  header { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line);
+  /* Only the score scrolls (#viewport is alphaTab's scroll element). Following the playback used to scroll the
+     page, which put the line being played at the very top, under the sticky header. */
+  body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+  header { flex: none; background: var(--bg); border-bottom: 1px solid var(--line);
            padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  #viewport { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #viewport:focus { outline: none; }
   h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; }
   button, select { font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line);
                    border-radius: 8px; padding: 6px 12px; cursor: pointer; }
@@ -39,8 +44,10 @@
   <div class="info">{{INFO}}</div>
 </header>
 <audio id="audio" src="/audio" preload="auto"></audio>
-<div id="status">악보를 불러오는 중…</div>
-<div id="at"></div>
+<main id="viewport" tabindex="-1">
+  <div id="status">악보를 불러오는 중…</div>
+  <div id="at"></div>
+</main>
 <script src="/alphatab/alphaTab.min.js"></script>
 <script>
 (() => {
@@ -48,6 +55,7 @@
   const playBtn = document.getElementById("play");
   const timeEl = document.getElementById("time");
   const status = document.getElementById("status");
+  const viewport = document.getElementById("viewport");
   const fmt = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
 
   // absolute URLs: the render worker's importScripts() rejects a path-only URL
@@ -56,7 +64,8 @@
     core: { fontDirectory: abs("/alphatab/font/"), scriptFile: abs("/alphatab/alphaTab.min.js"), engine: "svg" },
     display: { layoutMode: alphaTab.LayoutMode.Page, scale: 0.95 },
     player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia, enableCursor: true,
-              enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollMode: alphaTab.ScrollMode.Continuous },
+              enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollMode: alphaTab.ScrollMode.Continuous,
+              scrollElement: "#viewport", scrollOffsetY: -12 },  // the line being played sits 12 px below the header
   });
 
   // The recording is the time axis: alphaTab follows the <audio> element through the score's \sync points.
@@ -88,8 +97,9 @@
   playBtn.addEventListener("click", () => api.playPause());
   document.getElementById("speed").addEventListener("change", (e) => { api.playbackSpeed = Number(e.target.value); });
   document.addEventListener("keydown", (e) => {
-    if (e.code === "Space" && e.target === document.body) { e.preventDefault(); api.playPause(); }
+    if (e.code === "Space" && (e.target === document.body || e.target === viewport)) { e.preventDefault(); api.playPause(); }
   });
+  viewport.focus({ preventScroll: true });  // arrow keys and Page Down scroll the score, as they scrolled the page
 
   api.scoreLoaded.on((score) => {
     status.remove();
