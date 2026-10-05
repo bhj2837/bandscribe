@@ -321,6 +321,86 @@ def test_tick_f1_sections_half_open():
     assert r.tp == n_in and r.fp == 0 and r.fn == 0
 
 
+def _section_edge_song():
+    """120 BPM 4/4 (bar = 2 s), section = bars 3-4 (4.0-8.0 s), notes played around both edges of it."""
+    from bandscribe.eval.refscore import tempo_map_dict, tempo_map_from_dict
+    from bandscribe.schema.gt import GtNote, GtNotes
+
+    times = [0.5 * i for i in range(8 * 4 + 1)]
+    bar_of = [1 + i // 4 for i in range(len(times))]
+    beat_of = [1 + i % 4 for i in range(len(times))]
+    tm = tempo_map_from_dict(tempo_map_dict(times, bar_of, beat_of, {b: 4 for b in set(bar_of)}, source="synthetic"))
+
+    def g(bar: int, tick: float, pitch: int) -> GtNote:
+        return GtNote(line="L1", ref_track=1, bar=bar, tick=float(tick), dur_ticks=24.0, pitch=pitch, string=None,
+                      fret=None)
+
+    gt = GtNotes(format="bandscribe.gtnotes/1", song_id="edge", tpb=48,
+                 bars=[{"bar": b, "numerator": 4, "denominator": 4, "beat_unit": "quarter", "nominal_bpm": 120.0}
+                       for b in range(1, 9)],
+                 notes=[g(3, 0, 60),    # 4.000 in, played 30 ms early (3.970)         -> hit (was a miss)
+                        g(2, 191, 62),  # 3.990 out, played inside (4.010)              -> not an extra (was one)
+                        g(4, 190, 64),  # 7.979 in, played 31 ms late, after the edge  -> hit (was a miss)
+                        g(5, 1, 65),    # 8.010 out, played inside (7.990)              -> not an extra (was one)
+                        g(4, 0, 72),    # 6.000 in, never played                        -> miss
+                        g(3, 0, 76)])   # 4.000 in, played 80 ms early (3.920): a hit at 100 ms only
+    # (5.0, 70) starts inside and matches nothing -> extra; (3.0, 71) outside, matches nothing -> not this section's
+    perf = [(3.97, 60), (4.01, 62), (8.01, 64), (7.99, 65), (5.0, 70), (3.0, 71), (3.92, 76)]
+    return gt, tm, perf
+
+
+def test_tick_f1_section_edges_match_across_the_bar_line():
+    """Review 2026-10-05 (deferred to M3): estimates were cut by the GT bar of their onset before matching, so a
+    note played just before the section's first bar line became a miss and a neighbour's note played just inside
+    became an extra. Matching now runs over the whole song and the section takes its share."""
+    gt, tm, perf = _section_edge_song()
+    iv = np.array([[t, t + 0.25] for t, _p in perf])
+    p = np.array([float(q) for _t, q in perf])
+    r = metrics.tick_prf(gt, (iv, p), tm, sections=[(3, 5)])
+    assert (r.tp, r.fp, r.fn) == (2, 1, 2)
+    whole = metrics.tick_prf(gt, (iv, p), tm)
+    # whole song: + 62 and 65 matched; (3.0, 71) and the 80 ms early 76 (onset in bar 2) are extras of bars 1-2
+    assert (whole.tp, whole.fp, whole.fn) == (4, 3, 2)
+
+
+def test_tick_f1_sections_that_partition_the_song_add_up():
+    gt, tm = _grid_song(bars=12, warp=True, seed=73)
+    iv, p = _perf_arrays(gt, tm, jitter_s=0.045, seed=8)  # ±45 ms: notes on a bar line cross it either way
+    rng = np.random.default_rng(4)
+    drop = rng.random(len(p)) < 0.15
+    extra = rng.uniform(0.0, float(iv[-1, 0]), 25)
+    iv = np.concatenate([iv[~drop], np.stack([extra, extra + 0.1], axis=1)])
+    p = np.concatenate([p[~drop], rng.integers(40, 76, 25).astype(float)])
+    # section edges where the jitter moved a bar's first note into the bar before (the case the old cut lost)
+    true_bar = np.array([n.bar for n in gt.notes])[~drop]
+    on_bar, _ = tm.time_to_bar_tick(iv[: len(true_bar), 0])
+    crossed = sorted({int(t) for t, b in zip(true_bar, on_bar) if int(b) == t - 1 and t > 1})
+    assert len(crossed) >= 2
+    a, b = crossed[0], crossed[-1]
+    whole = metrics.tick_prf(gt, (iv, p), tm)
+    parts = [metrics.tick_prf(gt, (iv, p), tm, sections=[s]) for s in ((-5, a), (a, b), (b, 100))]
+    assert (sum(r.tp for r in parts), sum(r.fp for r in parts), sum(r.fn for r in parts)) == \
+        (whole.tp, whole.fp, whole.fn)
+    assert whole.fp > 0 and whole.fn > 0
+
+
+def test_evaluate_item_section_edges():
+    """The same edge cases through the harness: time-domain note F1 and tick F1 of a section item."""
+    from bandscribe.eval import suites
+    from bandscribe.schema.evalio import PredNote, Prediction
+
+    gt, tm, perf = _section_edge_song()
+    pred = Prediction(format="bandscribe.prediction/1", system="sys", item="edge:s", lines=[{"id": "L1", "name": "L1"}],
+                      notes=[PredNote(onset_s=t, offset_s=t + 0.25, pitch=q, line="L1", posterior=0.9) for t, q in perf])
+    it = suites.EvalItem(item="edge:s", dataset="tierA", group="edge", scenario="A", gt=gt, lines=["L1"],
+                         tempo_map=tm, sections=[(3, 5)])
+    rows = {r["metric"]: r for r in suites.evaluate_item(it, pred, suite="t", system="sys").rows}
+    counts = {m: (rows[m]["tp"], rows[m]["fp"], rows[m]["fn"]) for m in
+              ("note_f1_onset50", "note_f1_offset50", "note_f1_onset100", "tick_f1")}
+    assert counts["note_f1_onset50"] == counts["note_f1_offset50"] == counts["tick_f1"] == (2, 1, 2)
+    assert counts["note_f1_onset100"] == (3, 1, 1)  # each tolerance decides the edges with its own matching
+
+
 # ---------------------------------------------------------------------------------------- coverage / shared
 
 

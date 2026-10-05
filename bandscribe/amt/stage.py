@@ -119,16 +119,30 @@ def _site_packages(python: Path) -> Path:
 
 
 def dist_version(python: Path, dist: str) -> str | None:
-    """Installed version of ``dist`` in another venv, read from its metadata (no import, no subprocess)."""
-    from importlib import metadata
+    """Installed version of ``dist`` in another venv, read from its metadata (no import, no subprocess).
 
+    Reads the ``*.dist-info/METADATA`` headers directly: ``importlib.metadata`` caches directory listings by
+    the directory's mtime, so an upgrade within the mtime resolution (same second on Windows) returned the
+    removed version's listing and no version at all (flaky test, 2026-10-05)."""
     sp = _site_packages(Path(python))
     if not sp.is_dir():
         return None
-    for d in metadata.distributions(path=[str(sp)]):
-        name = (d.metadata.get("Name") or "").lower().replace("_", "-")
-        if name == dist.lower().replace("_", "-"):
-            return d.version
+    want = dist.lower().replace("_", "-")
+    for info in sorted(sp.glob("*.dist-info")):
+        if info.name.split("-")[0].lower().replace("_", "-") != want:
+            continue
+        try:
+            text = (info / "METADATA").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        head: dict[str, str] = {}
+        for line in text.splitlines():
+            if not line.strip():
+                break  # end of the header block
+            key, _, value = line.partition(":")
+            head.setdefault(key.strip().lower(), value.strip())
+        if head.get("name", "").lower().replace("_", "-") == want:
+            return head.get("version") or None
     return None
 
 

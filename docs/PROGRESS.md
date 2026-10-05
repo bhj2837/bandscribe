@@ -297,7 +297,10 @@ mask the backing used:
    the user. The first `bandscribe run` per existing job recomputes `beats` (new key: beat-this version) and its CPU
    descendants once.
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
-5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export). **First task of M3:** note
+5. Then M3 (first tabs: grid/quantization, Viterbi fretting, `.gp5`/alphaTex export). **First task of M3 (done
+   2026-10-05: `tick_prf` and `evaluate_item` now match over the whole song and give a section the pairs whose GT
+   note is inside, the unmatched GT notes inside and the unmatched estimates starting inside; partition counts add
+   up to the song's, tests in `test_eval_metrics.py`):** note
    scoring drops matches at section boundaries (`eval/metrics.py` `tick_prf` ~201-206 filters estimates by the GT bar
    of their onset, `eval/suites.py` `evaluate_item` ~578-585 by onset inside the section windows): a note played up to
    50 ms before a section's first bar line is dropped from the estimate while its GT note stays (an FN), and a GT note

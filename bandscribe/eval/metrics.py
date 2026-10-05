@@ -180,13 +180,17 @@ def _dedupe_positions(pos: np.ndarray, pitch: np.ndarray, tol: float) -> np.ndar
 
 def tick_prf(gt: Any, est: Any, tempo_map: Any, *, sections: Iterable[Any] | None = None, tol_s: float = 0.05,
              lines: Iterable[str] | None = None) -> PRF:
-    """Tick F1 on the ground-truth grid (DESIGN 8.4 #1). ``gt`` = GtNotes; ``est`` = anything ``as_arrays`` reads."""
+    """Tick F1 on the ground-truth grid (DESIGN 8.4 #1). ``gt`` = GtNotes; ``est`` = anything ``as_arrays`` reads.
+
+    With ``sections`` the matching still runs over the whole song and the sections take their share of it: a
+    pair counts when its GT note is inside, a miss is an unmatched GT note inside, an extra is an unmatched
+    estimate whose onset falls inside (GT bar of the onset). A note played up to 50 ms before a section's first
+    bar line still matches its GT note, and an estimate matched to a GT note of the neighbouring section is
+    neither a hit nor an extra here, so the counts of sections that partition the song add up to the song's."""
     keep = set(lines) if lines is not None else None
     rng = section_ranges(sections)
     gnotes = [n for n in gt.notes if keep is None or n.line in keep]
-    g_bar = np.array([n.bar for n in gnotes], dtype=int)
-    g_sel = _in_sections(g_bar, rng)
-    gnotes = [n for n, s in zip(gnotes, g_sel) if s]
+    g_in = _in_sections(np.array([n.bar for n in gnotes], dtype=int), rng)
     e_iv, e_p = as_arrays(est)
     tpb = float(getattr(tempo_map, "tpb", gt.tpb))
     if gnotes:
@@ -201,17 +205,18 @@ def tick_prf(gt: Any, est: Any, tempo_map: Any, *, sections: Iterable[Any] | Non
     if len(e_p):
         e_t = e_iv[:, 0]
         e_bar, _ = tempo_map.time_to_bar_tick(e_t)
-        e_sel = _in_sections(np.asarray(e_bar, dtype=int), rng)
-        e_beat = np.asarray(tempo_map.time_to_beat(e_t[e_sel]), dtype=float)
-        e_pp = np.round(e_p[e_sel]).astype(int)
+        e_in = _in_sections(np.asarray(e_bar, dtype=int).reshape(-1), rng)
+        e_beat = np.asarray(tempo_map.time_to_beat(e_t), dtype=float)
+        e_pp = np.round(e_p).astype(int)
     else:
+        e_in = np.zeros(0, dtype=bool)
         e_beat = np.zeros(0)
         e_pp = np.zeros(0, dtype=int)
     # unison copies (same pitch within ±1 tick, several lines) are one note of the merged content on both sides
     keep_g = _dedupe_positions(g_beat, g_p, 1.0 / tpb)
-    g_beat, g_tol, g_p = g_beat[keep_g], g_tol[keep_g], g_p[keep_g]
+    g_beat, g_tol, g_p, g_in = g_beat[keep_g], g_tol[keep_g], g_p[keep_g], g_in[keep_g]
     keep_e = _dedupe_positions(e_beat, e_pp, 1.0 / tpb)
-    e_beat, e_pp = e_beat[keep_e], e_pp[keep_e]
+    e_beat, e_pp, e_in = e_beat[keep_e], e_pp[keep_e], e_in[keep_e]
     edges: list[tuple[int, int]] = []
     order = np.argsort(e_beat, kind="stable")
     sb = e_beat[order]
@@ -221,8 +226,11 @@ def tick_prf(gt: Any, est: Any, tempo_map: Any, *, sections: Iterable[Any] | Non
         for k in order[lo:hi]:
             if e_pp[k] == g_p[i] and abs(e_beat[k] - g_beat[i]) * tpb <= g_tol[i] + 1e-9:
                 edges.append((i, int(k)))
-    tp = len(max_bipartite(len(g_beat), len(e_beat), edges))
-    return prf(tp, len(e_beat) - tp, len(g_beat) - tp)
+    pairs = max_bipartite(len(g_beat), len(e_beat), edges)
+    tp = sum(1 for i, _k in pairs if g_in[i])
+    matched_e = {k for _i, k in pairs}
+    fp = sum(1 for k in range(len(e_beat)) if e_in[k] and k not in matched_e)
+    return prf(tp, fp, int(g_in.sum()) - tp)
 
 
 def bar_map_by_downbeats(system_downbeats: Mapping[int, float] | Sequence[tuple[int, float]], tempo_map: Any,

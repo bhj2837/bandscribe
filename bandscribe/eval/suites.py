@@ -591,6 +591,49 @@ def make_system(name: str, cfg: Any, *, work_root: Path | None = None, allow_sta
 # --------------------------------------------------------------------------------------- per-item metrics
 
 
+def _clusters(on: np.ndarray, pitch: np.ndarray, tol: float) -> tuple[np.ndarray, np.ndarray]:
+    """Cluster id per note (same pitch, onset within ``tol`` of the cluster's first, as ``_merged_arrays``) and
+    the index of each cluster's first note."""
+    cid = np.full(len(on), -1, dtype=int)
+    reps: list[int] = []
+    for p in np.unique(pitch):
+        idx = np.flatnonzero(pitch == p)
+        start = None
+        for i in idx[np.argsort(on[idx], kind="stable")]:
+            if start is None or on[i] - start > tol:
+                reps.append(int(i))
+                start = on[i]
+            cid[i] = len(reps) - 1
+    return cid, np.array(reps, dtype=int)
+
+
+def _section_preds(it: EvalItem, preds: Sequence[Any], windows: Sequence[tuple[float, float]],
+                   tol: float) -> list[Any]:
+    """The predicted notes a section item scores. Matching runs over the whole song (the item's GT lines in every
+    bar, same pitch, |Δonset| ≤ ``tol``); a prediction belongs to the sections when it matched a GT note inside
+    them, or matched nothing and starts inside a section window. So a note played just before a section's first
+    bar line still meets its GT note, and one that met a GT note of the neighbouring section is not an extra here
+    (``metrics.tick_prf`` does the same on the GT grid). Unison copies and duplicate predictions move as one."""
+    from bandscribe.eval.matching import match_min_cost
+
+    keep = set(it.lines)
+    notes = [n for n in it.gt.notes if n.line in keep]
+    inside = metrics._in_sections(np.array([n.bar for n in notes], dtype=int), metrics.section_ranges(it.sections))
+    if any(n.onset_s is None for n in notes):
+        g_on = np.array([t.onset_s for t in metrics._times_from_map(notes, it.tempo_map)], dtype=float)
+    else:
+        g_on = np.array([float(n.onset_s) for n in notes], dtype=float)
+    g_p = np.array([int(n.pitch) for n in notes], dtype=int)
+    e_on = np.array([float(n.onset_s) for n in preds], dtype=float)
+    e_p = np.array([int(round(n.pitch)) for n in preds], dtype=int)
+    _gc, g_rep = _clusters(g_on, g_p, metrics.DEDUPE_TOL_S)
+    e_cid, e_rep = _clusters(e_on, e_p, metrics.DEDUPE_TOL_S)
+    pairs = match_min_cost(g_on[g_rep], g_p[g_rep], e_on[e_rep], e_p[e_rep], tol) if len(g_rep) and len(e_rep) else []
+    hit = {j: bool(inside[g_rep[i]]) for i, j in pairs}
+    keep_c = [hit[j] if j in hit else any(s <= e_on[e_rep[j]] < e for s, e in windows) for j in range(len(e_rep))]
+    return [n for n, c in zip(preds, e_cid) if keep_c[c]]
+
+
 def _merged_arrays(rows: Iterable[tuple[float, float, int]], tol: float = metrics.DEDUPE_TOL_S) -> metrics.NoteArrays:
     """Merge notes of equal pitch within ``tol`` (unison copies / doubled predictions count once)."""
     by_p: dict[int, list[tuple[float, float]]] = defaultdict(list)
@@ -635,9 +678,17 @@ def evaluate_item(it: EvalItem, pred: Any, *, suite: str, system: str, rung: str
         windows = [(float(it.tempo_map.bar_tick_to_time([a], [0])[0]), float(it.tempo_map.bar_tick_to_time([b], [0])[0]))
                    for a, b in rng]
     gt_rows = _gt_note_rows(it)
-    pred_notes = [n for n in pred.notes if windows is None or any(s <= n.onset_s < e for s, e in windows)]
+    # sections: whole-song matching decides which predictions are the sections' (a note played just before the
+    # first bar line still meets its GT note), each tolerance with its own matching
+    pred_notes = list(pred.notes) if windows is None else _section_preds(it, pred.notes, windows, onset_tol)
     ref = _merged_arrays((a, b, p) for a, b, p, _l, _s in gt_rows)
     est = _merged_arrays((n.onset_s, n.offset_s, n.pitch) for n in pred_notes)
+
+    def est_for(tol: float) -> metrics.NoteArrays:
+        if windows is None or tol == onset_tol:
+            return est
+        return _merged_arrays((n.onset_s, n.offset_s, n.pitch) for n in _section_preds(it, pred.notes, windows, tol))
+
     rows: list[dict[str, Any]] = []
 
     def add(metric: str, r: metrics.PRF | None = None, value: float | None = None, **kw: Any) -> None:
@@ -648,13 +699,15 @@ def evaluate_item(it: EvalItem, pred: Any, *, suite: str, system: str, rung: str
             row["value"] = value
         rows.append(row)
 
-    for name, r in metrics.note_prf_variants(ref, est).items():
-        add(f"note_f1_{name}", r)
+    for name, kw in metrics.NOTE_VARIANTS.items():
+        add(f"note_f1_{name}", metrics.note_prf(ref, est_for(float(kw["onset_tol"])), **kw))
     add("chroma_f1_onset50", metrics.note_prf(ref, est, chroma=True, onset_tol=onset_tol))
     add("octave_error_rate", value=metrics.octave_error_rate(ref, est, onset_tol=onset_tol))
     gt_notes = it.gt if hasattr(it.gt, "tpb") else None
     if gt_notes is not None and it.tempo_map is not None:
-        add("tick_f1", metrics.tick_prf(gt_notes, est, it.tempo_map, sections=it.sections, lines=it.lines))
+        # every prediction: tick_prf takes the sections' share of its own whole-song matching on the GT grid
+        est_all = est if windows is None else _merged_arrays((n.onset_s, n.offset_s, n.pitch) for n in pred.notes)
+        add("tick_f1", metrics.tick_prf(gt_notes, est_all, it.tempo_map, sections=it.sections, lines=it.lines))
     ge = metrics._dedupe([(a, p, ln, None, sh, None) for a, _b, p, ln, sh in gt_rows], metrics.DEDUPE_TOL_S)
     pe = metrics._dedupe([(n.onset_s, n.pitch, n.line or UNASSIGNED, n.posterior, bool(n.shared), n.bar)
                           for n in pred_notes], metrics.DEDUPE_TOL_S)
