@@ -274,7 +274,7 @@ def stage_summary(results: dict[str, Path], items: list[RunPlanItem] | None = No
     return rows
 
 
-GPU_STAGES = ("beats", "sep", "amt_ms1", "amt_gtr")
+GPU_STAGES = ("beats", "sep", "amt_ms1", "amt_gtr", "bass_f0")
 
 
 def run_warnings(results: dict[str, Path], *, exclude_stages: Iterable[str] = ()) -> list[str]:

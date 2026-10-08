@@ -130,7 +130,8 @@ def alphatab_import(path: Path, *, encoding: str | None = None, timeout_s: float
 
 def alphatab_check_tex(path: Path, *, timeout_s: float = 300) -> dict:
     """Parse an alphaTex file with alphaTab (the viewer's parser): {"ok", "error", "master_bars", "sync_points",
-    "sync_ms", "tracks": [{"name", "tabs", "score", "bars", "beats", "notes", "ties", "tuning", "capo"}]}."""
+    "sync_ms", "tracks": [{"name", "tabs", "score", "bars", "beats", "notes", "ties", "slides", "dead", "ghost", "vibrato",
+    "tuning", "capo"}]} (technique marks: M5 bass)."""
     import json
 
     with _scratch() as tmp:

@@ -41,7 +41,7 @@
 | 결과 | 설명 |
 |---|---|
 | 악보 `tab/score.alphatex` | 모든 트랙: **Guitar (all parts)** 는 오선보(파트를 아직 못 나누므로 운지 없음), **Bass** 는 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
-| 베이스 정리(M5) | 피치 추적기 셋(CREPE·PESTO·pyin)이 베이스 음을 확인한다: 둘이 동의하면 옥타브·반음을 고치고, 계단처럼 쪼개 적힌 슬라이드를 한 음 + 슬라이드로 합친다. 주법은 제안으로 적는다: 슬라이드(`\` `/`), 비브라토(`~`), 데드 노트(`x`). 슬라이드 두 음은 같은 줄에 운지한다. 어느 단계를 켤지는 실험 E13 이 정했다(`[bass]` 설정) |
+| 베이스 정리(M5) | 피치 추적기 셋(CREPE·PESTO·pyin)이 베이스 스템의 음높이를 10 ms 마다 잰다. 그것으로 계단처럼 쪼개 적힌 슬라이드를 첫 음 + 슬라이드 하나로 합치고(탭에 `\` `/`, 두 음은 같은 줄에 운지), 같은 음 조각을 합친다. 비브라토·데드 노트는 정확도가 낮아 악보에 쓰지 않고 `score.json` 의 제안 표시로만 남긴다. 옥타브·반음 교정, 킥 거부, 빈 곳 채우기도 만들었지만 실험 E13 에서 효과가 없어 꺼 두었다(`[bass]` 설정) |
 | `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(기본: 베이스. `--parts 1` 이면 기타도) |
 | `tab/*.txt` | 운지된 트랙의 텍스트 탭(대략적인 미리보기) |
 | 튜닝 | 기타·베이스 함께 추정(표준·드롭·반음/온음 다운·카포·오픈 튜닝, 7현은 D2 아래 음이 있을 때만). `tab/tab.json` |
@@ -141,6 +141,10 @@ flowchart LR
     s35 --> notes["notes<br/>guitar_all.mid<br/>bass_raw.mid"]
     grid -. 템포맵 .-> notes
     stems --> a4["a4<br/>기준음 (A440 대비 cents)"]
+    stems --> f0["bass_f0<br/>CREPE · PESTO (GPU) + pyin"]
+    notes --> bass["bass<br/>조각·슬라이드 합치기<br/>주법 제안 · bass.mid"]
+    f0 --> bass
+    bass --> quant
     notes --> quant["quant<br/>박마다 16분·셋잇단 선택<br/>셔플·12/8 · 셋잇단 느낌"]
     grid --> quant
     quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi"]
@@ -149,11 +153,16 @@ flowchart LR
     score --> edit["편집 (M4a)<br/>edits.jsonl 재생<br/>export 다시 쓰기"]
     classDef gpu fill:#fde2c8,stroke:#c46a1b,color:#000
     classDef m3 fill:#d8efe5,stroke:#2f6f5e,color:#000
-    class beats,sep,ms1,gtr gpu
+    class beats,sep,ms1,gtr,f0 gpu
     class a4,quant,tab,score,edit m3
+    classDef m5 fill:#e3dcf5,stroke:#5a4a9a,color:#000
+    class bass m5
 ```
 
-`notes` 는 MuScriptor 가 무음 스템 위에 지어낸 음을 뺀다(`amt.silence_gate_db`). 편집은 단계가 아니다: 뷰어와
+`notes` 는 MuScriptor 가 무음 스템 위에 지어낸 음을 뺀다(`amt.silence_gate_db`). `bass_f0` 는 베이스 스템의 기본 주파수를
+세 추적기로 10 ms 마다 재고, `bass` 는 그것으로 MuScriptor 베이스를 정리한다: 같은 음 조각을 합치고, 피치가 미끄러지는 동안
+계단처럼 쪼개 적힌 음을 첫 음 + 슬라이드 하나로 합친다(실험 E13 으로 정한 기본값; 옥타브 교정·킥 거부·빈 곳 채우기는 효과가
+없어 꺼져 있다, `[bass]`). 편집은 단계가 아니다: 뷰어와
 `bandscribe run` 이 `edits.jsonl` 을 단계 결과 위에 다시 재생해 export 를 고친다(마디선 편집은 양자화부터, 음 편집은 운지부터
 다시 계산하고 GPU 단계·튜닝 탐색은 다시 하지 않는다).
 
@@ -168,7 +177,7 @@ flowchart LR
     views --> tx["S6 뷰별 전사<br/>MuScriptor + Basic Pitch"]
     tx --> fuse["S7 음표 융합<br/>블리드 감점 · 반복 합의"]
     fuse --> diar["S8 파트 다이어라이저 (M7)<br/>파트 수 K · 음표별 배정"]
-    fuse --> bass["S11 베이스 (M5)"]
+    fuse --> bass["S11 베이스 (M5, 일부 있음)"]
     diar --> quant["S12 양자화 (M3, 있음)"]
     bass --> quant
     quant --> fret["S13 튜닝 · 운지 Viterbi (M3, 있음)"]

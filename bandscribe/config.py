@@ -294,8 +294,8 @@ class TabCfg(_Section):
 
 class BassCfg(_Section):
     # M5 (DESIGN 5): the S11 clean-up of the pass-1 bass with the F0 tracks (bandscribe.bass.clean); E13
-    # (docs/decisions.md) decides which steps are on.
-    anchor: bool = True  # octave / semitone moves from the 2-of-3 tracker vote + harmonic duplicates dropped
+    # (docs/decisions.md, 2026-10-08) turned on only the merges (fragments, slides); the other steps were on hold.
+    anchor: bool = False  # octave / semitone moves from the 2-of-3 tracker vote + harmonic duplicates dropped
     kick: bool = False  # notes on a kick without any F0 dropped (needs the drums stem)
     fragments: bool = True  # same-pitch fragments and decaying tails merged
     slides: bool = True  # glide chains -> one note sliding into the note it stops on

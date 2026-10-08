@@ -327,6 +327,10 @@ def spell_track(events: Sequence[tuple[int, int, list[WNote]]], bars: Sequence[W
     return out
 
 
+# M5 technique suggestions written into the tab; the others stay in score.json flags. E13 (2026-10-08) on IDMT: the
+# vibrato detector found 1 of 31 vibratos (1 of its 4 marks right), the dead-note one 17 of 28 (17 of 31 marks right):
+# not good enough to write over a note. Slides are part of the adopted merge step.
+WRITTEN_TECH: tuple[str, ...] = ("slide",)
 HEAD_FX = ("x", "g")  # on the first written piece of a note only
 TAIL_FX = ("sl", "sod", "sou")  # on its last piece only (a slide leaves the note where it ends)
 

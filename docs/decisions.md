@@ -536,7 +536,7 @@
 
 ## E13
 - 제목: 베이스 정리 — 3-트래커 옥타브·피치 앵커, 조각·슬라이드 합치기, 킥 거부, 투표자 2개 정책(F0 채우기) vs AND
-- 상태: 사전 등록
+- 상태: 결정: 채택 (합치기 단계만 켬: fragments·slides, 비열등 Δ +1.29 [−0.06, +3.14]; anchor·kick·gap_fill 은 판단 보류라 끔)
 - 질문: MuScriptor 베이스 패스(M2 원시)를 F0 트래커 셋(CREPE full·PESTO mir-1k_g7·pyin, `bandscribe.bass.f0`)으로 정리하면
   onset F1 이 오르는가? 어느 단계를 기본으로 켤까(DESIGN 5 "도움이 된 것만 켠다")? 투표자 2개 정책(MuScriptor 주 소스 + F0 로
   빈 곳 채우기)이 AND(둘 다 있는 음만)보다 재현율에서 낫고 정밀도 손실이 작은가(M5 [판정])?
@@ -584,7 +584,27 @@
   - torchcrepe 의 Viterbi 는 시그모이드 출력에 softmax 를 해 관측이 거의 평평하고, 베이스 스템에서 경로가 최저 bin 에 붙어
     프레이즈 전체를 놓쳤다(seisyun complex 34–36 s). 원래 CREPE 처럼 salience 를 합 1 로 정규화해 한 번에 디코딩한다.
   - SCNet 앙상블(DESIGN E13 의 네 번째 항목)과 YourMT3+ 투표자 3개(2-of-3)는 이번에 없다(설치 안 함) — 다음 등록으로 미룬다.
-- 결과: (아직 없음)
+- 결과:
+  - 2026-10-08 `20261008-184108_55fe1df_exp-e13`: 계산된 판정 = 판단 보류 (기본값 raw 유지)
+  - 요약(2026-10-08): 항목 35개(IDMT 17, FiloBass 12, Tier B 6), rung `medium-lean|crepe-full`, GPU 약 14분(Tier B 6곡의
+    MuScriptor 는 E1 의 eval 캐시를 그대로 맞혔다: 같은 분리 결과). onset F1(raw → anchor → anchor_merge → +kick → two_voter;
+    and): IDMT 87.74 → 87.74 → 87.78 → 87.78 → 87.97; 72.40. FiloBass 91.50 → 91.30 → 91.23 → 91.23 → 90.97; 81.65. Tier B 75.88 →
+    75.64 → 77.81 → 78.24 → 77.79; 77.52.
+  - 단계(`steps.json`): anchor Δ −0.18 [−0.42, +0.04] → 판단 보류(옥타브 이동 IDMT 3·FiloBass 16·Tier B 66, 반음 0·24·27; Tier B
+    옥타브 오류율 1.12 → 1.50 으로 오히려 늘었다). 합치기 Δ +1.29 [−0.06, +3.14](Tier B +2.17 [+0.01, +3.92], FiloBass −0.07,
+    IDMT +0.05) → 비열등 채택. 킥 거부(Tier B) Δ +0.43 [−0.25, +1.04] → 판단 보류(3,545음을 뺐지만 대부분 50 ms 안 중복이라 합친
+    채점에서 거의 안 보인다). F0 채우기 Δ −0.06 [−0.14, +0.01] → 판단 보류(채운 음 IDMT 8·FiloBass 16·Tier B 5).
+  - 투표자 2개 vs AND(`policy_check.json`): 재현율 Δ +20.9 [+17.2, +25.3], 정밀도 Δ −15.4 [−36.4, −2.6] → CI 하한이 −2 보다 낮아
+    M5 [판정] **미달**(데이터셋별 정밀도 Δ: IDMT −1.2 [−4.3, +1.7], FiloBass −7.2 [−10.7, −4.0], Tier B −23.2 [−56.7, −0.9]).
+  - 서술(같은 실행): 트래커 30–100 Hz 원 피치 정확도(신뢰도 ≥ 0.5, 50 cents) IDMT CREPE 85.9 % · pyin 56.0 % · PESTO 0.9 %,
+    FiloBass CREPE 82.7 % · pyin 52.9 % · PESTO 34.4 %(신뢰도를 무시하면 PESTO 68.6 / 71.2 %, 옥타브 오류 FiloBass 7.1 %). IDMT 운지
+    (정답 음, 하모닉스 뺌) 줄 = 줄·프렛 82.1 %(916음). 기본 설정의 주법 제안(IDMT): 데드 노트 재현율 17/28, 정밀도 17/31; 비브라토
+    1/31, 1/4; 슬라이드 4/20, 4/8.
+  - 서술(채택 조합 = 합치기만, 등록 arm 에 없는 조합이라 같은 항목으로 따로 잼, `final_config_descriptive.json`): raw 대비
+    Δ +1.28 [−0.08, +3.12](IDMT +0.05, FiloBass −0.03, Tier B +2.13), 옥타브 오류율 IDMT 0.52 · FiloBass 0.19 · Tier B 1.10(raw 와
+    같음).
+  - 결정: 채택 — `[bass]` 기본값을 fragments·slides 켬, anchor·kick·gap_fill 끔, policy muscriptor 로 둔다. 트래커는 슬라이드
+    판단에 쓰므로 `bass_f0` 단계는 그대로 돈다. SCNet 앙상블·투표자 3개는 다음 등록으로.
 
 ## E14
 - 제목: 양자화 설정 — 타이밍 잡음 σ, 수준 벌점, 24 vs 48 tick, 이분/삼분 전환 벌점, 셔플·12/8 판정 문턱

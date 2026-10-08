@@ -277,9 +277,9 @@ SLIDE_FX = {"legato": "sl", "out_down": "sod", "out_up": "sou"}
 
 
 def note_fx(n: Mapping[str, Any]) -> tuple[str, ...]:
-    """alphaTex effects of a quantised / fretted note (M5 bass): the ``tech`` suggestions, and an F0-only note as a
-    ghost (bracketed) note."""
-    t = n.get("tech") or {}
+    """alphaTex effects of a quantised / fretted note (M5 bass): the ``tech`` suggestions listed in
+    ``notation.WRITTEN_TECH`` (the rest only reach score.json), and an F0-only note as a ghost (bracketed) note."""
+    t = {k: v for k, v in (n.get("tech") or {}).items() if k in N.WRITTEN_TECH}
     fx = ["x"] if t.get("dead") else []
     if n.get("src") == "f0":
         fx.append("g")

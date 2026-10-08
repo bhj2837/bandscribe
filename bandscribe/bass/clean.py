@@ -45,7 +45,7 @@ ARMS: tuple[str, ...] = ("raw", "anchor", "anchor_merge", "anchor_merge_kick", "
 STEPS: tuple[str, ...] = ("anchor", "kick", "fragments", "slides", "gap_fill", "policy")
 
 DEFAULT_PARAMS: dict[str, Any] = {
-    "anchor": True,
+    "anchor": False,  # E13 (2026-10-08): on hold, so off; the merges were adopted
     "kick": False,
     "fragments": True,
     "slides": True,

@@ -138,14 +138,21 @@ def test_crepe_decoder_follows_peaked_activations_over_a_noise_floor():
 # ------------------------------------------------------------------------------------------------ clean-up
 
 
+# seisyun complex 3.0-5.6 s (CREPE on the bass stem, 2026-10-08): a plucked F#2 sliding down to G1, slower in the
+# middle; MuScriptor wrote it as the staircase in ``slide_case``
+SC_SLIDE = ((3.03, 42.5), (3.10, 41.8), (3.15, 41.3), (3.25, 41.0), (3.30, 40.6), (3.40, 40.3), (3.50, 39.6),
+            (3.55, 39.3), (3.70, 39.1), (3.75, 38.5), (3.85, 38.2), (3.95, 37.4), (4.00, 37.2), (4.15, 36.8),
+            (4.25, 36.1), (4.40, 35.5), (4.50, 35.3), (4.60, 34.7), (4.70, 34.2), (4.85, 33.3), (5.00, 32.6),
+            (5.10, 32.1), (5.30, 31.2), (5.55, 31.2))
+
+
 def slide_case():
-    """A plucked F#2 gliding down to G1 over 2.5 s, written by MuScriptor as a staircase (seisyun complex's intro)."""
+    """seisyun complex's intro: one slide, transcribed as seven notes."""
     n = frames(7.0)
     m = np.full(n, np.nan)
     t = np.arange(n) * HOP
-    glide = (t >= 3.0) & (t < 5.5)
-    m[glide] = 42.4 - (42.4 - 31.2) * (t[glide] - 3.0) / 2.5
-    m[(t >= 5.5) & (t < 6.0)] = 31.2
+    on = (t >= 3.03) & (t <= 5.55)
+    m[on] = np.interp(t[on], [x for x, _ in SC_SLIDE], [y for _, y in SC_SLIDE])
     notes = [note(3.0, 3.48, 41), note(3.48, 3.72, 39), note(3.72, 3.96, 38), note(3.96, 4.2, 37),
              note(4.2, 4.44, 36), note(4.44, 5.11, 35), note(5.11, 6.0, 31)]
     return track_from(m), notes
@@ -153,10 +160,18 @@ def slide_case():
 
 def test_a_glide_written_as_a_staircase_becomes_one_slide():
     tr, notes = slide_case()
-    out, rep = CL.clean(notes, tr, CL.arm_params("anchor_merge"))
-    assert [(n["pitch"], n.get("tech", {}).get("slide")) for n in out] == [(42, "legato"), (31, None)]
+    out, rep = CL.clean(notes, tr, CL.DEFAULT_PARAMS)  # E13's adopted steps: merges on, anchor off
+    assert [(n["pitch"], n.get("tech", {}).get("slide")) for n in out] == [(41, "legato"), (31, None)]
     assert out[0]["onset_s"] == pytest.approx(3.0) and out[0]["offset_s"] == pytest.approx(5.11)
     assert out[0]["merged"] == 5 and rep["slides"]["chains"] == 1
+
+
+def test_the_anchor_misreads_the_ends_of_a_slide():
+    """Why E13 left the anchor off: its 30-120 ms window catches a slide still moving - the pluck reads a
+    semitone up and the landing note (G1, still arriving) a semitone up too."""
+    tr, notes = slide_case()
+    out, _ = CL.clean(notes, tr, CL.arm_params("anchor_merge"))
+    assert [(n["pitch"], n.get("from_pitch")) for n in out] == [(42, 41), (32, 31)]
 
 
 def test_a_plucked_chromatic_run_is_not_a_slide():
@@ -286,10 +301,9 @@ def test_alphatex_gp5_and_text_tab_write_the_techniques(tmp_path):
 
     bar = N.WBar(bar=1, start_gtick=0, n_beats=4, beat_unit="quarter", numerator=4, denominator=4, start_s=0.0,
                  feel=None)
-    notes = [N.WNote(42, 4, 14, fx=T.note_fx({"tech": {"slide": "legato"}})),
-             N.WNote(31, 4, 3, fx=T.note_fx({"tech": {"vibrato": True}})),
-             N.WNote(31, 4, 3, fx=T.note_fx({"tech": {"dead": True}})),
-             N.WNote(33, 4, 5, fx=T.note_fx({"src": "f0"}))]
+    # the writers know every mark (vibrato and dead notes are not written by default: notation.WRITTEN_TECH)
+    notes = [N.WNote(42, 4, 14, fx=T.note_fx({"tech": {"slide": "legato"}})), N.WNote(31, 4, 3, fx=("v",)),
+             N.WNote(31, 4, 3, fx=("x",)), N.WNote(33, 4, 5, fx=T.note_fx({"src": "f0"}))]
     beats = [N.WBeat(48 * k, 48, 4, notes=[x]) for k, x in enumerate(notes)]
     score = ATX.WScore(title="t", bars=[bar], tempo_qpm=[120],
                        tracks=[ATX.WTrack("Bass", "Bass", "electricbassfinger", True, [28, 33, 38, 43], 0, [beats])])
@@ -305,14 +319,17 @@ def test_alphatex_gp5_and_text_tab_write_the_techniques(tmp_path):
             {"bar": 1, "tick": 96, "string": 4, "fret": 3, "tech": {"dead": True}}]
     text = ascii_tab.render(rows, [{"bar": 1, "n_beats": 4}], [28, 33, 38, 43])
     e_row = next(line for line in text.splitlines() if line.startswith("E|"))
-    assert "14\\" in e_row and "3~" in e_row and "x" in e_row
+    assert "14\\" in e_row and "~" not in e_row and "x" not in e_row  # suggestions not written stay out
 
 
 def test_note_fx_maps_every_technique():
     from bandscribe.tab import stage as T
 
+    from bandscribe.tab import notation as N
+
+    assert N.WRITTEN_TECH == ("slide",)  # E13: vibrato and dead-note marks only reach score.json
     assert T.note_fx({}) == ()
-    assert T.note_fx({"src": "f0", "tech": {"dead": True, "vibrato": True, "slide": "out_down"}}) == ("x", "g", "v", "sod")
+    assert T.note_fx({"src": "f0", "tech": {"dead": True, "vibrato": True, "slide": "out_down"}}) == ("g", "sod")
     assert T.note_fx({"tech": {"slide": "out_up"}}) == ("sou",)
 
 
@@ -354,7 +371,7 @@ def test_bass_stage_cleans_the_gated_bass(tmp_path):
     BS.run_bass(ctx)
     doc = atomic.read_json(tmp_path / "out" / BS.BASS_FILE)
     assert doc["format"] == "bandscribe.bass/1"
-    assert [n["pitch"] for n in doc["notes"]] == [42, 31]
+    assert [n["pitch"] for n in doc["notes"]] == [41, 31]  # E13 defaults: merges on, the anchor (41 -> 42) off
     rep = atomic.read_json(tmp_path / "out" / BS.REPORT_FILE)
     assert rep["in"] == 7 and rep["out"] == 2
     assert (tmp_path / "out" / "midi" / "bass.mid").is_file()

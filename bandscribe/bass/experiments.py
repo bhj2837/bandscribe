@@ -122,7 +122,7 @@ def filobass_items(work: Path, n_songs: int = FILO_SONGS) -> list[Item]:
     return out
 
 
-def tierb_items(work: Path, cfg: Any, args: Mapping[str, Any]) -> list[Item]:
+def tierb_items(work: Path, cfg: Any, args: Mapping[str, Any], *, reuse: bool = False) -> list[Item]:
     from bandscribe.amt import experiments as AE
 
     sep_rung = AE.sep_top_rung(cfg)
@@ -138,11 +138,18 @@ def tierb_items(work: Path, cfg: Any, args: Mapping[str, Any]) -> list[Item]:
         if "bass" not in refs:
             log.warning("E13: %s has no bass line in its reference; skipped", item)
             continue
-        sep = AE._separate(mix_wav, w / "sep", cfg, force_rung=sep_rung, input_lufs="off")
-        x, sr = AE._read(Path(sep.stems["bass"]))
+        stems_dir = w / "sep" / "stems"
+        if reuse and (stems_dir / "bass.wav").is_file() and (stems_dir / "drums.wav").is_file():
+            # a later look at an earlier run's work dir (never in a registered run: its run dir is new)
+            stems = {"bass": stems_dir / "bass.wav", "drums": stems_dir / "drums.wav"}
+            label = (atomic.read_json(w / "sep" / "sep.json").get("rung") or {}).get("label")
+        else:
+            sep = AE._separate(mix_wav, w / "sep", cfg, force_rung=sep_rung, input_lufs="off")
+            stems, label = {k: Path(v) for k, v in sep.stems.items()}, sep.rung.get("label")
+        x, sr = AE._read(stems["bass"])
         view = AE.view_entry("bass_mono", AE._mono(x), sr, w / "bass_mono.wav", None)
-        out.append(Item(dataset, item, AE._group(track), view, ref=refs["bass"], drums=Path(sep.stems["drums"]),
-                        note=f"sep {sep.rung.get('label')}"))
+        out.append(Item(dataset, item, AE._group(track), view, ref=refs["bass"], drums=stems["drums"],
+                        note=f"sep {label}"))
     return out
 
 

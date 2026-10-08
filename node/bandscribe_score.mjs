@@ -153,7 +153,7 @@ function cmdRender(input, output, soundfont, sampleRate) {
 }
 
 // `checktex`: parse an alphaTex file with alphaTab's own importer (the viewer's parser) and report what it built:
-// master bars, sync points and per track bars / beats / notes / ties, or the parse error.
+// master bars, sync points and per track bars / beats / notes / ties / technique marks, or the parse error.
 function cmdCheckTex(input, output) {
   const tex = readFileSync(input, "utf8");
   const res = { format: "bandscribe.alphatex_check/1", alphatab: PKG.version, ok: false, error: null,
@@ -167,14 +167,21 @@ function cmdCheckTex(input, output) {
     res.sync_ms = sync.map((p) => [p.barIndex, p.millisecondOffset]);
     for (const tr of score.tracks) {
       const st = tr.staves[0];
-      let beats = 0, notes = 0, ties = 0;
+      let beats = 0, notes = 0, ties = 0, slides = 0, dead = 0, ghost = 0, vibrato = 0;
       for (const b of st.bars) for (const v of b.voices) for (const be of v.beats) {
         beats++;
         notes += be.notes.length;
-        for (const n of be.notes) if (n.isTieDestination) ties++;
+        for (const n of be.notes) {
+          if (n.isTieDestination) ties++;
+          if (n.slideOutType) slides++;  // M5 bass techniques
+          if (n.isDead) dead++;
+          if (n.isGhost) ghost++;
+          if (n.vibrato) vibrato++;
+        }
       }
       res.tracks.push({ name: tr.name, tabs: !!st.showTablature, score: !!st.showStandardNotation, bars: st.bars.length,
-                        beats, notes, ties, tuning: Array.from(st.tuning ?? []), capo: st.capo | 0 });
+                        beats, notes, ties, slides, dead, ghost, vibrato, tuning: Array.from(st.tuning ?? []),
+                        capo: st.capo | 0 });
     }
   } catch (e) {
     res.error = String(e && e.message ? e.message : e);

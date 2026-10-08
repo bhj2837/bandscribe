@@ -11,6 +11,8 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from bandscribe.tab.notation import WRITTEN_TECH
+
 TICK_RES = 12
 NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
@@ -24,8 +26,8 @@ def string_names(tuning: Sequence[int]) -> list[str]:
 
 
 def _marks(notes: Sequence[Mapping[str, Any]]) -> dict[int, str]:
-    """Text marks after a fret (M5 bass techniques): ``~`` vibrato, a backslash / ``/`` for a slide down / up into
-    the next note on the same string (or out of the note)."""
+    """Text marks after a fret (M5 bass techniques written into the tab, ``notation.WRITTEN_TECH``): ``~`` vibrato,
+    a backslash / ``/`` for a slide down / up into the next note on the same string (or out of the note)."""
     order = sorted((i for i, n in enumerate(notes) if n.get("string") is not None),
                    key=lambda i: (int(notes[i]["bar"]), int(notes[i]["tick"])))
     nxt: dict[int, int] = {}
@@ -37,7 +39,7 @@ def _marks(notes: Sequence[Mapping[str, Any]]) -> dict[int, str]:
         last[s] = i
     out: dict[int, str] = {}
     for i in order:
-        t = notes[i].get("tech") or {}
+        t = {k: v for k, v in (notes[i].get("tech") or {}).items() if k in WRITTEN_TECH}
         m = "~" if t.get("vibrato") else ""
         if t.get("slide") == "legato" and i in nxt:
             m += "\\" if int(notes[nxt[i]]["fret"]) < int(notes[i]["fret"]) else "/"
@@ -66,7 +68,8 @@ def render(notes: Sequence[Mapping[str, Any]], bars: Sequence[Mapping[str, Any]]
         ncol = max(1, blen.get(int(nt["bar"]), 192) // TICK_RES)
         col = min(int(round(int(nt["tick"]) / TICK_RES)), ncol - 1)
         prev = cells[int(nt["bar"])][col].get(int(nt["string"]))
-        txt = ("x" if (nt.get("tech") or {}).get("dead") else str(int(nt["fret"]))) + marks.get(k, "")
+        dead = "dead" in WRITTEN_TECH and (nt.get("tech") or {}).get("dead")
+        txt = ("x" if dead else str(int(nt["fret"]))) + marks.get(k, "")
         cells[int(nt["bar"])][col][int(nt["string"])] = txt if prev is None else prev
     used = sorted(cells)
     if not used:
