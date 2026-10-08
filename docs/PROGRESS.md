@@ -1,6 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-05 (**grid fix after M4a**: beats that Beat This! tracked twice are joined, see "Grid: beats
+Last updated: 2026-10-08 (**M5 done with known gaps**: bass F0 trackers, the bass clean-up and E13, see "M5" below and
+`docs/acceptance/M5.md`. 2026-10-05: **grid fix after M4a**: beats that Beat This! tracked twice are joined, see "Grid: beats
 tracked twice" below. **M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
 After M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
 **M3 done with known gaps**: first tabs, see "M3 (2026-10-05)" below and
@@ -21,8 +22,62 @@ fixes).
 | Review → Fix → Acceptance | ✅ two reviews (0 blockers), 14 fixes, acceptance report `docs/acceptance/M1a_M2.md`: **M1a 13/13 pass** (tag `m1a`); **M2 19 pass / 3 fail / 3 blocked** (tag `m2`, accepted with known gaps by the user's decision) |
 | M3 first tabs | ✅ quantisation, A4, tuning, Viterbi fretting (E12 → E12b), alphaTex/GP5/MIDI export, synced viewer; acceptance `docs/acceptance/M3.md`: **9 pass / 1 fail / 3 blocked** (tag `m3`) |
 | M4a editing | ✅ keyboard edits in `bandscribe view`, `edits.jsonl`, replay + re-export, re-applied after `run`; acceptance `docs/acceptance/M4a.md`: **4 pass / 1 blocked** (human baseline) (tag `m4a`) |
+| M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 
-All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`).
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`).
+
+## M5 (2026-10-08): bass
+
+Two stages between `notes` and `quant` (code `bandscribe/bass/`, worker `bandscribe/workers/f0_bass.py`, gpu env gets
+`torchcrepe==0.0.24` and `pesto-pitch==2.0.1`):
+
+- **`bass_f0`** (GPU ~20 s per song + pyin on the CPU meanwhile; the stage ~1:15-1:40 per song): CREPE full and PESTO
+  `mir-1k_g7` in the worker, pyin (librosa) in a thread, one 10 ms grid in `f0.npz`. CREPE is decoded here (one
+  Viterbi over the whole song on the salience normalised to sum 1): **torchcrepe's own decoder softmaxes the sigmoid
+  outputs, which is almost flat, and on bass stems its path sat on the lowest bin for whole phrases** (seisyun complex
+  34-36 s: every frame at bin 0, confidence 0, while the activations peaked at 0.8-0.9 on the notes). fmin 32 Hz, the
+  worker refuses < 31.71 (test). PESTO's checkpoint pickles OmegaConf containers: loaded with `weights_only=True` and an
+  allow-list; one call over a whole song took > 5 GB, so 30 s chunks with 1 s of context (reserved 1.36 GB).
+- **`bass`** (CPU, 1.4-2.4 s): `bandscribe.bass.clean` on the gated pass-1 bass. Steps: 2-of-3 octave/semitone anchor and
+  harmonic duplicates, kick rejection (drums stem), fragment / decaying-tail merges (only without a new attack),
+  **glide chains** (on the contour minus the song's tuning offset, the F0 leaves the first quarter of each interval and
+  reaches the last over >= 40 ms of the middle half without a jump; inner notes without a 250 ms plateau go; the first
+  note slides into the note the glide stops on; slide partners are fretted on one string via `fretting.assign(links=)`),
+  F0 gap fill, the AND policy; vibrato / dead-note suggestions. `[bass]` switches each step.
+- **E13** (`docs/decisions.md`, pre-registered at `55fe1df`, run `20261008-184108_55fe1df_exp-e13`, GPU ~14 min; Tier B
+  MuScriptor came from E1's eval cache): IDMT 17, FiloBass 12 windows, the six E1 Tier B songs. Per step: anchor Δ −0.18
+  [−0.42, +0.04] (hold), **merges Δ +1.29 [−0.06, +3.14] (non-inferior: adopted)**, kick (Tier B) +0.43 [−0.25, +1.04]
+  (hold), gap fill −0.06 [−0.14, +0.01] (hold). Defaults now: fragments + slides on, the rest off. The anchor misreads
+  pitches that are still moving (the ends of a slide) and the trackers share octave slips (Tier B octave error 1.12 →
+  1.50 with it). Two voters vs AND: recall +20.9 [+17.2, +25.3], precision −15.4 [−36.4, −2.6] → the M5 criterion fails.
+- **Techniques in the tab:** only slides are written (`notation.WRITTEN_TECH`); vibrato (IDMT 1/31 found, 1 of 4 marks
+  right) and dead notes (17/28, 17 of 31) stay suggestions in `score.json` flags. AIZO gets 53 dead-note suggestions.
+- **Trackers, 30-100 Hz** (raw pitch accuracy with confidence >= 0.5): IDMT CREPE 85.9 %, pyin 56.0 %, PESTO 0.9 % (its
+  voicing confidence almost never passes 0.5 on bass; ignoring it 68.6 %); FiloBass 82.7 / 52.9 / 34.4 % (PESTO 7.1 %
+  octave errors). pyin's pitch is good (rpa ignoring confidence 91 / 89 %), its voicing is strict.
+- **Renamed:** the bass track id is `bass` ("Bass"; was `bass_raw` / "Bass (raw)"); export `tab/bass.txt`,
+  `midi/bass_quantized.mid`, new `midi/bass.mid` (cleaned, audio timeline; `midi/bass_raw.mid` stays). Old edit logs
+  naming `bass_raw` are read as `bass` (`edits.OLD_TRACK_IDS`).
+- **seisyun complex** (the user's case): bars 4-6 were 41 39 38 37 36 35 31 31 31; now one note, E string fret 13
+  sliding to fret 3 (then the 31s). Against the GP sheet (bar bags): bass F1 90.1 → 90.4 (fp 98 → 92), pitch-class
+  91.8 → 92.1, bass string/fret on matched pitches 45.4 → 45.2 %, guitar unchanged (73.9).
+- **Five songs re-run** with the adopted defaults (after the review fixes): guitar quantisation, beat families, guitar
+  alphaTex and both tunings identical before / after; bass −2 to −6 notes per song; alphaTab parses all five (4-33
+  slides per song). Tuning offsets the bass stage measures: SC +21, KH +13, AIZO +10, AZ +1, aotonat +0.5 cents.
+- **Review** (one read-only pass, 12 probe scripts): 2 major + 3 minor, all fixed with tests: (1) the glide test
+  counted contour frames anywhere in the interval's middle half, so a recording 25+ cents off A440 or a vibrato note
+  read as a slide (+35 cents: a plucked 40-41-42-43-45 lost 41 and 42); now a real crossing on the contour minus the
+  tuning offset. (2) same-pitch notes under 80 ms were joined even with their own attack (16ths at 170 BPM: 8 → 1).
+  (3) a dropped duplicate kept a 50 ms sliver instead of the long note (anchor arms only). (4) the F0 eval cache key had
+  no code version (`f0.CODE_VERSION`). (5) the worker's files sat in `_f0/_worker` and were hashed as stage outputs.
+  Re-measured on E13's items (descriptive): the adopted merges +0.92 [−0.01, +2.16] over raw, still non-inferior.
+- Acceptance (`docs/acceptance/M5.md`): PASS tracker report + fmin test, IDMT string/fret 82.1 % (>= 80), IDMT string
+  accuracy and dead-note recall reported, ablation with CIs and no guitar regression. FAIL: two voters vs AND
+  (precision). BLOCKED: octave error rate (IDMT 0.52, Tier B 1.10 points), tick F1 (IDMT 87.8, FiloBass 91.3) and
+  FiloBass F1 (91.5) pass numerically, but MuScriptor's training data is private, so every public set is
+  contamination-unknown and the rule forbids absolute claims; they need Tier A (the user's Guitar Pro files).
+- Not done: SCNet ensemble and the 3-voter (YourMT3+) policy of E13 (not installed), HO/PO and slap (no ground truth),
+  S14 root cross-check (needs rhythm Lines, M7a), a real F0 HMM segmenter (the gap fill is a simple stable-run rule).
 
 ## M4a (2026-10-05): editing in the viewer
 
@@ -453,8 +508,8 @@ mask the backing used:
    descendants once.
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
 5. ~~M3~~ done 2026-10-05 (tag `m3`). ~~M4a~~ done 2026-10-05 (tag `m4a`, see "M4a" at the top; the NVML pre-check
-   item 6 stays open: the editor never starts GPU runs). Next: **M5** (bass: octave anchors, slides — the user
-   confirmed SC bars 4–6 are one slide we write as separate notes), the grid's tempo level (~~spurious beats~~:
+   item 6 stays open: the editor never starts GPU runs). ~~M5~~ done 2026-10-08 (tag `m5`, see "M5"). Next (DESIGN
+   order): **M6** (stereo router, first automatic part split), or first the grid's tempo level (~~spurious beats~~:
    doubles joined 2026-10-05, see "Grid: beats tracked twice"; left: aotonat is 185 BPM but gridded at 93, AIZO
    29–44 s and AZ tracked at double time), or first the M3 gaps (fretting toward 75 %: same fingering
    for repeated sections, chord-shape templates; E16 if a detuned song shows up). Original M3 item: **First task of M3 (done

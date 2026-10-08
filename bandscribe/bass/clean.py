@@ -9,12 +9,13 @@ Input: the pass-1 bass after the silence gate (``notes/bass_raw.json``), dicts w
    wrote as a second note), is dropped (``dupes``).
 2. ``kick``: a note starting within ``kick_s`` of a kick (low-band onsets of the drums stem) with no F0 estimate
    from any tracker is dropped (DESIGN 5.4 "킥 타격과 겹치면서 안정된 F0가 없는 onset").
-3. ``fragments``: a note that continues a same-pitch note (gap <= ``join_gap_s``) is merged into it when it is
-   shorter than ``fragment_s``, or when it has no F0 estimate and no new attack (a decaying tail written twice).
-   A re-plucked repeat of the same pitch has its own F0 and an attack and stays.
-4. ``slides``: glides of the F0 contour. Two notes are joined by a glide when the contour runs from one into the
-   other without a jump (every 10 ms step <= ``glide_step_st``) or a long gap, taking >= ``glide_min_s`` to cross
-   the middle half of the interval (a plucked change crosses it in a frame or two). A chain of
+3. ``fragments``: a note that continues a same-pitch note (gap <= ``join_gap_s``) without a new attack is merged
+   into it when it is shorter than ``fragment_s`` or has no F0 estimate (a split or a decaying tail written twice).
+   A re-plucked repeat of the same pitch has an attack and stays.
+4. ``slides``: glides of the F0 contour, taken off the recording's tuning offset (``tuning_offset``). Two notes
+   are joined by a glide when the contour runs from one into the other without a jump (every 10 ms step <=
+   ``glide_step_st``) or a long gap, taking >= ``glide_min_s`` to cross the middle half of the interval from ``a``'s
+   side to ``b``'s (a plucked change crosses it in a frame or two). A chain of
    glides in one direction whose inner notes have no plateau of ``hold_s`` is one slide: the first note keeps its
    onset and pitch, the passing notes go, and the first note slides (``tech.slide = "legato"``) into the last
    (the note the glide stops on), or slides out (``out_down`` / ``out_up``) when the glide fades out instead.
@@ -60,6 +61,7 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "dead_attack_db": 12.0,
     "glide_step_st": 0.8,
     "glide_min_s": 0.04,
+    "cross_step_st": 0.4,  # review 2026-10-08: no pluck-sized step inside the crossing
     "glide_gap_frames": 5,
     "glide_edge_s": 0.06,
     "hold_s": 0.25,
@@ -153,6 +155,22 @@ class Context:
     f0_params: Mapping[str, Any]
     attack: Attack | None = None
     kicks: np.ndarray | None = None
+    offset: float = 0.0  # the recording's tuning offset in semitones (``tuning_offset``), taken off every contour
+
+
+def tuning_offset(notes: Sequence[Mapping[str, Any]], track: F0.F0Track, f0_params: Mapping[str, Any],
+                  min_frames: int = 50) -> float:
+    """Median of contour - note pitch over the steady frames of the notes where the two are within half a semitone:
+    how far the recording sits from equal temperament at A440 as the bass plays it (0 with fewer than
+    ``min_frames``). A detuned recording otherwise puts every held note in the middle of an interval (review
+    2026-10-08); glides are left out so a slide does not read as detuning."""
+    ref = ref_contour(notes, track.n, track.hop_s)
+    c = F0.consensus(track, f0_params, ref_midi=ref, min_trackers=1)
+    dev = c - ref
+    steady = np.zeros(len(c), dtype=bool)  # held pitch: under 0.1 semitone of change over 40 ms (not a glide)
+    steady[2:-2] = np.abs(c[4:] - c[:-4]) <= 0.1
+    ok = np.isfinite(dev) & (np.abs(dev) <= 0.5) & steady
+    return float(np.median(dev[ok])) if int(ok.sum()) >= min_frames else 0.0
 
 
 def _copy(n: Mapping[str, Any]) -> dict[str, Any]:
@@ -224,25 +242,42 @@ def _filled(seg: np.ndarray, max_gap: int, max_step: float) -> np.ndarray | None
 
 
 def _glide(c: np.ndarray, a: Mapping[str, Any], b: Mapping[str, Any], hop_s: float, p: Mapping[str, Any]) -> bool:
-    """The contour slides from note ``a`` into note ``b``: no long gap or jump on the way (every 10 ms step <=
-    ``glide_step_st``), and its measured frames spend >= ``glide_min_s`` crossing the middle half of the interval.
-    A plucked or hammered change crosses it in a frame or two (or inside a dropout, where nothing is measured), so a
-    fast chromatic run is not a slide."""
+    """The contour (tuning offset removed) slides from note ``a`` into note ``b``: no long gap or jump on the way
+    (every 10 ms step <= ``glide_step_st``), and between the last frame on ``a``'s side of the interval (its first
+    quarter) and the first frame on ``b``'s side (its last quarter) it spends >= ``glide_min_s`` of measured frames
+    crossing the middle half, leaving ``a``'s side and reaching ``b``'s in steps of <= ``cross_step_st``. A plucked or
+    hammered change crosses in a frame or two
+    (or inside a dropout, where nothing is measured), so a fast chromatic run is not a slide; a held note sitting off
+    its pitch (vibrato) never crosses."""
     d = int(b["pitch"]) - int(a["pitch"])
     if d == 0 or float(b["onset_s"]) - float(a["offset_s"]) > float(p["join_gap_s"]):
         return False
     if float(b["onset_s"]) - float(a["onset_s"]) < 0.04:  # starts together: a chord, not a line
         return False
-    start = max(0.5 * (float(a["onset_s"]) + float(a["offset_s"])), float(a["onset_s"]) + 0.03)
-    stop = float(b["onset_s"]) + min(float(p["glide_edge_s"]), 0.5 * (float(b["offset_s"]) - float(b["onset_s"])))
+    start = float(a["onset_s"]) + 0.03  # from where a's pitch is measured: a passing note is gliding already
+    # to the end of b: a slow slide reaches b's side of the interval well after b's (rounded) onset
+    stop = max(float(b["offset_s"]) - 0.02, float(b["onset_s"]) + float(p["glide_edge_s"]))
     raw = _span(c, start, stop, hop_s)
+    last = np.flatnonzero(np.isfinite(raw))
+    raw = raw[:int(last[-1]) + 1] if len(last) else raw  # b may fade out before its written end
     seg = _filled(raw, int(p["glide_gap_frames"]), float(p["glide_step_st"]))
     if seg is None:
         return False
-    lo, hi = sorted((int(a["pitch"]) + 0.25 * d, int(a["pitch"]) + 0.75 * d))
-    crossing = int(np.sum(np.isfinite(raw) & (raw >= lo) & (raw <= hi)))
-    arrived = abs(float(seg[-1]) - int(b["pitch"])) <= 0.5 + 0.25 * abs(d)
-    return arrived and crossing * hop_s >= float(p["glide_min_s"])
+    pos = (seg - int(a["pitch"])) / d  # 0 = a, 1 = b
+    reach = np.flatnonzero(pos >= 0.75)
+    if not len(reach):
+        return False
+    i1 = int(reach[0])
+    left = np.flatnonzero(pos[:i1] <= 0.25)
+    if not len(left):
+        return False
+    i0 = int(left[-1])
+    # leaving a's side and arriving on b's side are glides too, not a pluck from a wobble near the middle (one noisy
+    # frame inside a long crossing is no jump: seisyun complex's slide has a 0.61-semitone dropout step at 5.1 s)
+    if max(abs(float(seg[i0 + 1] - seg[i0])), abs(float(seg[i1] - seg[i1 - 1]))) > float(p["cross_step_st"]):
+        return False
+    measured = int(np.sum(np.isfinite(raw[i0 + 1:i1])))
+    return measured * hop_s >= float(p["glide_min_s"])
 
 
 def _still_moving(c: np.ndarray, n: Mapping[str, Any], direction: float, hop_s: float) -> bool:
@@ -269,7 +304,7 @@ def _anchor(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any], rep
     counts = {a: 0 for a in F0.VOTE_ACTIONS}
     for n in notes:
         ests = F0.note_estimates(ctx.track, n["onset_s"], n["offset_s"], ctx.f0_params)
-        v = F0.vote(n["pitch"], ests, ctx.f0_params)
+        v = F0.vote(n["pitch"], {k: e - ctx.offset for k, e in ests.items()}, ctx.f0_params)
         n["_ests"] = ests
         n["f0"] = v.action
         n["_target"] = v.target
@@ -299,6 +334,8 @@ def _anchor(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any], rep
                     out.append(x)
                 elif x["pitch"] - base in (0, 12, 19, 24):
                     dropped += 1
+                    if x["pitch"] == keep_one["pitch"]:  # the same note written twice: keep its full length
+                        keep_one["offset_s"] = max(keep_one["offset_s"], x["offset_s"])
                 else:
                     out.append(x)
         else:
@@ -332,9 +369,11 @@ def _fragments(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any], 
     for n in _order(notes):
         prev = next((x for x in reversed(out) if x["pitch"] == n["pitch"]), None)
         if prev is not None and -0.005 <= n["onset_s"] - prev["offset_s"] <= float(p["join_gap_s"]):
-            short = n["offset_s"] - n["onset_s"] < float(p["fragment_s"])
-            tail = not n.get("_ests") and (ctx.attack is None or ctx.attack.rise_db(n["onset_s"]) < float(p["tail_attack_db"]))
-            if short or tail:
+            # a re-plucked repeat has an attack of its own: only a split without one is joined (review 2026-10-08:
+            # fast 16ths on one pitch were joined into one note)
+            no_attack = ctx.attack is None or ctx.attack.rise_db(n["onset_s"]) < float(p["tail_attack_db"])
+            short = n["offset_s"] - n["onset_s"] < float(p["fragment_s"]) - 1e-6
+            if no_attack and (short or not n.get("_ests")):
                 prev["offset_s"] = max(prev["offset_s"], n["offset_s"])
                 prev["merged"] = int(prev.get("merged", 0)) + 1 + int(n.get("merged", 0))
                 merged += 1
@@ -348,7 +387,7 @@ def _slides(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any], rep
     tr = ctx.track
     notes = _order(notes)
     c = F0.running_median(F0.consensus(tr, ctx.f0_params, ref_midi=ref_contour(notes, tr.n, tr.hop_s),
-                                       min_trackers=1))
+                                       min_trackers=1)) - ctx.offset
     # a single tracker is enough for the shape of a glide the notes already outline (pyin / PESTO are often silent
     # or an octave off on bass stems; the reference octave comes from the notes); the 50 ms running median keeps the
     # switching between trackers that answer a little apart from looking like jumps
@@ -401,7 +440,7 @@ def _slides(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any], rep
 
 def _gap_fill(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any], rep: dict[str, Any]) -> list[dict[str, Any]]:
     tr = ctx.track
-    c = F0.consensus(tr, ctx.f0_params, min_trackers=2)
+    c = F0.consensus(tr, ctx.f0_params, min_trackers=2) - ctx.offset
     busy = np.zeros(tr.n, dtype=bool)
     for n in notes:
         a = max(0, int(math.floor(n["onset_s"] / tr.hop_s)) - 2)
@@ -481,7 +520,9 @@ def clean(notes: Sequence[Mapping[str, Any]], track: F0.F0Track, params: Mapping
     p = {**DEFAULT_PARAMS, **dict(params or {})}
     ctx = Context(track=track, f0_params=f0_params or F0.DEFAULT_PARAMS, attack=attack, kicks=kicks)
     work = _order([_copy(n) for n in notes])
-    rep: dict[str, Any] = {"in": len(work), "params": {k: p[k] for k in STEPS + ("techniques",)}}
+    ctx.offset = tuning_offset(work, track, ctx.f0_params)
+    rep: dict[str, Any] = {"in": len(work), "params": {k: p[k] for k in STEPS + ("techniques",)},
+                           "tuning_offset_st": round(ctx.offset, 3)}
     work = _anchor(work, ctx, p, rep, move=bool(p["anchor"]))
     rep["moved"] = sum(1 for n in work if "from_pitch" in n)
     if p["kick"]:

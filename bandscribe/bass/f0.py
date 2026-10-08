@@ -39,6 +39,9 @@ HOP_S = 0.01
 CREPE_LOWEST_BIN_HZ = 31.70  # 10 Hz * 2 ** (1997.38 cents / 1200): CREPE's bin 0
 CREPE_MIN_FMIN_HZ = 31.71  # the worker refuses a lower fmin (negative bin index in torchcrepe)
 FORMAT = "bandscribe.bass_f0/1"
+# Bump when the worker's decoding, PESTO chunking or pyin_track changes what a track holds: part of the bass_f0
+# stage key and of the eval F0 cache key (review 2026-10-08: the cache key had no code version).
+CODE_VERSION = "1"
 
 DEFAULT_PARAMS: dict[str, Any] = {
     "hop_s": HOP_S,
@@ -197,8 +200,8 @@ def pyin_track(mono: np.ndarray, sr: int, params: Mapping[str, Any] | None = Non
 
 
 def evidence_span(onset: float, offset: float, params: Mapping[str, Any] | None = None) -> tuple[float, float]:
-    """``onset + 30 ms .. min(onset + 120 ms, offset - 10 ms)``; a note too short for that (< 60 ms) uses
-    ``onset + 10 ms .. offset``."""
+    """``onset + 30 ms .. min(onset + 120 ms, offset - 10 ms)``; when that is shorter than 30 ms (a note shorter than
+    70 ms) ``onset + 10 ms .. offset``."""
     w = (params or DEFAULT_PARAMS).get("evidence_s", DEFAULT_PARAMS["evidence_s"])
     a, b = float(onset) + float(w[0]), min(float(onset) + float(w[1]), float(offset) - 0.01)
     if b - a < 0.03:

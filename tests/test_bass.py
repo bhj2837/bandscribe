@@ -4,6 +4,7 @@ the technique marks through fretting, spelling, alphaTex, GP5 and the text tab."
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -452,3 +453,119 @@ def test_step_rules_follow_the_registration():
     assert out["gap_fill"]["decision"] == "hold"  # no change: CI contains 0
     assert out["kick"]["decision"] == "hold" and out["kick"]["why"] == "no rows"  # no Tier B rows
     assert math.isfinite(out["anchor"]["delta"])
+
+
+# --------------------------------------------------------------------------------- review 2026-10-08
+
+
+def plucked_run(pitches, *, cents=0.0, vibrato_st=0.0, note_s=0.16, start=0.5):
+    """Plucked notes, the contour stepping exactly at each onset, ``cents`` off A440, optional vibrato (5.5 Hz) on
+    every note."""
+    n = frames(start + note_s * len(pitches) + 0.5)
+    t = np.arange(n) * HOP
+    m = np.full(n, np.nan)
+    notes = []
+    for k, p in enumerate(pitches):
+        a, b = start + note_s * k, start + note_s * (k + 1)
+        sel = (t >= a) & (t < b)
+        m[sel] = p + cents / 100.0 + vibrato_st * np.sin(2 * np.pi * 5.5 * (t[sel] - a))
+        notes.append(note(a, b, p))
+    return track_from(m), notes
+
+
+@pytest.mark.parametrize("cents", [0.0, 25.0, 35.0, 45.0, -40.0])
+def test_a_detuned_plucked_run_is_neither_slid_nor_thinned(cents):
+    """A recording off A440 put every held note inside the middle of the next interval: the old glide test counted
+    those frames and read a plucked 40-41-42-43-45 at +35 cents as one slide, deleting 41 and 42."""
+    tr, notes = plucked_run([40, 41, 42, 43, 45], cents=cents)
+    out, rep = CL.clean(notes, tr, CL.DEFAULT_PARAMS)
+    assert [n["pitch"] for n in out] == [40, 41, 42, 43, 45]
+    assert not any((n.get("tech") or {}).get("slide") for n in out)
+    assert rep["tuning_offset_st"] == pytest.approx(cents / 100.0, abs=0.02)
+
+
+def test_vibrato_before_a_plucked_semitone_is_not_a_slide():
+    tr, notes = plucked_run([40, 41], vibrato_st=0.3, note_s=0.4)
+    out, rep = CL.clean(notes, tr, CL.DEFAULT_PARAMS)
+    assert [n["pitch"] for n in out] == [40, 41]
+    assert rep["slides"] == {"chains": 0, "passing_removed": 0, "pairs_marked": 0, "slide_outs": 0}
+
+
+@pytest.mark.parametrize("bpm", [150, 170, 190])
+def test_fast_repeated_plucks_stay_but_unattacked_splits_join(bpm):
+    """16ths on one pitch with an attack each stay (the old rule joined every same-pitch note under 80 ms); the same
+    notes without attacks are one note written in pieces and join."""
+    step = 60.0 / bpm / 4.0
+    n = frames(3.0)
+    m = np.full(n, np.nan)
+    m[50:250] = 40.0
+    tr = track_from(m)
+    notes = [note(0.5 + k * step, 0.5 + (k + 1) * step - 0.02, 40) for k in range(8)]
+    plucked = SimpleNamespace(rise_db=lambda t: 20.0)
+    out, rep = CL.clean(notes, tr, CL.DEFAULT_PARAMS, attack=plucked)
+    assert len(out) == 8 and rep["fragments_merged"] == 0
+    quiet = SimpleNamespace(rise_db=lambda t: 0.0)
+    out, rep = CL.clean(notes, tr, CL.DEFAULT_PARAMS, attack=quiet)
+    if step - 0.02 < CL.DEFAULT_PARAMS["fragment_s"]:  # pieces shorter than a fragment, no attack: one note
+        assert len(out) == 1 and out[0]["offset_s"] == pytest.approx(notes[-1]["offset_s"])
+    else:  # 80 ms pieces with their own F0 are notes (150 BPM: exactly 80 ms, no float slip)
+        assert len(out) == 8
+
+
+def test_a_dropped_duplicate_hands_its_length_to_the_kept_note():
+    """A 33 whose vote is split (one tracker wanders after the attack) and an octave-up ghost the vote moves onto 33:
+    the confirmed ghost stays and must keep the long note's end."""
+    m = np.full(frames(3.0), 33.0)
+    tr = track_from(m, trackers=("crepe", "pyin", "pesto"))
+    tr.hz["pyin"][106:112] = F0.midi_to_hz(np.array([38.0] * 6)).astype(np.float32)  # after the ghost's window
+    tr.hz["pesto"][106:112] = F0.midi_to_hz(np.array([44.0] * 6)).astype(np.float32)
+    tr.conf["crepe"][106:112] = 0.0
+    notes = [note(1.0, 2.0, 33), note(1.0, 1.05, 45)]
+    out, _ = CL.clean(notes, tr, CL.arm_params("anchor"))
+    assert [(n["onset_s"], n["offset_s"], n["pitch"]) for n in out] == [(1.0, 2.0, 33)]
+
+
+def test_f0_cache_key_carries_the_code_version(monkeypatch):
+    from bandscribe.bass import stage as BS
+
+    view = {"id": "v", "wav": "x.wav", "pcm_sha256": "ab" * 32}
+    k1 = BS.cache_key(view, BS.f0_params(None))
+    monkeypatch.setattr(F0, "CODE_VERSION", "2")
+    assert BS.cache_key(view, BS.f0_params(None)) != k1
+
+
+def test_bass_f0_stage_keeps_worker_files_under_worker(tmp_path, monkeypatch):
+    """The worker's request/result/logs and its per-view npz stay in ``_worker/`` (left out of the stage's data
+    outputs); the stage writes f0.npz with all three trackers (pyin from this process)."""
+    import soundfile as sf
+
+    from bandscribe import vram
+    from bandscribe.bass import stage as BS
+
+    stems = tmp_path / "stems"
+    (stems / "views").mkdir(parents=True)
+    t = np.arange(16000) / 8000.0
+    sf.write(str(stems / "views" / "bass_mono.wav"), (0.3 * np.sin(2 * np.pi * 55.0 * t)).astype(np.float32), 8000)
+    seen = {}
+
+    def fake_gpu_stage(backend, labels, req, cfg, work_dir, notify=None):
+        seen["work_dir"] = Path(work_dir)
+        for v in req["views"]:
+            n = F0.n_frames(2.0)
+            F0.save_npz(Path(v["out"]), F0.F0Track(hz={"crepe": np.full(n, 55.0), "pesto": np.full(n, 110.0)},
+                                                    conf={"crepe": np.full(n, 0.9), "pesto": np.full(n, 0.9)}))
+        return SimpleNamespace(ok=True, output={"status": "ok", "vram": {"rung_label": "crepe-full"},
+                                                "backend": {"name": "f0_bass"}, "timing": {}, "warnings": []},
+                               waited_s=0.0)
+
+    monkeypatch.setattr(vram, "run_gpu_stage", fake_gpu_stage)
+    monkeypatch.setattr(vram, "write_gpu_run", lambda out_dir, *a, **k: atomic.write_json(Path(out_dir) / "gpu_run.json", {}))
+    out = tmp_path / "out"
+    ctx = SimpleNamespace(song_key="k", stage="bass_f0", key="0" * 64, out_dir=out, dep_dirs={"stems": stems},
+                          config=None, store=None, params=BS.bass_f0_params(None), progress=None)
+    BS.run_bass_f0(ctx)
+    assert seen["work_dir"] == (out / "_worker").resolve()
+    top = sorted(p.name for p in out.iterdir())
+    assert top == ["_worker", "f0.npz", "f0_info.json", "gpu_run.json"]
+    tr = F0.load_npz(out / "f0.npz")
+    assert tr.names == ["crepe", "pesto", "pyin"] and tr.n == F0.n_frames(2.0)

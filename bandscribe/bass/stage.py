@@ -81,7 +81,7 @@ def _pcm_sha(path: Path) -> str:
 
 def cache_key(view: Mapping[str, Any], params: Mapping[str, Any]) -> str:
     sha = view.get("pcm_sha256") or _pcm_sha(Path(view["wav"]))
-    blob = json.dumps({"pcm": sha, "params": params}, sort_keys=True, ensure_ascii=True)
+    blob = json.dumps({"pcm": sha, "params": params, "code": F0.CODE_VERSION}, sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:32]
 
 
@@ -121,7 +121,8 @@ def run_trackers(views: Sequence[Mapping[str, Any]], params: Mapping[str, Any], 
         return out, info
     model = str(params["crepe"]["model"])
     labels = [f"crepe-{model}"]
-    gpu_dir = work_dir / "gpu"
+    worker_dir = work_dir / "_worker"  # left out of a stage's data outputs (``runner.data_outputs``)
+    gpu_dir = worker_dir / "gpu"
     gpu_dir.mkdir(parents=True, exist_ok=True)
     req = {"format": "bandscribe.worker/1", "job": job, "out_dir": str(gpu_dir), "device": "auto",
            "determinism": True, "mode": "track",
@@ -141,12 +142,12 @@ def run_trackers(views: Sequence[Mapping[str, Any]], params: Mapping[str, Any], 
     # pyin (CPU, this process) runs while the worker has the GPU: it is the slower half on a 3-4 min song
     with ThreadPoolExecutor(max_workers=1) as pool:
         py_future = pool.submit(pyin_all)
-        res = vram.run_gpu_stage(F0_BACKEND, labels, req, cfg, work_dir / "_worker", notify=notify)
+        res = vram.run_gpu_stage(F0_BACKEND, labels, req, cfg, worker_dir, notify=notify)
         py_tracks = py_future.result()
     output = res.output if isinstance(getattr(res, "output", None), dict) else {}
     if output.get("status") != "ok":
         raise BassStageError(f"F0 워커가 결과를 내지 못했습니다(status={output.get('status')}). "
-                             f"자세한 내용: {work_dir / '_worker' / 'stderr.log'}")
+                             f"자세한 내용: {worker_dir / 'stderr.log'}")
     info.update(worker=output, waited_s=getattr(res, "waited_s", 0.0),
                 rung_label=(output.get("vram") or {}).get("rung_label"))
     for i, ((v, key), py) in enumerate(zip(todo, py_tracks)):
@@ -175,7 +176,7 @@ def run_bass_f0(ctx: Any) -> None:
         raise BassStageError(f"stems 단계에 베이스 뷰가 없습니다: {wav}")
     job = {"song_key": ctx.song_key, "stage": ctx.stage, "stage_key": ctx.key}
     tracks, info = run_trackers([{"id": BASS_VIEW, "wav": str(wav)}], dict(ctx.params), ctx.config,
-                                work_dir=out_dir / "_f0", job=job, notify=_notifier(ctx))
+                                work_dir=out_dir, job=job, notify=_notifier(ctx))
     F0.save_npz(out_dir / F0_FILE, tracks[BASS_VIEW])
     worker = info.get("worker") or {}
     labels = [f"crepe-{ctx.params['crepe']['model']}"]
@@ -243,7 +244,9 @@ def run_bass(ctx: Any) -> None:
 
 
 STAGES: dict[str, dict] = {
-    "bass_f0": {"run": run_bass_f0, "code_version": "1", "params": bass_f0_params, "device": "gpu",
+    "bass_f0": {"run": run_bass_f0, "code_version": F0.CODE_VERSION, "params": bass_f0_params, "device": "gpu",
                 "models": lambda cfg: {}},
-    "bass": {"run": run_bass, "code_version": "1", "params": bass_params, "device": "cpu", "models": lambda cfg: {}},
+    # 3: review fixes 2026-10-08 (glide crossing on the tuning-corrected contour, fragments need no attack,
+    # duplicates keep their length)
+    "bass": {"run": run_bass, "code_version": "3", "params": bass_params, "device": "cpu", "models": lambda cfg: {}},
 }
