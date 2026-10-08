@@ -106,7 +106,7 @@
   const fmt = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
   const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const pitchName = (p) => `${NAMES[p % 12]}${Math.floor(p / 12) - 1}`;
-  const TRACK_KO = { guitar_all: "기타", bass_raw: "베이스" };
+  const TRACK_KO = { guitar_all: "기타", bass: "베이스", bass_raw: "베이스" };
 
   // absolute URLs: the render worker's importScripts() rejects a path-only URL
   const abs = (p) => new URL(p, location.href).href;
@@ -376,7 +376,7 @@
         if (n) send({ cmd: "string", uid: selected, dir: e.shiftKey ? -1 : 1 });
         break;
       case "1": case "2":
-        if (n) send({ cmd: "assign", uid: selected, track: e.key === "1" ? "guitar_all" : "bass_raw" });
+        if (n) send({ cmd: "assign", uid: selected, track: e.key === "1" ? "guitar_all" : "bass" });
         break;
       case "a": case "A":
         send({ cmd: "add", track: n ? n.track : "guitar_all", t_s: audio.currentTime, pitch: n ? n.pitch : 0 });

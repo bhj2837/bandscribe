@@ -27,6 +27,10 @@ dependencies = [
     "packaging",
     "pyyaml",
     "filelock",
+    # --- M5 (DESIGN 5.3): bass F0 trackers. torchcrepe bundles its weights (assets/*.pth) and brings librosa;
+    # pesto-pitch bundles its checkpoints. The f0_bass worker loads both from the installed package only.
+    "torchcrepe==0.0.24",
+    "pesto-pitch==2.0.1",
 ]
 
 [tool.uv]

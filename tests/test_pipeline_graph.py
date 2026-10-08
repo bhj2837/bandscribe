@@ -23,13 +23,17 @@ EXPECTED = {
     "notes": {"amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"},  # stems: energy.npz for the silence gate
 }
 M2_STAGES = set(EXPECTED)
+EXPECTED.update({  # M5 bass: F0 tracks (GPU worker) and the clean-up of the gated pass-1 bass
+    "bass_f0": {"stems"},
+    "bass": {"notes", "bass_f0", "stems", "sep", "grid"},
+})
 EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},
-    "quant": {"notes", "grid", "sections"},  # the bass comes gated from notes (2026-10-05)
+    "quant": {"notes", "bass", "grid", "sections"},  # the bass comes from the bass stage (M5)
     "tab": {"quant", "a4"},
     "score": {"tab", "quant", "grid", "sections"},
 })
-GPU = {"beats", "sep", "amt_ms1", "amt_gtr"}
+GPU = {"beats", "sep", "amt_ms1", "amt_gtr", "bass_f0"}
 
 
 def fake_impls(monkeypatch, missing_module: str | None = None):
@@ -69,7 +73,9 @@ def test_until_notes_includes_s35_parts():
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
     assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes",
-                                               "quant", "tab", "score"}
+                                               "bass", "quant", "tab", "score"}
+    assert graph.selected("score")[-5:] == ["bass_f0", "bass", "a4", "quant", "tab", "score"][-5:]
+    assert "bass_f0" in graph.selected("score") and "bass" in graph.selected("score")
 
 
 def test_missing_stage_module_korean_error(monkeypatch):

@@ -30,6 +30,7 @@ class WNote:
     fret: int | None = None
     tie: bool = False  # tie destination (continues the same note from the previous beat)
     src: tuple[str, ...] = ()  # ids of the notes this written note stands for (M4a: a click finds its notes)
+    fx: tuple[str, ...] = ()  # alphaTex note effects (M5 bass): x dead, g ghost, v vibrato, sl / sod / sou slides
 
 
 @dataclass
@@ -283,7 +284,7 @@ def spell_bar(bar: WBar, segments: Sequence[tuple[int, int, list[WNote] | None, 
             t = end
         for j, (s, d, v, dots, tu) in enumerate(pieces):
             tie = cont or j > 0
-            ns = [] if notes is None else [WNote(n.pitch, n.string, n.fret, tie, n.src) for n in notes]
+            ns = [] if notes is None else [WNote(n.pitch, n.string, n.fret, tie, n.src, n.fx) for n in notes]
             beats.append(WBeat(start=s, dur=d, value=v, dots=dots, tuplet=tu, notes=ns))
     return beats
 
@@ -322,7 +323,36 @@ def spell_track(events: Sequence[tuple[int, int, list[WNote]]], bars: Sequence[W
                 segs.append((a - a_bar, b - a_bar, notes, s < a_bar and notes is not None))
             k += 1
         out.append(spell_bar(bar, segs, family_of))
+    place_effects(out)
     return out
+
+
+HEAD_FX = ("x", "g")  # on the first written piece of a note only
+TAIL_FX = ("sl", "sod", "sou")  # on its last piece only (a slide leaves the note where it ends)
+
+
+def place_effects(spelled: Sequence[Sequence[WBeat]]) -> None:
+    """A note written as tied pieces keeps a dead / ghost mark on its first piece and a slide on its last one;
+    vibrato stays on every piece."""
+    chains: dict[tuple[Any, ...], list[WNote]] = {}
+    done: list[list[WNote]] = []
+    for beats in spelled:
+        for be in beats:
+            for n in be.notes:
+                if not n.fx and not n.tie:
+                    continue
+                key = (n.src, n.string, n.pitch)
+                if n.tie and key in chains:
+                    chains[key].append(n)
+                else:
+                    if key in chains:
+                        done.append(chains[key])
+                    chains[key] = [n]
+    done.extend(chains.values())
+    for chain in done:
+        last = len(chain) - 1
+        for k, n in enumerate(chain):
+            n.fx = tuple(f for f in n.fx if (f not in HEAD_FX or k == 0) and (f not in TAIL_FX or k == last))
 
 
 def written_ticks(value: int, dots: int, tuplet: tuple[int, int] | None, beat_unit: str) -> int:

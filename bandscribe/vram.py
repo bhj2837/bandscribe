@@ -46,6 +46,7 @@ DEFAULT_NEEDS: dict[str, dict[str, float]] = {
     "sep_msst": {"chunk=588800": 1800.0, "chunk=352256": 1400.0, "chunk=262144": 1200.0},
     "amt_muscriptor": {"medium": 2400.0, "medium-lean": 1800.0, "small": 1400.0},  # small: estimate, never measured
     "beats_beatthis": {"final0": 500.0},
+    "f0_bass": {"crepe-full": 1500.0},  # M5: CREPE full in 256-frame batches, then PESTO in 30 s chunks (1362 MB reserved, 2026-10-08)
 }
 
 # Mirrors of the [gpu] defaults (M1_M2_SPEC 1.3) for callers without a full Config: ``None`` (GRID's worker

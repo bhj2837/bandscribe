@@ -40,11 +40,12 @@
 
 | 결과 | 설명 |
 |---|---|
-| 악보 `tab/score.alphatex` | 모든 트랙: **Guitar (all parts)** 는 오선보(파트를 아직 못 나누므로 운지 없음), **Bass (raw)** 는 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
+| 악보 `tab/score.alphatex` | 모든 트랙: **Guitar (all parts)** 는 오선보(파트를 아직 못 나누므로 운지 없음), **Bass** 는 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
+| 베이스 정리(M5) | 피치 추적기 셋(CREPE·PESTO·pyin)이 베이스 음을 확인한다: 둘이 동의하면 옥타브·반음을 고치고, 계단처럼 쪼개 적힌 슬라이드를 한 음 + 슬라이드로 합친다. 주법은 제안으로 적는다: 슬라이드(`\` `/`), 비브라토(`~`), 데드 노트(`x`). 슬라이드 두 음은 같은 줄에 운지한다. 어느 단계를 켤지는 실험 E13 이 정했다(`[bass]` 설정) |
 | `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(기본: 베이스. `--parts 1` 이면 기타도) |
 | `tab/*.txt` | 운지된 트랙의 텍스트 탭(대략적인 미리보기) |
 | 튜닝 | 기타·베이스 함께 추정(표준·드롭·반음/온음 다운·카포·오픈 튜닝, 7현은 D2 아래 음이 있을 때만). `tab/tab.json` |
-| MIDI | 연주 그대로(`guitar_all.mid`, `bass_raw.mid`)와 양자화판(`*_quantized.mid`) |
+| MIDI | 연주 그대로(`guitar_all.mid`, 전사 그대로의 `bass_raw.mid`, 정리한 `bass.mid`)와 양자화판(`*_quantized.mid`) |
 | 6 스템 | vocals, drums, bass, guitar, piano, other (+ `nonvox` = 믹스 − 보컬·드럼·베이스, `leftover` = 믹스 − 6 스템 합) |
 | 박·마디 격자 | Beat This! 비트·다운비트에 자체 후처리(한 박을 두 번 잡은 비트 합치기, 곡 안의 반/배 박 전환 정리, 동적 계획법 마디선)를 더한 템포맵·박자표 |
 | 편성 추정 | 악기 클래스별 존재 확률(`instrumentation.json`, 건반·신스·현악 등). 기타 전사의 악기 마스크를 정하는 데 쓴다 |

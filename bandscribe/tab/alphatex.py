@@ -3,7 +3,9 @@
 Tracks share the master bars (meter, tempo, triplet feel, sections), written in the first track; every bar of
 every track holds its spelled beats (``bandscribe.tab.notation``). Fretted tracks are ``\\staff {tabs}`` with
 ``fret.string`` notes (string 1 = highest; ``\\tuning`` lists open strings highest first); unfretted tracks are
-``\\staff {score}`` with pitched notes (``C#4``). Ties are the note property ``{t}``, dots and tuplets beat
+``\\staff {score}`` with pitched notes (``C#4``). Ties are the note property ``{t}``; the M5 bass techniques are note properties
+too (``{x}`` dead, ``{g}`` ghost = a note only the F0 trackers found, ``{v}`` vibrato, ``{sl}`` legato slide into
+the next note, ``{sod}`` / ``{sou}`` slide out down / up). Dots and tuplets are beat
 properties ``{d}`` / ``{tu (3 2)}``. Every metadata argument is parenthesised: an unwrapped ``\\section "A"``
 takes the next note as its second argument (AIZO, 2026-10-05). One ``\\sync (bar 0 ms)`` per bar puts every bar
 line on the recording's time (the grid's bar start), so a player following external media stays on the audio
@@ -51,7 +53,8 @@ class WScore:
 
 def _note(n, fretted: bool) -> str:
     base = f"{n.fret}.{n.string}" if fretted else pitch_name(n.pitch)
-    return base + ("{t}" if n.tie else "")
+    props = (["t"] if n.tie else []) + list(getattr(n, "fx", ()) or ())
+    return base + ("{" + " ".join(props) + "}" if props else "")
 
 
 def _beat(be: WBeat, fretted: bool) -> str:

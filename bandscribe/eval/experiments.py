@@ -39,7 +39,8 @@ log = logging.getLogger(__name__)
 SEP_IDS = frozenset({"stereo-preservation"})
 AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
 TAB_IDS = frozenset({"E12", "E12b"})
-ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS | TAB_IDS))
+BASS_IDS = frozenset({"E13"})
+ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS | TAB_IDS | BASS_IDS))
 
 STATE_PRE = "사전 등록"
 STATE_RUNNING = "실행 중"
@@ -552,7 +553,8 @@ def evaluate(rows: Sequence[Mapping[str, Any]], spec: Mapping[str, str], *, n: i
 
 def experiment_fn(exp_id: str) -> Callable[[Path, Any, dict], list[dict]]:
     mod_name = ("bandscribe.sep.experiments" if exp_id in SEP_IDS else
-                "bandscribe.tab.experiments" if exp_id in TAB_IDS else "bandscribe.amt.experiments")
+                "bandscribe.tab.experiments" if exp_id in TAB_IDS else
+                "bandscribe.bass.experiments" if exp_id in BASS_IDS else "bandscribe.amt.experiments")
     try:
         mod = importlib.import_module(mod_name)
     except ImportError as e:

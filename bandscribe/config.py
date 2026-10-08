@@ -81,7 +81,7 @@ class IngestCfg(_Section):
         return v
 
 
-GPU_BACKENDS: tuple[str, ...] = ("sep_msst", "amt_muscriptor", "beats_beatthis")
+GPU_BACKENDS: tuple[str, ...] = ("sep_msst", "amt_muscriptor", "beats_beatthis", "f0_bass")
 
 
 class GpuCfg(_Section):
@@ -108,7 +108,7 @@ class GpuCfg(_Section):
     load_spill_fail_mb: float = Field(48.0, ge=0.0)
     rtf_fail_ratio: float = Field(0.5, gt=0.0, le=1.0)
     # Backends that may use a CPU rung, and only under policy "cpu" (DESIGN 12: only small models on CPU).
-    cpu_backends: list[Literal["sep_msst", "amt_muscriptor", "beats_beatthis"]] = Field(
+    cpu_backends: list[Literal["sep_msst", "amt_muscriptor", "beats_beatthis", "f0_bass"]] = Field(
         default_factory=lambda: ["beats_beatthis"]
     )
 
@@ -292,6 +292,18 @@ class TabCfg(_Section):
     bass_tuning: str = Field("auto", min_length=1)
 
 
+class BassCfg(_Section):
+    # M5 (DESIGN 5): the S11 clean-up of the pass-1 bass with the F0 tracks (bandscribe.bass.clean); E13
+    # (docs/decisions.md) decides which steps are on.
+    anchor: bool = True  # octave / semitone moves from the 2-of-3 tracker vote + harmonic duplicates dropped
+    kick: bool = False  # notes on a kick without any F0 dropped (needs the drums stem)
+    fragments: bool = True  # same-pitch fragments and decaying tails merged
+    slides: bool = True  # glide chains -> one note sliding into the note it stops on
+    gap_fill: bool = False  # stable two-tracker F0 where MuScriptor wrote nothing -> low-confidence notes
+    policy: Literal["muscriptor", "and"] = "muscriptor"  # "and" = keep only F0-confirmed notes (E13 comparison)
+    techniques: bool = True  # vibrato / dead-note suggestions on the notes
+
+
 class EvalCfg(_Section):
     tpb: int = Field(48, ge=1)
     onset_tol_s: float = Field(0.05, gt=0.0)
@@ -335,6 +347,7 @@ class Config(BaseModel):
     sections: SectionsCfg = Field(default_factory=SectionsCfg)
     s35: S35Cfg = Field(default_factory=S35Cfg)
     tab: TabCfg = Field(default_factory=TabCfg)
+    bass: BassCfg = Field(default_factory=BassCfg)
     eval: EvalCfg = Field(default_factory=EvalCfg)
     datasets: DatasetsCfg = Field(default_factory=DatasetsCfg)
     # Unknown top-level sections, kept verbatim (see module docstring).

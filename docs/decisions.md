@@ -534,6 +534,58 @@
   - 요약(2026-10-05): dev 최고 = `win_s0.5_h0.0_o0.0` 70.6점(창 모델, 높이·개방현 보너스 0; s2.0 70.2, s1.0 69.8 — shift 는 거의 무관, height·open 0 이 결정적). test(240트랙, 20곡): **69.3** [66.0, 72.6] vs 기준 v1 57.4, Δ **+11.96 [+8.41, +15.34]**점(comp +2.7 [−1.5, +6.7], solo **+21.2** [+16.1, +26.4]). 음 단위로 모은 일치(서술): test **74.6 %**(v1 66.6 %, tuttut 55.9 %), dev 78.7 %. 연주 가능성 위반 0.
   - 결정: 채택 — 기본 운지 모델을 `window`, 가중치 shift 0.5·height 0.0·open 0.0 으로 바꾼다(튜닝 탐색의 운지 비용은 개방현 단서가 필요해 등록 당시 v1 가중치를 그대로 쓴다). M3 운지 [판정](≥ 75)은 등록 지표(트랙 평균) 69.3점으로 **미달**, 음 단위 74.6 % 도 문턱 바로 아래다. tuttut 이상 조건은 충족(트랙 평균 46.7 대비).
 
+## E13
+- 제목: 베이스 정리 — 3-트래커 옥타브·피치 앵커, 조각·슬라이드 합치기, 킥 거부, 투표자 2개 정책(F0 채우기) vs AND
+- 상태: 사전 등록
+- 질문: MuScriptor 베이스 패스(M2 원시)를 F0 트래커 셋(CREPE full·PESTO mir-1k_g7·pyin, `bandscribe.bass.f0`)으로 정리하면
+  onset F1 이 오르는가? 어느 단계를 기본으로 켤까(DESIGN 5 "도움이 된 것만 켠다")? 투표자 2개 정책(MuScriptor 주 소스 + F0 로
+  빈 곳 채우기)이 AND(둘 다 있는 음만)보다 재현율에서 낫고 정밀도 손실이 작은가(M5 [판정])?
+- 선택지(`bandscribe.bass.clean.arm_params`, 문턱은 이 등록 커밋의 `clean.DEFAULT_PARAMS`·`f0.DEFAULT_PARAMS`, 주법 표시는 끔):
+  `raw`(기준 = M2 원시) | `anchor`(2-of-3 투표로 옥타브·반음 이동 + 화성 중복 제거) | `anchor_merge`(+ 같은 음 조각·감쇠 꼬리
+  합치기 + 슬라이드 사슬 합치기) | `anchor_merge_kick`(+ 킥 거부, 드럼 스템이 있는 Tier B 에서만 달라짐) | `two_voter`
+  (anchor_merge + 두 트래커가 같은 음을 100 ms 이상 낸 빈 곳을 저신뢰 음으로) | `and`(anchor_merge + F0 투표가 그 음높이를 댄
+  음만, 비교용으로만).
+- 주 지표: 베이스 onset F1(50 ms, 음높이 일치, offset 무시), 참조·추정 모두 같은 음 50 ms 안 합침(E1–E3b 와 같음).
+  함께 보고(판정 없음): chroma F1, 옥타브 오류율(= chroma F1 − pitch F1, 점), tick F1(정답 박 격자, IDMT·FiloBass).
+- MDE: 1.0점(우월성 단계). 비열등 여유 −1.0점(합치기 단계).
+- 데이터(세트, 분할, 창 정의):
+  - IDMT-SMT-Bass-Single-Track 17트랙 전체(DI 일렉 베이스, 연주자 1명; 블록 = 트랙). 입력 = 녹음 그대로.
+  - FiloBass 12곡(곡 이름의 `sha256("20260930:filobass:<곡>")` 순서 앞 12곡; 블록 = 곡), 창 30–90 s, 입력 = 세트의 분리된 베이스
+    스템, 정답 = `midi_fully_aligned` 중 창 안에서 시작하는 음.
+  - Tier B: Cambridge-MT 의 E1 6곡(ButterflyEffect, JetB, Mistrusted, YoungGriffo, Secretariat, Woodfire)을 `tierb_mix`
+    (master −8 LUFS)로 다시 섞어 SW 로 분리한 베이스 스템, 참조 = 참 베이스 트랙의 reftx(arm 비교용, 절대 성능 주장 금지).
+  - 분할 없음(선택지가 미리 정해져 있고 튜닝하지 않는다). `scenario` = 데이터셋.
+  - 오염: MuScriptor × IDMT·FiloBass = 불명(`docs/eval/contamination.md`) — 절대값은 서술만, arm 사이 비교는 유효.
+- 분석: 블록 부트스트랩 10k(seed 20260930). 단계마다 바로 앞 arm 과 쌍 비교(`bandscribe.bass.experiments.STEP_RULES`),
+  하위 세트 = 데이터셋.
+- 결정 규칙(단계별, 러너가 `steps.json` 에 계산; 사람이 `[bass]` 기본값에 반영):
+  - anchor(`anchor` − `raw`): DESIGN 8.1 우월성(CI 가 0 제외, 점추정 ≥ 1.0, 어느 데이터셋 CI 상한도 −2 미만 아님).
+  - 합치기(`anchor_merge` − `anchor`): 비열등(전체 CI 하한 > −1.0 이고 어느 데이터셋 CI 상한도 −2 미만 아님). 목적이 기보
+    (계단으로 적힌 슬라이드를 한 음 + 슬라이드로)라 F1 이 오를 필요는 없고 떨어지지만 않으면 켠다.
+  - 킥 거부(`anchor_merge_kick` − `anchor_merge`, Tier B 항목만): 우월성(MDE 1.0).
+  - F0 채우기(`two_voter` − `anchor_merge`): 우월성(MDE 1.0).
+  - 단계는 정해진 순서로 쌓은 arm 끼리 비교한다(앞 단계가 꺼져도 다시 돌리지 않는다; 효과가 거의 더해진다고 본다).
+  - 기각·보류된 단계는 끈다. 러너의 계산된 판정(`판정 설정`, raw 대비 가장 큰 채택 arm)은 참고로 함께 적는다.
+  - M5 [판정] "투표자 2개가 AND 보다 재현율에서 낫고 정밀도 손실이 CI상 작다": `policy_check.json` 의 `two_voter` − `and` 재현율
+    Δ CI 가 0 초과, 정밀도 Δ CI 하한 ≥ −2점이면 충족.
+- 판정 설정: `rule=superiority; metric=onset_f1_50; baseline=raw; mde=1.0; subset_col=scenario; exclude=and`
+- 비용: GPU 약 25–30분(SW 6곡 약 7분, MuScriptor 베이스 패스 IDMT 6분·FiloBass 12분·Tier B 24분 분량 오디오, CREPE·PESTO),
+  CPU pyin·정리 약 10분. MuScriptor 는 eval 전사 캐시, F0 는 `data/eval/f0_cache` 를 쓴다(다시 돌리면 GPU 거의 없음).
+- 실행 명령: `bandscribe eval exp E13`
+- 등록 메모(2026-10-08, 실행 전):
+  - 미리 본 것: seisyun complex(Tier A, 정답 악보 PDF) 한 곡만 서술로 봤다 — 마디별 음 묶음 F1 raw 90.1, anchor 90.1(옥타브 이동 0,
+    반음 6), anchor_merge 90.7(FP 98 → 87, 인트로 슬라이드 41·39·38·37·36·35 → 한 음 + 슬라이드), two_voter = anchor_merge(채운 음
+    0), and 72.2. E13 데이터(IDMT·FiloBass·Tier B)는 등록 전에 러너 동작만 IDMT 2트랙으로 확인했고 지표는 보지 않았다.
+  - 문턱은 seisyun complex 의 슬라이드(3.0–5.6 s, F0 42.5 → 31.2 반음)와 그 곡의 다른 구간에서 손으로 정했다: 글라이드 = 10 ms
+    걸음 ≤ 0.8반음, 음정 가운데 절반을 40 ms 이상 걸쳐 지남; 정체 = 250 ms 동안 기울기 ≤ 1.5반음/s, 흩어짐 ≤ 0.15. 등록 뒤에는
+    바꾸지 않는다.
+  - 트래커 신뢰도 문턱은 셋 다 0.5(정하지 않고 관례값). seisyun complex 에서 프레임 유효 비율 CREPE 60 %, PESTO 67 %(대부분 한
+    옥타브 위), pyin 16 % — 투표가 자주 "split"(셋이 서로 다름, 노트의 31 %)이다.
+  - torchcrepe 의 Viterbi 는 시그모이드 출력에 softmax 를 해 관측이 거의 평평하고, 베이스 스템에서 경로가 최저 bin 에 붙어
+    프레이즈 전체를 놓쳤다(seisyun complex 34–36 s). 원래 CREPE 처럼 salience 를 합 1 로 정규화해 한 번에 디코딩한다.
+  - SCNet 앙상블(DESIGN E13 의 네 번째 항목)과 YourMT3+ 투표자 3개(2-of-3)는 이번에 없다(설치 안 함) — 다음 등록으로 미룬다.
+- 결과: (아직 없음)
+
 ## E14
 - 제목: 양자화 설정 — 타이밍 잡음 σ, 수준 벌점, 24 vs 48 tick, 이분/삼분 전환 벌점, 셔플·12/8 판정 문턱
 - 상태: 사전 등록

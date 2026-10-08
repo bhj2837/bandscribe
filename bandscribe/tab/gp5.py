@@ -4,7 +4,8 @@ GP5 stores notes only as string and fret, so only fretted tracks go in (the bass
 with ``--parts 1``); a staff-only guitar stays in alphaTex / MIDI (DESIGN 4.2). Same spelled bars as the
 alphaTex writer: time signature, triplet feel and section marker per measure header, a tempo change as a mix
 table change on the first beat of the first track, ties as ``NoteType.tie``, tuplets as ``Tuplet(3, 2)`` /
-``Tuplet(6, 4)``, capo as the track offset.
+``Tuplet(6, 4)``, capo as the track offset. Bass techniques (M5): dead notes as ``NoteType.dead``, ghost notes,
+vibrato and slides (legato slide to the next note, slide out down / up) as note effects.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import guitarpro as gp
 
 from bandscribe.tab.alphatex import WScore
 
+# M5 bass techniques (``WNote.fx``): legato slide into the next note, slide out down / up
+SLIDES = {"sl": gp.SlideType.legatoSlideTo, "sod": gp.SlideType.outDownwards, "sou": gp.SlideType.outUpwards}
 GM_PROGRAM = {"electricbassfinger": 33, "acousticguitarsteel": 25, "electricguitarclean": 27,
               "overdrivenguitar": 29, "distortionguitar": 30}
 
@@ -51,8 +54,13 @@ def build(score: WScore) -> gp.Song:
                 beat = gp.Beat(voice, duration=gp.Duration(value=be.value, isDotted=be.dots == 1, tuplet=tup),
                                status=gp.BeatStatus.normal if be.notes else gp.BeatStatus.rest)
                 for n in be.notes:
-                    beat.notes.append(gp.Note(beat, value=int(n.fret), string=int(n.string), velocity=95,
-                                              type=gp.NoteType.tie if n.tie else gp.NoteType.normal))
+                    fx = set(getattr(n, "fx", ()) or ())
+                    kind = gp.NoteType.tie if n.tie else (gp.NoteType.dead if "x" in fx else gp.NoteType.normal)
+                    note = gp.Note(beat, value=int(n.fret), string=int(n.string), velocity=95, type=kind)
+                    note.effect.vibrato = "v" in fx
+                    note.effect.ghostNote = "g" in fx
+                    note.effect.slides = [SLIDES[f] for f in ("sl", "sod", "sou") if f in fx]
+                    beat.notes.append(note)
                 if ti == 1 and k == 0 and bi < len(score.tempo_qpm) and score.tempo_qpm[bi] != prev_tempo:
                     beat.effect.mixTableChange = gp.MixTableChange(
                         tempo=gp.MixTableItem(value=int(score.tempo_qpm[bi]), duration=0))

@@ -34,7 +34,7 @@ def test_quant_stage_reads_guitar_all_and_pass1_bass(tmp_path):
     doc = atomic.read_json(ctx.out_dir / "quant.json")
     assert doc["format"] == "bandscribe.quant/1"
     assert doc["tracks"]["guitar_all"]["stats"]["n"] == len(notes)
-    assert doc["tracks"]["bass_raw"]["stats"]["n"] == len(notes[::3])
+    assert doc["tracks"]["bass"]["stats"]["n"] == len(notes[::3])
     assert [s["id"] for s in doc["sections"]] == ["S1"]
 
 
@@ -73,7 +73,7 @@ def test_tab_stage_frets_the_bass_and_the_guitar_only_as_one_part(tmp_path):
     def notes_of(events):
         return [{"onset_s": e.onset_s, "offset_s": off, "pitch": p} for e in events for p, off in zip(e.pitches, e.offsets_s)]
 
-    q = Q.quantize({"guitar_all": notes_of(song(E_STD, n_bars=8)), "bass_raw": notes_of(bass_line((28, 33, 38, 43)))},
+    q = Q.quantize({"guitar_all": notes_of(song(E_STD, n_bars=8)), "bass": notes_of(bass_line((28, 33, 38, 43)))},
                    tm_grid)
     d = {"quant": tmp_path / "quant", "a4": tmp_path / "a4"}
     atomic.write_json(d["quant"] / "quant.json", q)
@@ -85,11 +85,11 @@ def test_tab_stage_frets_the_bass_and_the_guitar_only_as_one_part(tmp_path):
         T.run_tab(ctx)
         doc = atomic.read_json(ctx.out_dir / "tab.json")
         assert doc["tuning"]["guitar"]["label"] == "E standard" and doc["tuning"]["bass"]["label"] == "E standard"
-        bass = doc["tracks"]["bass_raw"]
+        bass = doc["tracks"]["bass"]
         assert bass["fretted"] and bass["check"]["bad_events"] == [] and bass["check"]["dropped"] == 0
         assert all(n["string"] is not None for n in bass["notes"])
         assert doc["tracks"]["guitar_all"]["fretted"] is (parts == 1)
-        assert (ctx.out_dir / "text" / "bass_raw.txt").is_file()
+        assert (ctx.out_dir / "text" / "bass.txt").is_file()
         assert (ctx.out_dir / "text" / "guitar_all.txt").is_file() is (parts == 1)
 
 
@@ -172,7 +172,7 @@ def test_tab_stage_writes_a_user_tuning_and_shifts_what_it_cannot_play(tmp_path)
     times = beat_times(20 * 4 + 4, warp=False)
     evs = riff(drop, [0, 0, 3, 5, 0, 0, 7, 5])
     notes = [{"onset_s": e.onset_s + 0.5, "offset_s": off + 0.5, "pitch": p} for e in evs for p, off in zip(e.pitches, e.offsets_s)]
-    q = Q.quantize({"guitar_all": notes, "bass_raw": []}, grid_doc(times))
+    q = Q.quantize({"guitar_all": notes, "bass": []}, grid_doc(times))
     d = {"quant": tmp_path / "quant", "a4": tmp_path / "a4"}
     atomic.write_json(d["quant"] / "quant.json", q)
     atomic.write_json(d["a4"] / "a4.json", {"cents": 0.0, "a4_hz": 440.0, "confidence": 0.9})

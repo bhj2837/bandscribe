@@ -303,6 +303,10 @@ def _viterbi(costs: list[dict[str, float]], switch: float) -> list[str]:
     return path[::-1]
 
 
+# note fields the quantiser carries over unchanged (M5 bass: techniques, provenance, the anchor's move)
+PASS_KEYS = ("tech", "src", "conf", "f0", "from_pitch", "merged")
+
+
 def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[str, Any] | Grid,
              sections: Sequence[Mapping[str, Any]] | None = None, params: Mapping[str, Any] | None = None
              ) -> dict[str, Any]:
@@ -373,7 +377,8 @@ def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[st
             rows.append({"i": k, "onset_s": round(float(n["onset_s"]), 6), "offset_s": round(float(n["offset_s"]), 6),
                          "pitch": int(n["pitch"]), "instrument": n.get("instrument"), "gtick": int(g_on),
                          "dur": int(dur), "bar": int(bar), "tick": int(g_on - round(start_beat * TPB)),
-                         "family": fam, "level": int(pts.level[c]), "resid_ms": round(float(resid_ms), 2)})
+                         "family": fam, "level": int(pts.level[c]), "resid_ms": round(float(resid_ms), 2),
+                         **{key: n[key] for key in PASS_KEYS if key in n}})
         res = np.array([abs(r["resid_ms"]) for r in rows]) if rows else np.zeros(0)
         lv = [r["level"] for r in rows]
         out_tracks[tid] = {

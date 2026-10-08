@@ -34,12 +34,12 @@ def make_job(root: Path, *, guitar_parts: int = 1, shift_s: float = 0.0) -> Path
     d = {s: st / s / KEYS[s][:12] for s in KEYS}
     times = beat_times(12 * 4 + 4, warp=False)
     raw = {"guitar_all": _raw(song(E_STD, n_bars=6), 0.5 + shift_s, "distorted_electric_guitar"),
-           "bass_raw": _raw(bass_line((28, 33, 38, 43), n=40), 0.5 + shift_s, "electric_bass")}
+           "bass": _raw(bass_line((28, 33, 38, 43), n=40), 0.5 + shift_s, "electric_bass")}
     grid = grid_doc(times)
     sections = [{"id": "S1", "label": "A", "start_bar": 1, "end_bar": 7, "start_s": times[0], "end_s": times[24]},
                 {"id": "S2", "label": "B", "start_bar": 7, "end_bar": 14, "start_s": times[24], "end_s": times[-1] + 0.5}]
     atomic.write_json(d["notes"] / "guitar_all.json", {"notes": raw["guitar_all"]})
-    atomic.write_json(d["notes"] / "bass_raw.json", {"notes": raw["bass_raw"]})
+    atomic.write_json(d["notes"] / "bass_raw.json", {"notes": raw["bass"]})
     atomic.write_json(d["grid"] / "grid.json", grid)
     atomic.write_json(d["sections"] / "sections.json", {"sections": sections})
     qp = T.quant_params(None)
@@ -63,7 +63,7 @@ def make_job(root: Path, *, guitar_parts: int = 1, shift_s: float = 0.0) -> Path
                                                         "params": json.loads(json.dumps(params)), "deps": deps})
     exp = job / "export"
     files = {}
-    for rel in ("tab/score.alphatex", "tab/score.gp5", "tab/bass_raw.txt", "score.json"):
+    for rel in ("tab/score.alphatex", "tab/score.gp5", "tab/bass.txt", "score.json"):
         if (d["score"] / rel).is_file():
             (exp / rel).parent.mkdir(parents=True, exist_ok=True)
             (exp / rel).write_bytes((d["score"] / rel).read_bytes())
@@ -73,7 +73,7 @@ def make_job(root: Path, *, guitar_parts: int = 1, shift_s: float = 0.0) -> Path
 
 
 def _bass(s: E.Session) -> list[str]:
-    return [u for u, n in s.map["notes"].items() if n["track"] == "bass_raw" and u in s.map["at"]]
+    return [u for u, n in s.map["notes"].items() if n["track"] == "bass" and u in s.map["at"]]
 
 
 def test_every_edit_replays_to_the_same_score_and_undo_restores_the_run(tmp_path):
@@ -89,9 +89,9 @@ def test_every_edit_replays_to_the_same_score_and_undo_restores_the_run(tmp_path
     assert pinned["pinned"]
     s.command({"cmd": "delete", "uid": b[10]})
     g = next(u for u, n in s.map["notes"].items() if n["track"] == "guitar_all" and n["pitch"] < 52)
-    r = s.command({"cmd": "assign", "uid": g, "track": "bass_raw"})
-    assert s.map["notes"][r["select"]]["track"] == "bass_raw"
-    r = s.command({"cmd": "add", "track": "bass_raw", "t_s": 3.0, "pitch": 40})
+    r = s.command({"cmd": "assign", "uid": g, "track": "bass"})
+    assert s.map["notes"][r["select"]]["track"] == "bass"
+    r = s.command({"cmd": "add", "track": "bass", "t_s": 3.0, "pitch": 40})
     assert s.map["notes"][r["select"]]["added"]
     r = s.command({"cmd": "barline", "bar_index": s.score_bars.index(4), "delta": 1})
     assert r["applied"]
@@ -124,7 +124,7 @@ def test_the_gp5_holds_the_edited_notes(tmp_path):
     s.command({"cmd": "delete", "uid": b[3]})
     s.command({"cmd": "pitch", "uid": b[6], "delta": 1})
     assert s.close()
-    tr = s.state.tab["tracks"]["bass_raw"]
+    tr = s.state.tab["tracks"]["bass"]
     want = sorted((n["string"], n["fret"]) for n in tr["notes"] if n["string"] is not None)
     song_ = gp.parse(str(job / "export" / "tab" / "score.gp5"))
     bass = next(t for t in song_.tracks if len(t.strings) == 4)
@@ -233,7 +233,7 @@ def test_viewer_edit_api_needs_the_token_and_the_servers_host(tmp_path):
         page = urllib.request.urlopen(base + "/").read().decode("utf-8")
         token = page.split('const TOKEN = "', 1)[1].split('"', 1)[0]
         snap = json.loads(urllib.request.urlopen(base + "/api/score").read())
-        uid = next(u for u, n in snap["map"]["notes"].items() if n["track"] == "bass_raw")
+        uid = next(u for u, n in snap["map"]["notes"].items() if n["track"] == "bass")
 
         def post(body: dict, headers: dict) -> tuple[int, dict]:
             req = urllib.request.Request(base + "/api/cmd", data=json.dumps(body).encode(), method="POST",
@@ -329,7 +329,7 @@ def test_an_edit_that_cannot_be_written_is_refused_and_not_logged(tmp_path):
     job = make_job(tmp_path)
     s = E.Session(job)
     for u in [u for u, n in s.map["notes"].items() if n["track"] == "guitar_all"][::-1]:
-        s.command({"cmd": "assign", "uid": u, "track": "bass_raw"})
+        s.command({"cmd": "assign", "uid": u, "track": "bass"})
     n_log, version, h = len(E.read_log(job)), s.version, s.hash
     left = sorted(s.map["notes"], key=lambda u: int(u.split(":")[1]))
     for u in left[:-1][::-1]:

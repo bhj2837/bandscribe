@@ -30,7 +30,7 @@ lowest string first (``schema.score.Line.tuning``), so string s is ``tuning[n - 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -277,8 +277,17 @@ def _window_states(c: _Cands, w: Mapping[str, float], prev_pos: np.ndarray | Non
     return np.array(fi), np.array(pos), np.array(inh, dtype=bool), np.array(st, dtype=float)
 
 
+LINK_COST = 1000.0  # a slide's two notes on different strings: allowed only when nothing else can play them
+
+
+def _link_cost(a: _Cands, b: _Cands, fa: np.ndarray, fb: np.ndarray) -> np.ndarray:
+    """``LINK_COST`` where the single-note fingerings ``fa`` (of ``a``) and ``fb`` (of ``b``) use different strings."""
+    sa, sb = a.single[fa][:, None], b.single[fb][None, :]
+    return np.where((sa > 0) & (sb > 0) & (sa != sb), LINK_COST, 0.0)
+
+
 def _assign_window(events: Sequence[Event], cands: list[_Cands | None], runs: list[list[int]],
-                   w: Mapping[str, float]) -> dict[int, tuple[int, float]]:
+                   w: Mapping[str, float], links: frozenset[int] = frozenset()) -> dict[int, tuple[int, float]]:
     chosen: dict[int, tuple[int, float]] = {}
     for run in runs:
         states, trans = [], []
@@ -298,7 +307,10 @@ def _assign_window(events: Sequence[Event], cands: list[_Cands | None], runs: li
                 moved = base + w["shift"] * shift / (1.0 + gap / w["shift_gap_s"])
                 same = pa[1][:, None] == sb[1][None, :]
                 # an inheriting (all-open) state only continues the previous state at its own hand position
-                trans.append(np.where(sb[2][None, :], np.where(same, base, np.inf), moved))
+                t = np.where(sb[2][None, :], np.where(same, base, np.inf), moved)
+                if b in links and b == a + 1:
+                    t = t + _link_cost(cands[a], cands[b], pa[0], sb[0])
+                trans.append(t)
         fwd = [states[0][3].copy()]
         back: list[np.ndarray] = []
         for t, s in zip(trans, states[1:]):
@@ -326,12 +338,15 @@ def _assign_window(events: Sequence[Event], cands: list[_Cands | None], runs: li
 
 
 def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, float] | None = None, *,
-           model: str = DEFAULT_MODEL, pins: Mapping[Any, tuple[int, int]] | None = None) -> list[Assignment]:
+           model: str = DEFAULT_MODEL, pins: Mapping[Any, tuple[int, int]] | None = None,
+           links: Collection[int] | None = None) -> list[Assignment]:
     """Fingering of every note of ``events`` (one Assignment per pitch, events in order).
 
     ``model``: ``v1`` (E12: a fingering's hand is its mean fretted fret, every change of it is a shift) or
     ``window`` (E12b: hand-position states, see ``_window_states``). ``pins`` = {note id: (string, fret)}: the
-    user's positions (M4a edits); the path is chosen around them."""
+    user's positions (M4a edits); the path is chosen around them. ``links`` = indices ``e`` of single-note events
+    that must stay on the string of event ``e - 1`` (the two ends of a slide, M5): another string costs
+    ``LINK_COST``, so it is taken only when the pair cannot share one."""
     if model not in ("v1", "window"):
         raise ValueError(f"unknown fretting model {model!r}")
     w = {**DEFAULT_WEIGHTS, **(weights or {})}
@@ -353,11 +368,15 @@ def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, floa
         else:
             runs.append([i])
     chosen: dict[int, tuple[int, float]] = {}
+    linked = frozenset(int(e) for e in (links or ()))
     if model == "window":
-        chosen = _assign_window(events, cands, runs, w)
+        chosen = _assign_window(events, cands, runs, w, linked)
         runs = []
     for run in runs:
-        trans = [_transition(cands[a], cands[b], events[a], events[b], w) for a, b in zip(run, run[1:])]
+        trans = [_transition(cands[a], cands[b], events[a], events[b], w)
+                 + (_link_cost(cands[a], cands[b], np.arange(len(cands[a].fings)), np.arange(len(cands[b].fings)))
+                    if b in linked and b == a + 1 else 0.0)
+                 for a, b in zip(run, run[1:])]
         fwd = [cands[run[0]].static.copy()]
         back: list[np.ndarray] = []
         for t, i in zip(trans, run[1:]):

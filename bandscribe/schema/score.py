@@ -19,7 +19,9 @@ from bandscribe import __version__, atomic
 SCHEMA_VERSION = 0
 
 # Keys later stages put into Note.flags (DESIGN 4.x / S7). The dict stays open; this is the shared vocabulary.
-NOTE_FLAGS: tuple[str, ...] = ("shared", "double", "octave", "variant", "low_conf", "unison_undecided")
+NOTE_FLAGS: tuple[str, ...] = ("shared", "double", "octave", "variant", "low_conf", "unison_undecided",
+                               # M5 bass technique suggestions (bandscribe.bass.clean)
+                               "dead", "vibrato", "slide_legato", "slide_out_down", "slide_out_up")
 
 Prob = Annotated[float, Field(ge=0.0, le=1.0)]
 Seconds = Annotated[float, Field(ge=0.0)]

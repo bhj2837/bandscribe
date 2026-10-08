@@ -149,6 +149,15 @@ guitar_parts = 0               # 0 = auto (merged guitar: staff + MIDI only), 1 
 guitar_tuning = "auto"          # auto = tuning search; or e.g. "E standard", "Eb standard", "Drop D" (per song: hints.toml)
 bass_tuning = "auto"
 
+[bass]                         # M5: clean-up of the pass-1 bass with the F0 tracks (E13 decides these)
+anchor = true                  # octave / semitone fixes when two of CREPE, PESTO, pyin agree
+kick = false                   # drop notes on a kick that have no F0
+fragments = true               # merge same-pitch fragments and decaying tails
+slides = true                  # a glide over several notes -> one note sliding into the note it stops on
+gap_fill = false               # stable F0 where nothing was transcribed -> low-confidence notes
+policy = "muscriptor"          # "and" = keep only F0-confirmed notes (comparison only)
+techniques = true              # vibrato / dead-note suggestions
+
 [eval]
 tpb = 48
 onset_tol_s = 0.05

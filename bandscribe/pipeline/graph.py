@@ -45,9 +45,12 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("s35", ("instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"), "bandscribe.amt.stage"),
     # notes reads the stems' energy.npz for its silence gate (2026-10-05); quant reads the gated bass from notes
     ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"), "bandscribe.amt.stage"),
-    # M3 (CPU only): A4 reference, quantisation, tuning + string/fret
+    # M5: bass F0 tracks (GPU worker + pyin) and the S11 clean-up of the gated pass-1 bass (drums stem for kicks)
+    ("bass_f0", ("stems",), "bandscribe.bass.stage"),
+    ("bass", ("notes", "bass_f0", "stems", "sep", "grid"), "bandscribe.bass.stage"),
+    # M3 (CPU only): A4 reference, quantisation, tuning + string/fret; the bass comes from the bass stage (M5)
     ("a4", ("stems",), "bandscribe.tab.stage"),
-    ("quant", ("notes", "grid", "sections"), "bandscribe.tab.stage"),
+    ("quant", ("notes", "bass", "grid", "sections"), "bandscribe.tab.stage"),
     ("tab", ("quant", "a4"), "bandscribe.tab.stage"),
     ("score", ("tab", "quant", "grid", "sections"), "bandscribe.tab.stage"),
 )

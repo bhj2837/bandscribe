@@ -66,12 +66,12 @@ def _song_score(fretted: bool):
     times = beat_times(12 * 4 + 4, warp=True)
     grid = grid_doc(times)
     notes, _ = performance(times, 12, seed=3)
-    q = Q.quantize({"guitar_all": notes, "bass_raw": notes[::4]}, grid)
+    q = Q.quantize({"guitar_all": notes, "bass": notes[::4]}, grid)
     tm = TempoMap.from_dict(grid)
     bars = N.bars_from_quant(q, tm, 1, 12, [{"id": "S1", "label": "A", "start_bar": 1}, {"id": "S2", "label": "B", "start_bar": 7}])
     fam = {int(b): f for b, f in q["beat_families"]["*"]}
     score = ATX.WScore(title='Test "song"', bars=bars, tempo_qpm=ATX.written_tempi(bars, section_starts=[1, 7]))
-    for tid, name in (("guitar_all", "Guitar (all parts)"), ("bass_raw", "Bass (raw)")):
+    for tid, name in (("guitar_all", "Guitar (all parts)"), ("bass", "Bass")):
         evs = {}
         for n in Q.notes_of(q, tid):
             evs.setdefault(n["gtick"], []).append(n)
@@ -112,7 +112,7 @@ def test_gp5_round_trip(tmp_path):
     path = tmp_path / "s.gp5"
     assert GP5.write(score, path)
     song = gp.parse(str(path))
-    assert [t.name for t in song.tracks] == ["Guitar (all parts)", "Bass (raw)"]
+    assert [t.name for t in song.tracks] == ["Guitar (all parts)", "Bass"]
     assert len(song.measureHeaders) == 12 and song.measureHeaders[6].marker.title == "B"
     n_written = sum(len(be.notes) for bars in score.tracks[0].beats for be in bars)
     n_read = sum(len(b.notes) for m in song.tracks[0].measures for v in m.voices for b in v.beats)

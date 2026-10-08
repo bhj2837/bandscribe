@@ -47,7 +47,9 @@ log = logging.getLogger(__name__)
 EDITS_FILE = "edits.jsonl"
 LOCK_FILE = "edits.lock"
 VERSION = 1
-TRACKS = ("guitar_all", "bass_raw")
+TRACKS = ("guitar_all", "bass")
+# track ids an older log may name: the bass was "bass_raw" until M5 (2026-10-08)
+OLD_TRACK_IDS = {"bass_raw": "bass"}
 NOTE_OPS = ("delete", "pitch", "assign", "add", "pin")
 GRID_OPS = ("barline",)
 # what the page sends (Session.command): relative commands become the absolute edits above
@@ -114,10 +116,13 @@ def load_base(job_dir: Path) -> Base:
         tm = _manifest(stages / "tab" / dep["tab"])
         qm = _manifest(stages / "quant" / dep["quant"])
         notes_dir = stages / "notes" / str(qm["deps"]["notes"])[:12]
+        raw_dirs = {"notes": notes_dir}
+        if qm["deps"].get("bass"):  # M5: the cleaned bass (a run from before M5 reads the notes stage's)
+            raw_dirs["bass"] = stages / "bass" / str(qm["deps"]["bass"])[:12]
         grid = atomic.read_json(stages / "grid" / dep["grid"] / "grid.json")
         sections = atomic.read_json(stages / "sections" / dep["sections"] / "sections.json").get("sections") or []
         tab = atomic.read_json(stages / "tab" / dep["tab"] / "tab.json")
-        raw = T.quant_tracks({"notes": notes_dir})
+        raw = T.quant_tracks(raw_dirs)
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise EditError(f"편집할 악보를 찾지 못했습니다({job_dir.name}): 먼저 `bandscribe run` 으로 악보를 만드세요. ({e})") from e
     try:
@@ -154,8 +159,19 @@ def _load(p: Path) -> tuple[list[dict[str, Any]], bool]:
             raise EditError(f"편집 기록 {i}번째 줄을 읽지 못했습니다: {p}") from err
         if not isinstance(e, dict) or "op" not in e or "id" not in e:
             raise EditError(f"편집 기록 {i}번째 줄의 형식이 맞지 않습니다: {p}")
-        out.append(e)
+        out.append(_current_ids(e))
     return out, False
+
+
+def _current_ids(e: dict[str, Any]) -> dict[str, Any]:
+    """An entry with today's track ids (``OLD_TRACK_IDS``); the file itself is never rewritten."""
+    for key in ("track", "to"):
+        if isinstance(e.get(key), str) and e[key] in OLD_TRACK_IDS:
+            e[key] = OLD_TRACK_IDS[e[key]]
+    note = e.get("note")
+    if isinstance(note, dict) and note.get("track") in OLD_TRACK_IDS:
+        note["track"] = OLD_TRACK_IDS[note["track"]]
+    return e
 
 
 def read_log(job_dir: Path) -> list[dict[str, Any]]:
@@ -362,7 +378,7 @@ def _added_note(e: Mapping[str, Any], tm: TempoMap, instrument: str) -> dict[str
 
 
 def _instrument_of(tid: str, ns: Sequence[Mapping[str, Any]]) -> str:
-    if tid == "bass_raw":
+    if tid == T.BASS:
         return "electric_bass"
     cls = [str(n.get("instrument")) for n in ns if n.get("instrument")]
     return sorted(set(cls), key=lambda c: (-cls.count(c), c))[0] if cls else "distorted_electric_guitar"
@@ -463,7 +479,7 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
         tr.setdefault("stats", {})["n"] = len(ns)
     tun = base.tab.get("tuning") or {}
     tracks: dict[str, Any] = {}
-    for tid, inst in (("bass_raw", "bass"), ("guitar_all", "guitar")):
+    for tid, inst in ((T.BASS, "bass"), ("guitar_all", "guitar")):
         sub = {"tracks": {tid: quant["tracks"][tid]}}
         key = _digest([tid, quant["tracks"][tid]["notes"], tun.get(inst), base.tab_params])
         if cache is not None and tid in cache.frets and cache.frets[tid][0] == key:
@@ -851,7 +867,7 @@ class Session:
             g = int(round(beat * Q.TPB / ADD_STEP)) * ADD_STEP
             pitch = int(cmd.get("pitch") or 0)
             if not pitch:
-                ps = sorted(int(n["pitch"]) for n in Q.notes_of(st.quant, tid)) or [40 if tid == "bass_raw" else 52]
+                ps = sorted(int(n["pitch"]) for n in Q.notes_of(st.quant, tid)) or [40 if tid == T.BASS else 52]
                 pitch = ps[len(ps) // 2]
             return {"op": "add", "track": tid, "gtick": g, "dur": ADD_STEP, "pitch": pitch}, ""
         if c in ("barline", "tap"):

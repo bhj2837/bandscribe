@@ -23,6 +23,31 @@ def string_names(tuning: Sequence[int]) -> list[str]:
     return names
 
 
+def _marks(notes: Sequence[Mapping[str, Any]]) -> dict[int, str]:
+    """Text marks after a fret (M5 bass techniques): ``~`` vibrato, a backslash / ``/`` for a slide down / up into
+    the next note on the same string (or out of the note)."""
+    order = sorted((i for i, n in enumerate(notes) if n.get("string") is not None),
+                   key=lambda i: (int(notes[i]["bar"]), int(notes[i]["tick"])))
+    nxt: dict[int, int] = {}
+    last: dict[int, int] = {}
+    for i in order:
+        s = int(notes[i]["string"])
+        if s in last:
+            nxt[last[s]] = i
+        last[s] = i
+    out: dict[int, str] = {}
+    for i in order:
+        t = notes[i].get("tech") or {}
+        m = "~" if t.get("vibrato") else ""
+        if t.get("slide") == "legato" and i in nxt:
+            m += "\\" if int(notes[nxt[i]]["fret"]) < int(notes[i]["fret"]) else "/"
+        elif t.get("slide") in ("out_down", "out_up"):
+            m += "\\" if t["slide"] == "out_down" else "/"
+        if m:
+            out[i] = m
+    return out
+
+
 def render(notes: Sequence[Mapping[str, Any]], bars: Sequence[Mapping[str, Any]], tuning: Sequence[int], *,
            first_bar: int | None = None, last_bar: int | None = None, bars_per_line: int = 4,
            title: str = "") -> str:
@@ -32,7 +57,8 @@ def render(notes: Sequence[Mapping[str, Any]], bars: Sequence[Mapping[str, Any]]
     width = max(len(x) for x in names)
     blen = {int(b["bar"]): int(b["n_beats"]) * 48 for b in bars}
     cells: dict[int, dict[int, dict[int, str]]] = defaultdict(lambda: defaultdict(dict))
-    for nt in notes:
+    marks = _marks(notes)
+    for k, nt in enumerate(notes):
         if nt.get("string") is None:
             continue
         # nearest column, but never past the bar's last one (a 32nd at tick 186 of a 4/4 bar rounds to column 16,
@@ -40,7 +66,7 @@ def render(notes: Sequence[Mapping[str, Any]], bars: Sequence[Mapping[str, Any]]
         ncol = max(1, blen.get(int(nt["bar"]), 192) // TICK_RES)
         col = min(int(round(int(nt["tick"]) / TICK_RES)), ncol - 1)
         prev = cells[int(nt["bar"])][col].get(int(nt["string"]))
-        txt = str(int(nt["fret"]))
+        txt = ("x" if (nt.get("tech") or {}).get("dead") else str(int(nt["fret"]))) + marks.get(k, "")
         cells[int(nt["bar"])][col][int(nt["string"])] = txt if prev is None else prev
     used = sorted(cells)
     if not used:
