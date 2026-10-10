@@ -144,3 +144,23 @@ def test_long_input_warning_on_run(tmp_path, monkeypatch):
     r = CliRunner().invoke(_app(), ["run", KEY, "--until", "grid"])
     assert r.exit_code == 0, r.output
     assert "50분으로 깁니다" in " ".join(r.output.split())
+
+
+def test_tempo_flag_sets_the_grid_hint(tmp_path, monkeypatch):
+    from bandscribe.pipeline import runner
+
+    _job(tmp_path, monkeypatch)
+    seen = {}
+    real_plan = runner.plan
+
+    def spy(song_key, cfg, **kw):
+        seen["cfg"] = cfg
+        return real_plan(song_key, cfg, **kw)
+
+    monkeypatch.setattr(runner, "plan", spy)
+    r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run", "--tempo", "185"])
+    assert r.exit_code == 0, r.output
+    assert seen["cfg"].grid.tempo_bpm == 185.0
+    for bad in ("0", "500"):
+        r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run", "--tempo", bad])
+        assert r.exit_code == 2 and "--tempo" in r.output, r.output

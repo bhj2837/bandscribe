@@ -260,6 +260,9 @@ class GridCfg(_Section):
     compound_margin: Prob = 0.1
     downbeat_snap_ms: float = Field(70.0, ge=0.0)
     meter_smooth_bars: int = Field(8, ge=1)
+    # The song's counted tempo (quarter notes per minute), per song in hints.toml or `run --tempo`; 0 = automatic.
+    # Only picks the beat level (x2 / /2) when the tracker counts at half or double speed (analysis/grid.py 1b).
+    tempo_bpm: float = Field(0.0, ge=0.0, le=400.0)
 
     @field_validator("dbn")
     @classmethod

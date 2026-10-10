@@ -1,6 +1,7 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-08 (**M5 done with known gaps**: bass F0 trackers, the bass clean-up and E13, see "M5" below and
+Last updated: 2026-10-10 (**tempo hint** for songs the beat tracker counts at half or double speed, see "Grid: tempo
+hint" below; then M6 starts. 2026-10-08: **M5 done with known gaps**: bass F0 trackers, the bass clean-up and E13, see "M5" below and
 `docs/acceptance/M5.md`. 2026-10-05: **grid fix after M4a**: beats that Beat This! tracked twice are joined, see "Grid: beats
 tracked twice" below. **M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
 After M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
@@ -78,6 +79,38 @@ Two stages between `notes` and `quant` (code `bandscribe/bass/`, worker `bandscr
   contamination-unknown and the rule forbids absolute claims; they need Tier A (the user's Guitar Pro files).
 - Not done: SCNet ensemble and the 3-voter (YourMT3+) policy of E13 (not installed), HO/PO and slap (no ground truth),
   S14 root cross-check (needs rhythm Lines, M7a), a real F0 HMM segmenter (the gap fill is a simple stable-run rule).
+
+## Grid: tempo hint (2026-10-10)
+
+青と夏 is counted at 185 BPM (the user) but tracked and gridded at 93.75, so its eighths were written as sixteenths.
+Code: `bandscribe/analysis/grid.py` (step 1b reference level and step 2 choice), `[grid] tempo_bpm` (`config.GridCfg`,
+`defaults.toml`), `bandscribe run --tempo`, grid stage code version 3 → 4; 8 new tests (`test_grid_derive.py` 7,
+`test_pipeline_cli.py` 1).
+
+- **No automatic rule found.** On the stored outputs the onset rule cannot separate 青と夏 (counted 185) from AIZO (95):
+  both are tracked at 93.75, onset F1 favours double time on both (0.759 vs 0.540; 0.569 vs 0.340) and no prior
+  centre flips one without the other. A backbeat test (SW drum stem; kick 40-120 Hz vs three snare bands; is the
+  kick/snare contrast alternating beat by beat at half / kept / double level?) found the alternation on SC and KH
+  at their kept level (lag-1 autocorrelation -0.45 to -0.58) but none at any level on 青と夏, AIZO or AZ. So the
+  level is the user's hint; the automatic decision is unchanged.
+- **The hint** (`[grid] tempo_bpm = 185` in the job's `hints.toml`, or `--tempo 185` once) only picks the level: step
+  1b's reference becomes the tracked level times 2^k (k = whole octaves to the hint, at most one), step 2 takes the
+  candidate nearest the hint; the tempo itself stays the tracked one. A hint more than 19 % off every power-of-two
+  multiple (e.g. a dotted-quarter tempo for tracked eighths) is ignored with a warning; one still more than half an
+  octave away after both steps is warned about.
+- **青と夏 with the hint** (job `hints.toml` written 2026-10-10): 339 beats inserted, the 8-beat tracked bars cut in two:
+  408 → 811 beats, 103 → 204 bars, median 92.3 → 185.1 BPM; bars not in 4/4: a 5/4 and a 2/4 before, one 2/4
+  and the song's cut-off last bar after.
+  Guitar staff note values: sixteenths 61 % → 22 %, eighths 18 % → 46 %, 32nds 11 % → 0 %.
+  - **Side effect:** the bar lines moved, so did the presence windows, so the guitar mask lost `organ` and
+    `synth_strings` and `amt_gtr` ran again (2:57 GPU): `guitar_all` 4,978 → 3,009 notes (836 of the new pass's
+    4,127 labelled `electric_piano` and left out). The same prompt sensitivity as in "Grid: beats tracked twice"
+    (3,996 → 4,978 then); without ground truth neither is known to be better. Presence windows on a fixed time
+    grid would keep grid changes out of the guitar mask (not done).
+- **The other four songs** (no hint) re-ran grid → score on the CPU with the MuScriptor views from the cache: every
+  export file byte-identical (alphaTex, GP5, text tab, tab.json, all MIDI, instrumentation.json).
+- Not touched: AIZO 29-44 s (a double-time passage with jitter outside 1b's band) and AZ's contradicting
+  downbeats half a beat apart (both in "Grid: beats tracked twice").
 
 ## M4a (2026-10-05): editing in the viewer
 
@@ -509,7 +542,7 @@ mask the backing used:
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
 5. ~~M3~~ done 2026-10-05 (tag `m3`). ~~M4a~~ done 2026-10-05 (tag `m4a`, see "M4a" at the top; the NVML pre-check
    item 6 stays open: the editor never starts GPU runs). ~~M5~~ done 2026-10-08 (tag `m5`, see "M5"). Next (DESIGN
-   order): **M6** (stereo router, first automatic part split), or first the grid's tempo level (~~spurious beats~~:
+   order): **M6** (stereo router, first automatic part split; tempo hint done 2026-10-10, see "Grid: tempo hint"), or first the grid's tempo level (~~spurious beats~~:
    doubles joined 2026-10-05, see "Grid: beats tracked twice"; left: aotonat is 185 BPM but gridded at 93, AIZO
    29–44 s and AZ tracked at double time), or first the M3 gaps (fretting toward 75 %: same fingering
    for repeated sections, chord-shape templates; E16 if a detuned song shows up). Original M3 item: **First task of M3 (done

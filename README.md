@@ -420,6 +420,7 @@ cd node && npm ci && cd ..
 bandscribe.cmd doctor                              :: 환경 점검 (GPU 셀프테스트 포함)
 bandscribe.cmd run "C:\music\song.flac"            :: 기본: --until score, --profile quality
 bandscribe.cmd run "C:\music\song.flac" --parts 1  :: 기타를 한 대로 보고 기타 탭까지
+bandscribe.cmd run "C:\music\song.flac" --tempo 185 :: 템포 단위를 185 BPM 에 맞추기(박을 절반으로 셀 때)
 bandscribe.cmd view "C:\music\song.flac"           :: 악보를 브라우저로 보고 키보드로 고치기 (작업 키 앞부분만 써도 됨)
 bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만 보기
 bandscribe.cmd status                              :: 작업 목록
@@ -440,6 +441,10 @@ bandscribe.cmd config show                         :: 지금 적용되는 설정
   를 적거나 한 번만 `--set tab.guitar_tuning="E standard"`. 그 튜닝으로 낼 수 없는 음은 옥타브를 옮겨 적고 경고한다.
   자동 판정은 `tab/tab.json` 의 `auto_label` 에 남는다.
 - 곡 제목은 입력 파일 이름이다. 바꾸려면 같은 `hints.toml` 에 `[hints]` 아래 `title = "곡 제목"` 을 적는다(악보·GP5·뷰어·`status`).
+- 박 추적이 곡을 절반(또는 두 배) 속도로 세면 8분음표가 16분음표로 적힌다. 템포 단위는 자동으로 가를 근거가 없어서
+  (예: 青と夏 185 BPM 과 AIZO 95 BPM 이 둘 다 93.75 로 잡히고 특징도 같다) 직접 정한다: 같은 `hints.toml` 에
+  `[grid]` 아래 `tempo_bpm = 185`(4분음표 기준), 또는 한 번만 `--tempo 185`. 박 단위(×2, ÷2)만 이 값에 맞추고
+  템포 자체는 추적한 값을 쓴다. 2의 거듭제곱 배가 아닌 값(예: 6/8 의 점4분 템포)은 경고하고 무시한다.
 - 전사기(MuScriptor)는 소리가 없는 스템 위에도 음을 지어낸다. 그래서 기타·베이스 음 중 그 악기 스템이 곡의 큰 소리보다
   50 dB 넘게 작은 곳에서 시작한 음은 뺀다(`amt.silence_gate_db`, `-200` 이면 끔). 뺀 개수와 구간은
   `stages\notes\<키>\notes_summary.json` 의 `silence_gate` 에 남는다.

@@ -133,6 +133,8 @@ compound_triple_ratio = 0.6                        # E14
 compound_margin = 0.1
 downbeat_snap_ms = 70.0
 meter_smooth_bars = 8
+tempo_bpm = 0.0                                    # counted tempo (quarter notes/min), per song in hints.toml or
+                                                   # run --tempo; 0 = automatic. Picks the beat level (x2, /2) only
 
 [sections]
 min_section_bars = 4

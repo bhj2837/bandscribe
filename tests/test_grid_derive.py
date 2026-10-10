@@ -521,3 +521,95 @@ def test_half_tempo_tracker_with_four_tracked_beats_per_bar_gives_four_four():
     assert ms["tracked_mode_replaced"] == 8 and ms["mode"] == 4
     assert all(b["n_beats"] == 4 for b in full_bars(g)[:-1])
     assert any("8박" in w for w in g["hypotheses"]["warnings"])
+
+
+# ----------------------------------------------------------------------------- tempo hint (2026-10-10)
+
+
+def _counted_185_tracked_half(n_true=128):
+    """青と夏-shaped: counted at 185 BPM, a hit on every counted beat, tracked at half speed with a downbeat
+    every 4 tracked beats (= every 2 counted bars)."""
+    true = 1.0 + np.arange(n_true) * 60 / 185
+    tracked = true[::2]
+    return true, tracked, tracked[::4]
+
+
+def test_without_a_hint_the_counted_tempo_185_stays_at_half():
+    """The failure the hint is for: the onset rule keeps the tracker's half tempo (prior centre 120 BPM)."""
+    true, tracked, downs = _counted_185_tracked_half()
+    g = grid_of(tracked, downs, true)
+    oct_ = g["hypotheses"]["tempo_octave"]
+    assert oct_["decision"] == "keep" and oct_["by"] == "onsets" and oct_["hint_bpm"] is None
+    assert g["tempo"][0]["bpm"] == pytest.approx(92.5, abs=0.3)
+    assert g["hypotheses"]["beat_level"]["hint_shift"] == 0
+
+
+def test_tempo_hint_doubles_a_song_tracked_at_half_its_counted_tempo():
+    true, tracked, downs = _counted_185_tracked_half()
+    g = grid_of(tracked, downs, true, tempo_bpm=185)
+    lvl = g["hypotheses"]["beat_level"]
+    assert lvl["hint_shift"] == 1 and lvl["tracked_bpm"] == pytest.approx(92.5, abs=1.5)  # 20 ms quantised
+    assert lvl["reference_bpm"] == pytest.approx(185.0, abs=3)  # 2 x the quantised tracked level
+    assert lvl["inserted"] == tracked.size - 1 and lvl["dropped"] == 0
+    oct_ = g["hypotheses"]["tempo_octave"]
+    assert oct_["by"] == "hint" and oct_["decision"] == "keep" and oct_["hint_bpm"] == 185
+    assert max(abs(b["t_s"] - x) for b, x in zip(g["beats"], true)) < 1e-6
+    assert all(b["n_beats"] == 4 for b in full_bars(g)[:-1])
+    assert len(full_bars(g)) == pytest.approx(true.size / 4, abs=1)
+    assert all(seg["bpm"] == pytest.approx(185.0, abs=0.5) for seg in g["tempo"][:-1])
+    warns = g["hypotheses"]["warnings"]
+    assert any("템포 힌트 185 BPM" in w and "두 배" in w for w in warns)
+    assert not any("곡 중간에 박 단위를" in w for w in warns)  # the hint's message replaces the tracker one
+
+
+def test_tempo_hint_halves_a_song_tracked_at_double_its_counted_tempo():
+    """Counted at 75 BPM, tracked in eighths at 150 with a hit on every eighth: the onset rule keeps 150."""
+    eighths = 1.0 + np.arange(128) * 0.4
+    auto = grid_of(eighths, eighths[::8], eighths)
+    assert auto["hypotheses"]["tempo_octave"]["decision"] == "keep"
+    assert auto["tempo"][0]["bpm"] == pytest.approx(150.0, abs=0.3)
+    g = grid_of(eighths, eighths[::8], eighths, tempo_bpm=75)
+    assert g["hypotheses"]["beat_level"]["hint_shift"] == -1
+    assert all(seg["bpm"] == pytest.approx(75.0, abs=0.3) for seg in g["tempo"][:-1])
+    assert all(b["n_beats"] == 4 for b in full_bars(g)[:-1])
+    downs = {round(b["start_s"], 3) for b in full_bars(g)}
+    assert downs <= {round(float(x), 3) for x in eighths[::8]}  # every bar line is a tracked downbeat
+
+
+def test_tempo_hint_at_the_tracked_level_changes_nothing():
+    """seisyun complex-shaped: tracked at the counted tempo; a hint 2 % off it leaves beats, bars and tempo alone."""
+    t = 1.0 + np.arange(128) * 60 / 189.5
+    hats = t[:-1] + 30 / 189.5
+    ons = np.concatenate([t, hats])
+    s = np.concatenate([np.ones(t.size), np.full(hats.size, 0.4)])
+    a = grid_of(t, t[::4], ons, s)
+    b = grid_of(t, t[::4], ons, s, tempo_bpm=185)
+    assert b["hypotheses"]["beat_level"]["hint_shift"] == 0
+    assert b["hypotheses"]["tempo_octave"]["by"] == "hint"
+    for key in ("beats", "bars", "tempo", "meter", "pickup"):
+        assert a[key] == b[key], key
+    assert not any("템포 힌트" in w for w in b["hypotheses"]["warnings"])
+
+
+def test_tempo_hint_that_is_not_a_power_of_two_multiple_is_ignored():
+    """A dotted-quarter tempo (60) for a 6/8 tracked in eighths (180): a 3:1 ratio, so the hint is not used."""
+    beats, ons, s = _six_eight(n_bars=16, dq=1.0)
+    eighths = np.sort(np.concatenate([beats, beats + 1 / 3, beats + 2 / 3]))
+    a = grid_of(eighths, eighths[::6], ons, s)
+    b = grid_of(eighths, eighths[::6], ons, s, tempo_bpm=60)
+    assert b["hypotheses"]["beat_level"]["hint_shift"] is None
+    assert b["hypotheses"]["tempo_octave"]["by"] == "onsets"
+    assert any("무시했습니다" in w for w in b["hypotheses"]["warnings"])
+    for key in ("beats", "bars", "tempo", "meter", "beat_unit"):
+        assert a[key] == b[key], key
+
+
+def test_tempo_hint_far_from_any_level_warns():
+    """Step 1b moves one octave and step 2 one more; a hint three octaves away is followed two and warned."""
+    t = 1.0 + np.arange(64) * 0.5  # 120 BPM
+    g = grid_of(t, t[::4], t, tempo_bpm=30)  # two octaves: followed
+    assert g["tempo"][0]["bpm"] == pytest.approx(30.0, abs=0.2)
+    assert not any("크게 다릅니다" in w for w in g["hypotheses"]["warnings"])
+    g = grid_of(t, t[::4], t, tempo_bpm=15)
+    assert g["tempo"][0]["bpm"] == pytest.approx(30.0, abs=0.2)
+    assert any("크게 다릅니다" in w for w in g["hypotheses"]["warnings"])

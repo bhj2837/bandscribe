@@ -26,6 +26,12 @@ in this order:
    fast intervals drop every other beat (the run's boundary beats are kept; the phase keeps the most tracked
    downbeats, then the fewest uneven intervals, then the strongest beat activations); slow intervals get
    their midpoint. Then missed beats (an interval of k x the local interval, k >= 2) are filled.
+   **Tempo hint** (``tempo_bpm``, per song in ``hints.toml`` or ``run --tempo``; added 2026-10-10). The
+   reference becomes P x 2^k, k = the whole number of octaves (at most one) between P and the hinted beat
+   interval, so a song tracked at half its counted tempo gets its midpoints here and step 5 cuts its 8-beat
+   bars in two. Only the level comes from the hint, never the tempo itself; a hint that is not near a
+   power-of-two multiple of P (more than 19 % off, e.g. a dotted-quarter tempo for tracked eighths) is ignored
+   with a warning.
 2. **Tempo octave** (half/double, the dominant remaining failure, DESIGN S2). Candidates: the beats as
    unified in 1b, every other beat (half tempo; counted from each tracked downbeat, so every downbeat is kept
    even where a tracked bar has an odd beat count) and beats plus midpoints (double).
@@ -34,7 +40,12 @@ in this order:
    (this is where the onset-density ratio enters: a double-time candidate adds beats without onsets), and
    prior = log-normal tempo prior (centre 120 BPM, sigma 0.5 octave). Switch only if an alternative beats
    "keep" by more than 0.1. A tracked bar of 6/9/12 beats is left to the compound check (step 6): halving an
-   eighth-note 6/8 grid would give a wrong 3/4.
+   eighth-note 6/8 grid would give a wrong 3/4. With a tempo hint the candidate nearest the hint (log2
+   distance) wins and the onset rule is only recorded (``by: "hint"``, ``automatic``). The onset rule cannot
+   tell 青と夏 (counted at 185 BPM, tracked at 93.75) from AIZO (95 BPM, tracked at 93.75): onset F1 favours
+   double time on both and the prior keeps both, and a backbeat test on the SW drum stem (kick vs snare-band
+   onsets alternating beat by beat, three snare bands) showed no alternation at any level on either
+   (2026-10-10), so the level is left to the user's hint.
 3. **Refinement.** Beat This! times are quantised to 20 ms (50 fps), so each beat moves to the strongest
    percussive onset within ±``refine_window_ms`` if that onset is at least 1.5 x the local envelope median;
    otherwise it stays. ``shift_ms`` records the move.
@@ -116,7 +127,9 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "compound_margin": 0.1,
     "downbeat_snap_ms": 70.0,
     "meter_smooth_bars": 8,
+    "tempo_bpm": 0.0,  # user hint: the counted tempo (quarter notes); 0 = automatic. Picks the level only
 }
+HINT_FAR_OCT = 0.5  # a grid tempo more than half an octave from the hint gets a warning
 
 
 def _r6(x: float) -> float:
@@ -299,15 +312,33 @@ def _move_down(drop_i: int, kept: np.ndarray, beats: np.ndarray, act: _Act) -> i
     return min(cands, key=key)
 
 
-def _unify_level(beats: np.ndarray, is_down: np.ndarray, act: _Act) -> tuple[np.ndarray, np.ndarray, dict]:
-    """One metrical level for the whole song (module doc, step 1b)."""
-    info: dict[str, Any] = {"reference_bpm": None, "fast_runs": 0, "slow_runs": 0, "dropped": 0, "inserted": 0}
+def _hint_octaves(ref_s: float, hint_bpm: float) -> int | None:
+    """Whole octaves from the beat interval ``ref_s`` to the hinted one (+1 = the hint is twice as fast);
+    None when the hint is not within ``LEVEL_TOL_OCT`` of a power-of-two multiple (module doc, step 1b)."""
+    x = math.log2((60.0 / hint_bpm) / ref_s)
+    k = round(x)
+    return -int(k) if abs(x - k) < LEVEL_TOL_OCT else None
+
+
+def _unify_level(beats: np.ndarray, is_down: np.ndarray, act: _Act, hint_bpm: float = 0.0
+                 ) -> tuple[np.ndarray, np.ndarray, dict]:
+    """One metrical level for the whole song (module doc, step 1b), at the hinted level when a hint is given."""
+    info: dict[str, Any] = {"reference_bpm": None, "tracked_bpm": None, "hint_shift": 0, "fast_runs": 0,
+                            "slow_runs": 0, "dropped": 0, "inserted": 0}
     if beats.size < 8:
         return beats, is_down, info
     d = np.diff(beats)
     ref = _weighted_median(d, d)
     if ref <= 0:
         return beats, is_down, info
+    info["tracked_bpm"] = round(60.0 / ref, 2)
+    if hint_bpm > 0:
+        k = _hint_octaves(ref, hint_bpm)
+        if k is None:
+            info["hint_shift"] = None
+        else:
+            info["hint_shift"] = int(np.clip(k, -1, 1))  # a further octave is step 2's (nearest candidate)
+            ref *= 2.0 ** -info["hint_shift"]
     info["reference_bpm"] = round(60.0 / ref, 2)
     r = np.log2(np.maximum(d, 1e-9) / ref)
     fast = np.abs(r + 1.0) < LEVEL_TOL_OCT
@@ -423,8 +454,8 @@ def _modal_bar_beats(is_down: np.ndarray) -> int | None:
     return _mode([int(x) for x in np.diff(d)])
 
 
-def _tempo_octave(beats: np.ndarray, is_down: np.ndarray, ons: _Onsets, *, allow_double: bool = True
-                  ) -> tuple[np.ndarray, np.ndarray, dict]:
+def _tempo_octave(beats: np.ndarray, is_down: np.ndarray, ons: _Onsets, *, allow_double: bool = True,
+                  hint_bpm: float = 0.0) -> tuple[np.ndarray, np.ndarray, dict]:
     modal = _modal_bar_beats(is_down)
     cands: dict[str, tuple[np.ndarray, np.ndarray]] = {"keep": (beats, is_down)}
     if beats.size >= 2 and allow_double:
@@ -437,8 +468,13 @@ def _tempo_octave(beats: np.ndarray, is_down: np.ndarray, ons: _Onsets, *, allow
     for k in ("half", "double"):
         if k in scores and scores[k]["score"] > best:
             decision, best = k, scores[k]["score"]
+    automatic = decision
+    if hint_bpm > 0:  # nearest candidate to the hint; ties keep
+        dist = {k: round(abs(math.log2(max(v["bpm"], 1e-9) / hint_bpm)), 6) for k, v in scores.items()}
+        decision = min(dist, key=lambda k: (dist[k], k != "keep"))
     span = (beats[-1] - beats[0]) if beats.size >= 2 else 0.0
-    hyp = {"decision": decision, "scores": scores,
+    hyp = {"decision": decision, "by": "hint" if hint_bpm > 0 else "onsets", "automatic": automatic,
+           "hint_bpm": hint_bpm if hint_bpm > 0 else None, "scores": scores,
            "onset_rate_hz": _r4(ons.times.size / span) if span > 0 else 0.0,
            "excluded": ([] if allow_double else ["double: triple subdivision (compound meter)"])
            + (["half: 6/9/12 tracked beats per bar (compound regrouping)"] if modal in (6, 9, 12) else [])}
@@ -695,15 +731,25 @@ def derive_grid(beats_raw: dict[str, Any], activations: dict[str, Any] | None, o
         is_down[0::4] = True
 
     # 1a. beats tracked twice, 1b. one metrical level, then fill missed beats
-    level_info: dict[str, Any] = {"reference_bpm": None, "fast_runs": 0, "slow_runs": 0, "dropped": 0,
-                                  "inserted": 0}
+    level_info: dict[str, Any] = {"reference_bpm": None, "tracked_bpm": None, "hint_shift": 0, "fast_runs": 0,
+                                  "slow_runs": 0, "dropped": 0, "inserted": 0}
     n_doubles = 0
+    hint = float(p["tempo_bpm"] or 0.0)
     if not fallback:
         raw, is_down, n_doubles = _merge_doubles(raw, is_down, act)
         if n_doubles:
             warnings.append(f"비트 추적기가 한 박을 두 번 잡은 곳 {n_doubles}군데를 한 비트로 합쳤습니다")
-        raw, is_down, level_info = _unify_level(raw, is_down, act)
-        if level_info["dropped"] or level_info["inserted"]:
+        raw, is_down, level_info = _unify_level(raw, is_down, act, hint_bpm=hint)
+        if hint > 0 and level_info["hint_shift"] is None:
+            warnings.append(f"템포 힌트 {hint:g} BPM 이 추적한 템포({level_info['tracked_bpm']:g} BPM)의 2배·절반 "
+                            f"단위와 맞지 않아 무시했습니다(4분음표 기준 BPM 인지 확인해 주세요)")
+            hint = 0.0
+        if level_info["hint_shift"]:
+            warnings.append(f"템포 힌트 {hint:g} BPM 에 맞춰 박 단위를 "
+                            f"{'두 배로 잘게' if level_info['hint_shift'] > 0 else '절반으로 크게'} 바꿨습니다 "
+                            f"(추적 {level_info['tracked_bpm']:g} BPM, 넣은 비트 {level_info['inserted']}개, "
+                            f"뺀 비트 {level_info['dropped']}개)")
+        elif level_info["dropped"] or level_info["inserted"]:
             warnings.append(f"비트 추적기가 곡 중간에 박 단위를 바꿔 한 단위로 맞췄습니다 "
                             f"(뺀 비트 {level_info['dropped']}개, 넣은 비트 {level_info['inserted']}개)")
     raw, is_down, n_filled = _fill_gaps(raw, is_down) if not fallback else (raw, is_down, 0)
@@ -713,12 +759,19 @@ def derive_grid(beats_raw: dict[str, Any], activations: dict[str, Any] | None, o
     # 2. tempo octave (doubling is never offered when the tracked beats already divide in three)
     thr, margin = float(p["compound_triple_ratio"]), float(p["compound_margin"])
     pre_ratio = _triple_ratio(raw, ons)
-    if p["half_double_check"] and not fallback:
+    if (p["half_double_check"] or hint > 0) and not fallback:
         beats, is_down, octave = _tempo_octave(
-            raw, is_down, ons, allow_double=pre_ratio is None or pre_ratio < thr - margin)
+            raw, is_down, ons, allow_double=pre_ratio is None or pre_ratio < thr - margin, hint_bpm=hint)
+        if octave["by"] == "hint" and octave["decision"] != "keep":
+            warnings.append(f"템포 힌트 {hint:g} BPM 에 맞춰 템포를 "
+                            f"{'두 배로' if octave['decision'] == 'double' else '절반으로'} 바꿨습니다")
     else:
         beats = raw
-        octave = {"decision": "keep", "scores": {}, "onset_rate_hz": 0.0}
+        octave = {"decision": "keep", "by": "off", "automatic": "keep", "hint_bpm": None, "scores": {},
+                  "onset_rate_hz": 0.0}
+    if hint > 0 and beats.size >= 2 and abs(math.log2(_bpm(beats) / hint)) > HINT_FAR_OCT:
+        warnings.append(f"템포 힌트 {hint:g} BPM 과 격자 템포 {_bpm(beats):.0f} BPM 이 크게 다릅니다. "
+                        f"힌트를 확인해 주세요")
     t_raw = beats.copy()
 
     # 3. refinement
