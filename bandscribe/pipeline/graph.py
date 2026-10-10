@@ -48,6 +48,9 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     # M5: bass F0 tracks (GPU worker + pyin) and the S11 clean-up of the gated pass-1 bass (drums stem for kicks)
     ("bass_f0", ("stems",), "bandscribe.bass.stage"),
     ("bass", ("notes", "bass_f0", "stems", "sep", "grid"), "bandscribe.bass.stage"),
+    # M6 (CPU): stereo image of the separated guitar stem per window -> scenario label; nothing reads it yet,
+    # so a default run skips it (run --until router)
+    ("router", ("sep", "grid", "sections", "vocal", "resid1"), "bandscribe.router.stage"),
     # M3 (CPU only): A4 reference, quantisation, tuning + string/fret; the bass comes from the bass stage (M5)
     ("a4", ("stems",), "bandscribe.tab.stage"),
     ("quant", ("notes", "bass", "grid", "sections"), "bandscribe.tab.stage"),

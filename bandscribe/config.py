@@ -307,6 +307,28 @@ class BassCfg(_Section):
     techniques: bool = True  # vibrato / dead-note suggestions on the notes
 
 
+class RouterCfg(_Section):
+    # M6 (DESIGN S4): per-window stereo image of the separated guitar stem -> scenario label (bandscribe.router).
+    window_bars: int = Field(4, ge=1, le=16)  # 2 vs 4 bars is E9's (M7b)
+    silence_db: float = Field(40.0, gt=0.0)  # windows this far under the loudest one are "silent"
+    # rule thresholds over the synthetic starting values (bandscribe.router.route.THRESHOLDS); E6 re-fits them
+    thresholds: dict[str, float] = Field(default_factory=dict)
+    solo_coh_rise: float = 0.10  # solo gate v0, A path: coherent-energy share over the song's rhythm level
+    solo_resid_db: float = -6.0  # N path: repetition residual (dB re the stem) at or above this
+    solo_vocal_max: Prob = 0.5  # vocal veto: windows vocally active more than this are not solos
+
+    @field_validator("thresholds")
+    @classmethod
+    def _known_thresholds(cls, v: dict[str, float]) -> dict[str, float]:
+        from bandscribe.router.thresholds import THRESHOLDS  # no numpy: config loads on every CLI start
+
+        unknown = sorted(set(v) - set(THRESHOLDS))
+        if unknown:
+            raise ValueError(f"router.thresholds 에 알 수 없는 키: {', '.join(unknown)} "
+                             f"(가능: {', '.join(sorted(THRESHOLDS))})")
+        return v
+
+
 class EvalCfg(_Section):
     tpb: int = Field(48, ge=1)
     onset_tol_s: float = Field(0.05, gt=0.0)
@@ -351,6 +373,7 @@ class Config(BaseModel):
     s35: S35Cfg = Field(default_factory=S35Cfg)
     tab: TabCfg = Field(default_factory=TabCfg)
     bass: BassCfg = Field(default_factory=BassCfg)
+    router: RouterCfg = Field(default_factory=RouterCfg)
     eval: EvalCfg = Field(default_factory=EvalCfg)
     datasets: DatasetsCfg = Field(default_factory=DatasetsCfg)
     # Unknown top-level sections, kept verbatim (see module docstring).

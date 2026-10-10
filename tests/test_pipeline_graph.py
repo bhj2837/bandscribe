@@ -27,6 +27,9 @@ EXPECTED.update({  # M5 bass: F0 tracks (GPU worker) and the clean-up of the gat
     "bass_f0": {"stems"},
     "bass": {"notes", "bass_f0", "stems", "sep", "grid"},
 })
+EXPECTED.update({  # M6 router: nothing reads it yet, so a default run (--until score) leaves it out
+    "router": {"sep", "grid", "sections", "vocal", "resid1"},
+})
 EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},
     "quant": {"notes", "bass", "grid", "sections"},  # the bass comes from the bass stage (M5)
@@ -73,7 +76,8 @@ def test_until_notes_includes_s35_parts():
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
     assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes",
-                                               "bass", "quant", "tab", "score"}
+                                               "bass", "quant", "tab", "score", "router"}
+    assert "router" not in graph.selected("score") and graph.selected("router")[-1] == "router"
     assert graph.selected("score")[-5:] == ["bass_f0", "bass", "a4", "quant", "tab", "score"][-5:]
     assert "bass_f0" in graph.selected("score") and "bass" in graph.selected("score")
 

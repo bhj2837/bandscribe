@@ -160,6 +160,14 @@ gap_fill = false               # stable F0 where nothing was transcribed -> low-
 policy = "muscriptor"          # "and" = keep only F0-confirmed notes (comparison only)
 techniques = true              # vibrato / dead-note suggestions (score.json flags only)
 
+[router]                       # M6: stereo image of the guitar stem per 4-bar window -> scenario (run --until router)
+window_bars = 4
+silence_db = 40.0              # windows this far under the loudest one are "silent"
+solo_coh_rise = 0.10           # solo gate v0 (A path): coherent-energy share above the song's rhythm level
+solo_resid_db = -6.0           # solo gate v0 (N path): repetition residual at or above this (dB re the stem)
+solo_vocal_max = 0.5           # windows vocally active more than half the time are never solos
+[router.thresholds]            # empty = the synthetic starting values (bandscribe/router/route.py); E6 re-fits
+
 [eval]
 tpb = 48
 onset_tol_s = 0.05
