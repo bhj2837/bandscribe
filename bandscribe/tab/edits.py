@@ -119,6 +119,8 @@ def load_base(job_dir: Path) -> Base:
         raw_dirs = {"notes": notes_dir}
         if qm["deps"].get("bass"):  # M5: the cleaned bass (a run from before M5 reads the notes stage's)
             raw_dirs["bass"] = stages / "bass" / str(qm["deps"]["bass"])[:12]
+        if qm["deps"].get("split"):  # M6b: the guitar notes with their part line (a re-quantisation keeps it)
+            raw_dirs["split"] = stages / "split" / str(qm["deps"]["split"])[:12]
         grid = atomic.read_json(stages / "grid" / dep["grid"] / "grid.json")
         sections = atomic.read_json(stages / "sections" / dep["sections"] / "sections.json").get("sections") or []
         tab = atomic.read_json(stages / "tab" / dep["tab"] / "tab.json")
@@ -483,13 +485,13 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
         sub = {"tracks": {tid: quant["tracks"][tid]}}
         key = _digest([tid, quant["tracks"][tid]["notes"], tun.get(inst), base.tab_params])
         if cache is not None and tid in cache.frets and cache.frets[tid][0] == key:
-            tr = cache.frets[tid][1]
+            got = cache.frets[tid][1]
         else:
-            tr = T.fret_tracks(sub, {inst: tun.get(inst)}, base.tab_params).get(tid)
+            # the guitar also gives the part tracks derived from its notes' split line (M6b)
+            got = T.fret_tracks(sub, {inst: tun.get(inst)}, base.tab_params)
             if cache is not None:
-                cache.frets[tid] = (key, tr)
-        if tr is not None:
-            tracks[tid] = tr
+                cache.frets[tid] = (key, got)
+        tracks.update(got or {})
     tab = {**{k: v for k, v in base.tab.items() if k != "tracks"}, "tracks": tracks}
     return State(grid=grid, sections=sections, quant=quant, tab=tab, report=report, n_active=len(edits))
 
@@ -586,7 +588,8 @@ def build_tolerant(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache
 # ----------------------------------------------------------------------------------------------- export
 
 SCORE_FILES = ("tab/score.gp5", "tab/score.alphatex", "score.json", "tab/tab.json",
-               *(f"tab/{t}.txt" for t in TRACKS), *(f"midi/{t}_quantized.mid" for t in TRACKS))
+               *(f"tab/{t}.txt" for t in (*TRACKS, *T.DERIVED)),
+               *(f"midi/{t}_quantized.mid" for t in (*TRACKS, *T.DERIVED)))
 
 
 def export(base: Base, state: State, h: str) -> dict[str, Any]:

@@ -323,6 +323,11 @@ class RouterCfg(_Section):
     solo_coh_rise: float = 0.10  # solo gate v0, A path: coherent-energy share over the song's rhythm level
     solo_resid_db: float = -6.0  # N path: repetition residual (dB re the stem) at or above this
     solo_vocal_max: Prob = 0.5  # vocal veto: windows vocally active more than this are not solos
+    # M6b part split (stage `split`, E22b): P windows' notes to L / R by the sign of their own ILD
+    split: bool = True
+    split_p_ild_db: float = Field(0.0, ge=0.0)  # |ILD| under this -> both lines (E22b chose 0: the sign alone)
+    split_min_share: Prob = 0.5  # split only when at least this share of the guitar notes is in P windows ...
+    split_min_notes: int = Field(30, ge=0)  # ... and each side has at least this many notes
 
     @field_validator("thresholds")
     @classmethod

@@ -38,16 +38,25 @@ def _hz(midi: float) -> float:
     return 440.0 * 2 ** ((float(midi) - 69) / 12)
 
 
-def stft_lr(stereo: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(freqs, X_L, X_R) of a (n, 2) or (2, n) stereo signal (Hann, ``N_FFT`` / ``HOP``, frame k centred on k * HOP)."""
-    x = np.asarray(stereo, dtype=np.float64)
+def _as_nx2(stereo: np.ndarray) -> np.ndarray:
+    x = np.asarray(stereo, dtype=np.float32)
     if x.ndim != 2 or 2 not in x.shape:
         raise ValueError(f"stereo array must be (n, 2) or (2, n), got {x.shape}")
-    if x.shape[0] != 2:
-        x = x.T
-    f, _t, z = signal.stft(x, sr, nperseg=N_FFT, noverlap=N_FFT - HOP, window="hann", boundary="even",
-                           padded=True)
-    return f, z[0], z[1]
+    return x if x.shape[1] == 2 else x.T
+
+
+_WINDOW = signal.get_window("hann", N_FFT).astype(np.float32)  # periodic Hann, as scipy's stft uses
+
+
+def frames_lr(x: np.ndarray, a: int, b: int) -> tuple[np.ndarray, np.ndarray]:
+    """Spectra (bins, frames) of frames a..b-1 of a (n, 2) signal, frame k centred on sample k * HOP (zeros outside
+    the signal): only the frames a note needs, so a whole song never sits in memory as an STFT."""
+    n = x.shape[0]
+    idx = (np.arange(a, b)[:, None] * HOP - N_FFT // 2) + np.arange(N_FFT)[None, :]
+    ok = (idx >= 0) & (idx < n)
+    seg = np.where(ok[..., None], x[np.clip(idx, 0, n - 1)], 0.0) * _WINDOW[None, :, None]
+    spec = np.fft.rfft(seg, axis=1)  # (frames, bins, 2)
+    return spec[..., 0].T, spec[..., 1].T
 
 
 def harmonic_bins(pitch: float, sr: int) -> list[int]:
@@ -66,8 +75,9 @@ def harmonic_bins(pitch: float, sr: int) -> list[int]:
 def signatures(stereo: np.ndarray, sr: int, notes: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Signature per note (module doc), in the notes' order: {ild_db, coh, ms_db, n_bins, shared_bins}.
     ``notes`` need ``onset_s``, ``offset_s``, ``pitch``."""
-    _f, xl, xr = stft_lr(stereo, sr)
-    n_frames = xl.shape[1]
+    x = _as_nx2(stereo)
+    n_frames = x.shape[0] // HOP + 1
+    n_bins = N_FFT // 2 + 1
     starts = np.array([float(n["onset_s"]) for n in notes])
     offs = np.array([float(n["offset_s"]) for n in notes])
     ends = np.minimum(offs, starts + HOLD_S)
@@ -90,12 +100,13 @@ def signatures(stereo: np.ndarray, sr: int, notes: Sequence[Mapping[str, Any]]) 
         own = [k for k in bins[i] if all(abs(k - o) > SHARE_BINS for o in others)]
         shared = not own
         use = np.array(own or bins[i], dtype=int)
-        use = use[(use >= 0) & (use < xl.shape[0])]
+        use = use[(use >= 0) & (use < n_bins)]
         if use.size == 0 or b <= a:
             out[i] = {"ild_db": None, "coh": None, "ms_db": None, "n_bins": 0, "shared_bins": shared}
             continue
-        L = xl[np.ix_(use, np.arange(a, b))]
-        R = xr[np.ix_(use, np.arange(a, b))]
+        xl, xr = frames_lr(x, a, b)
+        L = xl[use].astype(np.complex128)
+        R = xr[use].astype(np.complex128)
         el, er = float(np.sum(np.abs(L) ** 2)), float(np.sum(np.abs(R) ** 2))
         em = float(np.sum(np.abs((L + R) / 2) ** 2))
         es = float(np.sum(np.abs((L - R) / 2) ** 2))

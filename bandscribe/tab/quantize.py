@@ -304,7 +304,7 @@ def _viterbi(costs: list[dict[str, float]], switch: float) -> list[str]:
 
 
 # note fields the quantiser carries over unchanged (M5 bass: techniques, provenance, the anchor's move)
-PASS_KEYS = ("tech", "src", "conf", "f0", "from_pitch", "merged")
+PASS_KEYS = ("tech", "src", "conf", "f0", "from_pitch", "merged", "line", "shared")
 
 
 def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[str, Any] | Grid,

@@ -40,8 +40,8 @@ def test_cache_hit_on_rerun_and_from_cascades(job, fakes):
     store, key = job
     ev: list = []
     res = runner.run(key, None, store=store, progress=lambda k, i: ev.append((k, i)))
-    default = graph.selected(graph.DEFAULT_UNTIL)  # every stage but the M6 router (nothing reads it yet)
-    assert set(res) == set(default) == set(graph.NAMES) - {"router"}
+    default = graph.selected(graph.DEFAULT_UNTIL)
+    assert set(res) == set(default) == set(graph.NAMES)
     assert events_of(ev, "stage_start") == [n for n in graph.NAMES if n in default]
     ev.clear()
     fakes.calls.clear()
@@ -52,7 +52,7 @@ def test_cache_hit_on_rerun_and_from_cascades(job, fakes):
     # amt_ms1 follows sections (presence windows); its unchanged views come from the transcription cache; the bass
     # clean-up follows notes (M5), its F0 tracks (stems only) stay cached
     assert set(fakes.calls) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes", "bass", "quant",
-                                "tab", "score"}
+                                "tab", "score", "router", "split"}
     items = runner.plan(key, None, store=store)
     assert all(it.cached for it in items)
 
