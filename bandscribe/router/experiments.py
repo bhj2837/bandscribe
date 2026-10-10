@@ -391,4 +391,10 @@ def _run_e22(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
     return run_e22(out_dir, cfg, args, **kw)
 
 
-EXPERIMENTS = {"E6": run_e6, "E22": _run_e22}
+def _run_e22b(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
+    from bandscribe.router.split_eval import run_e22b
+
+    return run_e22b(out_dir, cfg, args, **kw)
+
+
+EXPERIMENTS = {"E6": run_e6, "E22": _run_e22, "E22b": _run_e22b}

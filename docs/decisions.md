@@ -737,3 +737,27 @@
   확인했다(ILD +30 / −24 dB, 가운데 coherence 1.0·mid/side > 30 dB, 더블 coherence 0.56·mid/side 2.8 dB). Tier B 음은 보지 않았다.
 - 실행 명령: `bandscribe eval exp E22`
 - 결과: (아직 없음)
+
+## E22b
+- 제목: 음표별 스테레오 서명으로 두 Line 나누기 — 문턱을 dev 곡에서 고르고 test 곡에서 판정 (M6b, E22 의 후속)
+- 상태: 사전 등록
+- 질문: E22 와 같다(P: 다수 기준선 + 20점, A: 리드 F1 + 10점·누설 ≤ 25 %·리듬 하락 ≤ 2점). 다른 점은 서명 문턱을 합성 값으로
+  고정하지 않고 dev 곡의 리믹스로 고른다는 것뿐이다.
+- 등록 이유(E22 결과를 보기 전, 2026-10-10): E22 시험 실행(P 리믹스 2개: butterflyeffect, jetb; 등록된 실행 아님)에서 왼쪽·
+  오른쪽 테이크 음의 ILD 가 부호로는 갈렸지만(jetb 중앙값 +6.2 / −4.8 dB) 합성 값 ±11.8 dB 보다 훨씬 작았다. 다른 쪽 기타와
+  분리 잔여물이 섞이기 때문이다. E22 의 고정 문턱 6 dB 로는 많은 음이 "양쪽 공유" 로 가서 오답이 된다. E22 는 등록대로 돌리고,
+  이 등록은 그 결과와 무관하게 문턱 선택 규칙을 미리 정해 둔다.
+- 선택지(arm): E22 와 같다(`majority`, `window_pan`/`merged`, `note_sig|oracle`, `note_sig|router`). `note_sig` 의 문턱은 dev 에서
+  고른 하나뿐이다.
+- 문턱 선택(dev 곡만): P — `p_ild_db` ∈ {0, 1, 2, 3, 4, 6} 중 `note_sig|oracle` 의 평균 macro 정확도가 가장 높은 것(동률은 큰 값).
+  A — (`a_coh` ∈ {0.6, 0.7, 0.8, 0.9}) × (`a_ms_db` ∈ {3, 6, 10, 15}) 중 평균 `leak_lead` ≤ 0.25 이고 평균 리듬 하락 ≤ 2점인 것 가운데
+  리드 F1 이득이 가장 큰 것(동률은 격자 순서 앞), 통과하는 조합이 없으면 합성 값(0.8, 10).
+- 주 지표·MDE·결정 규칙: E22 와 같은 규칙을 **test 곡의 리믹스에만** 적용한다(`e22_decision.json` 의 `test`). dev 값은 참고.
+- 데이터: E22 와 같다(E6 실행의 P·A 리믹스, 앞 32 s, 같은 참조·시스템 전사 — eval 캐시에서 다시 쓴다). 분할 = E6 의 곡 분할
+  (`relations.json` 의 `split`: dev 7곡, test 6곡). P 리믹스는 dev·test 모두에, A 리믹스는 dev 4곡(mistrusted, moosmusic,
+  jokers, mu)·test 3곡(zeno, signejakobsen, rememberdecember)에 있다.
+- 분석: E22 와 같다(리믹스 쌍 차이, 곡 블록 부트스트랩 10,000회, seed 20260930).
+- 판정 설정: `rule=descriptive; metric=assign_macro; split_col=section` (규칙은 `e22_decision.json` 의 `test` 에 계산)
+- 비용: GPU 없음(E22 의 전사 캐시), CPU 몇 분.
+- 실행 명령: `bandscribe eval exp E22b`
+- 결과: (아직 없음)

@@ -192,7 +192,10 @@ def decide(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
+def _prepare(out_dir: Path, cfg: Any, args: Mapping[str, Any], progress: Callable[[str], None] | None
+             ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Per P / A remix of the E6 run: system notes with signatures, the reference line set of each, the oracle and
+    router windows (module doc). Transcriptions come from (and go to) the eval cache."""
     import soundfile as sf
 
     from bandscribe import audio as AU
@@ -202,12 +205,12 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
     from bandscribe.amt import stage as S
     from bandscribe.amt.reftx import write_mono_f32
 
-    out_dir = Path(out_dir)
-    work = out_dir / "work"
+    work = Path(out_dir) / "work"
     e6 = Path(args["e6_run"]) if args.get("e6_run") else latest_run("e6")
     if e6 is None or not (e6 / "e6_windows.json").is_file():
         raise AE.ExperimentDataMissing("E22: E6 실행 결과(e6_windows.json)가 없습니다. 먼저 bandscribe eval exp E6")
     wins = json.loads((e6 / "e6_windows.json").read_text(encoding="utf-8"))
+    split_of = {s: v["split"] for s, v in json.loads((e6 / "relations.json").read_text(encoding="utf-8")).items()}
     root = Path(datasets.dataset_root("cambridge_mt"))
     tracks = {t.track_id: t for t in datasets.iter_tracks("cambridge_mt")}
     order = sorted(tracks)  # E6's song_index
@@ -217,7 +220,7 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         remixes = remixes[: int(args["limit"])]
     sep_rung = AE.sep_top_rung(cfg)
     gmask = I.mask_guitar_only()
-    plans, views, info = {}, [], {}
+    plans, views = {}, []
     for song, sc in remixes:
         rel = T.relations(tracks[song], root, rel_dir)
         pl = T.plan(rel, sc, song_index=order.index(song))
@@ -226,8 +229,7 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         stems, _ = X.separate_guitar([(X._pcm_sha(mix), mix_wav)], cfg, force_rung=sep_rung,
                                      cache_dir=X.cache_root())
         stem, sr = sf.read(str(next(iter(stems.values()))), dtype="float32", always_2d=True)
-        n = int(EXCERPT_S * sr)
-        stem = stem[:n]
+        stem = stem[: int(EXCERPT_S * sr)]
         d = work / f"{song}_{sc}"
         d.mkdir(parents=True, exist_ok=True)
         sha = write_mono_f32(d / "sys_mono.wav", stem.mean(axis=1), sr)
@@ -249,8 +251,7 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
                                           cache=AE._eval_cache(), job=None, force_rung=ms_top)
     rung = f"{sep_rung}|{info_ms.get('rung_label') or ms_top}"
     gclasses = set(I.GUITAR_CLASSES)
-    rows: list[dict] = []
-    detail: dict[str, Any] = {}
+    items = []
     for (song, sc), (pl, d) in plans.items():
         stem, sr = sf.read(str(d / "stem.wav"), dtype="float32", always_2d=True)
         sys_notes = [n for n in raws[f"{song}.{sc}.sys"].get("notes") or [] if n.get("instrument") in gclasses]
@@ -262,48 +263,136 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         for k in pl.pans:
             notes = [n for n in raws[f"{song}.{sc}.t{k}"].get("notes") or [] if n.get("instrument") in gclasses]
             ref.setdefault(line_of[k], []).extend(notes)
-        truth = match(sys_notes, ref)
-        sigs = N.signatures(stem, sr, sys_notes)
         ws = [w for w in wins if w["song"] == song and w["scenario"] == sc and w["end_s"] <= EXCERPT_S + 1e-6]
-        oracle = [{"start_s": w["start_s"], "end_s": w["end_s"], "label": w["truth"]} for w in ws]
-        routed = [{"start_s": w["start_s"], "end_s": w["end_s"], "label": X.predict(w["sw"], THRESHOLDS)} for w in ws]
-        counts: dict[str, int] = {}
-        for t in truth:
-            for ln in t:
-                counts[ln] = counts.get(ln, 0) + 1
-        major = max(sorted(counts), key=lambda k: counts[k]) if counts else "all"
-        preds: dict[str, list[list[str]]] = {
-            "majority": [[major] for _ in sys_notes],
-            "note_sig|oracle": [a["lines"] for a in SP.assign(sys_notes, sigs, oracle)],
-            "note_sig|router": [a["lines"] for a in SP.assign(sys_notes, sigs, routed)],
-        }
-        if sc == "P":
-            preds["window_pan"] = window_pan_lines(stem, sr, sys_notes, ws)
-        else:
-            preds["merged"] = [["double", "centre"] for _ in sys_notes]  # every note in both lines = no split
-        item = f"{song}:{sc}"
-        common = {"dataset": "cambridge_mt", "item": item, "group": song, "scenario": sc, "rung": rung,
-                  "line": "guitar", "section": ""}
-        det: dict[str, Any] = {"notes": len(sys_notes), "matched": sum(1 for t in truth if t),
-                               "ref": {k: len(v) for k, v in ref.items()}, "arms": {}}
-        for arm in (P_ARMS if sc == "P" else A_ARMS):
-            pred = preds[arm]
-            macro, extra = assign_macro(truth, pred)
-            arm_d: dict[str, Any] = {"assign_macro": macro, **extra}
-            if macro is not None:
-                rows.append({**common, "system": arm, "metric": "assign_macro", "value": round(macro, 4)})
-            if sc == "A":
-                for name, val in (("lead_f1", line_f1(sys_notes, pred, "centre", ref.get("centre", []))),
-                                  ("rhythm_f1", line_f1(sys_notes, pred, "double", ref.get("double", []))),
-                                  ("leak_lead", leakage(truth, pred, "centre", "double")),
-                                  ("leak_rhythm", leakage(truth, pred, "double", "centre"))):
-                    arm_d[name] = None if val is None else round(val, 4)
-                    if val is not None:
-                        rows.append({**common, "system": arm, "metric": name, "value": round(val, 4)})
-            det["arms"][arm] = arm_d
-        detail[item] = det
+        items.append({
+            "song": song, "scenario": sc, "split": split_of.get(song, ""), "sys": sys_notes, "ref": ref,
+            "truth": match(sys_notes, ref), "sigs": N.signatures(stem, sr, sys_notes),
+            "oracle": [{"start_s": w["start_s"], "end_s": w["end_s"], "label": w["truth"]} for w in ws],
+            "routed": [{"start_s": w["start_s"], "end_s": w["end_s"], "label": X.predict(w["sw"], THRESHOLDS)}
+                       for w in ws],
+            "window_pan": window_pan_lines(stem, sr, sys_notes, ws) if sc == "P" else None})
+    return items, {"e6_run": str(e6), "excerpt_s": EXCERPT_S, "views": len(views), "rung": rung}
+
+
+def _score(it: Mapping[str, Any], split_params: Mapping[str, float], rung: str, section: str = ""
+           ) -> tuple[list[dict], dict[str, Any]]:
+    """Rows and detail of one prepared remix under ``split_params`` (module doc)."""
+    sys_notes, truth, sigs, ref, sc = it["sys"], it["truth"], it["sigs"], it["ref"], it["scenario"]
+    counts: dict[str, int] = {}
+    for t in truth:
+        for ln in t:
+            counts[ln] = counts.get(ln, 0) + 1
+    major = max(sorted(counts), key=lambda k: counts[k]) if counts else "all"
+    preds: dict[str, list[list[str]]] = {
+        "majority": [[major] for _ in sys_notes],
+        "note_sig|oracle": [a["lines"] for a in SP.assign(sys_notes, sigs, it["oracle"], split_params)],
+        "note_sig|router": [a["lines"] for a in SP.assign(sys_notes, sigs, it["routed"], split_params)],
+    }
+    if sc == "P":
+        preds["window_pan"] = it["window_pan"]
+    else:
+        preds["merged"] = [["double", "centre"] for _ in sys_notes]  # every note in both lines = no split
+    item = f"{it['song']}:{sc}"
+    common = {"dataset": "cambridge_mt", "item": item, "group": it["song"], "scenario": sc, "rung": rung,
+              "line": "guitar", "section": section}
+    rows: list[dict] = []
+    det: dict[str, Any] = {"notes": len(sys_notes), "matched": sum(1 for t in truth if t),
+                           "ref": {k: len(v) for k, v in ref.items()}, "split": it["split"], "arms": {}}
+    for arm in (P_ARMS if sc == "P" else A_ARMS):
+        pred = preds[arm]
+        macro, extra = assign_macro(truth, pred)
+        arm_d: dict[str, Any] = {"assign_macro": macro, **extra}
+        if macro is not None:
+            rows.append({**common, "system": arm, "metric": "assign_macro", "value": round(macro, 4)})
+        if sc == "A":
+            for name, val in (("lead_f1", line_f1(sys_notes, pred, "centre", ref.get("centre", []))),
+                              ("rhythm_f1", line_f1(sys_notes, pred, "double", ref.get("double", []))),
+                              ("leak_lead", leakage(truth, pred, "centre", "double")),
+                              ("leak_rhythm", leakage(truth, pred, "double", "centre"))):
+                arm_d[name] = None if val is None else round(val, 4)
+                if val is not None:
+                    rows.append({**common, "system": arm, "metric": name, "value": round(val, 4)})
+        det["arms"][arm] = arm_d
+    return rows, det
+
+
+def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
+    out_dir = Path(out_dir)
+    items, info = _prepare(out_dir, cfg, args, progress)
+    rows: list[dict] = []
+    detail: dict[str, Any] = {}
+    for it in items:
+        r, det = _score(it, SP.DEFAULT_PARAMS, info["rung"])
+        rows += r
+        detail[f"{it['song']}:{it['scenario']}"] = det
     atomic.write_json(out_dir / "e22_items.json", detail)
     atomic.write_json(out_dir / "e22_decision.json", decide(rows))
-    atomic.write_json(out_dir / "e22_info.json", {"e6_run": str(e6), "excerpt_s": EXCERPT_S, "views": len(views),
-                                                  "rung": rung, "split_params": dict(SP.DEFAULT_PARAMS)})
+    atomic.write_json(out_dir / "e22_info.json", {**info, "split_params": dict(SP.DEFAULT_PARAMS)})
+    return rows
+
+
+# ----------------------------------------------------------------------------------------------- E22b
+
+E22B_P_ILD = (0.0, 1.0, 2.0, 3.0, 4.0, 6.0)
+E22B_A_COH = (0.6, 0.7, 0.8, 0.9)
+E22B_A_MS = (3.0, 6.0, 10.0, 15.0)
+
+
+def _mean_metric(rows: Sequence[Mapping[str, Any]], metric: str, arm: str) -> float | None:
+    v = [float(r["value"]) for r in rows if r["metric"] == metric and r["system"] == arm]
+    return float(np.mean(v)) if v else None
+
+
+def choose_params(dev: Sequence[Mapping[str, Any]], rung: str) -> tuple[dict[str, float], dict[str, Any]]:
+    """E22b (decisions.md): the split thresholds chosen on the dev remixes only. P: the ``p_ild_db`` with the best
+    mean ``note_sig|oracle`` macro accuracy (ties: the larger). A: among (``a_coh``, ``a_ms_db``) whose mean
+    ``leak_lead`` <= 0.25 and mean rhythm drop <= 2 points, the best mean lead-F1 gain over ``merged`` (ties: the
+    first in grid order); none passing -> the a-priori values."""
+    trace: dict[str, Any] = {"P": {}, "A": {}}
+    p_items = [it for it in dev if it["scenario"] == "P"]
+    a_items = [it for it in dev if it["scenario"] == "A"]
+    best_p, best_v = SP.DEFAULT_PARAMS["p_ild_db"], None
+    for t in E22B_P_ILD:
+        rows = [r for it in p_items for r in _score(it, {**SP.DEFAULT_PARAMS, "p_ild_db": t}, rung)[0]]
+        v = _mean_metric(rows, "assign_macro", "note_sig|oracle")
+        trace["P"][str(t)] = None if v is None else round(v, 4)
+        if v is not None and (best_v is None or v > best_v + 1e-12 or (abs(v - best_v) <= 1e-12 and t > best_p)):
+            best_p, best_v = t, v
+    best_a = (SP.DEFAULT_PARAMS["a_coh"], SP.DEFAULT_PARAMS["a_ms_db"])
+    best_gain = None
+    for c in E22B_A_COH:
+        for m in E22B_A_MS:
+            prm = {**SP.DEFAULT_PARAMS, "a_coh": c, "a_ms_db": m}
+            rows = [r for it in a_items for r in _score(it, prm, rung)[0]]
+            lead_s, lead_m = _mean_metric(rows, "lead_f1", "note_sig|oracle"), _mean_metric(rows, "lead_f1", "merged")
+            rh_s, rh_m = _mean_metric(rows, "rhythm_f1", "note_sig|oracle"), _mean_metric(rows, "rhythm_f1", "merged")
+            leak = _mean_metric(rows, "leak_lead", "note_sig|oracle")
+            gain = None if lead_s is None or lead_m is None else 100 * (lead_s - lead_m)
+            drop = None if rh_s is None or rh_m is None else 100 * (rh_m - rh_s)
+            ok = bool(gain is not None and leak is not None and leak <= A_LEAK and drop is not None
+                      and drop <= A_RHYTHM_DROP)
+            trace["A"][f"{c}/{m}"] = {"gain": None if gain is None else round(gain, 2),
+                                      "leak": None if leak is None else round(leak, 4),
+                                      "drop": None if drop is None else round(drop, 2), "ok": ok}
+            if ok and gain is not None and (best_gain is None or gain > best_gain + 1e-9):
+                best_a, best_gain = (c, m), gain
+    return {**SP.DEFAULT_PARAMS, "p_ild_db": best_p, "a_coh": best_a[0], "a_ms_db": best_a[1]}, trace
+
+
+def run_e22b(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
+    out_dir = Path(out_dir)
+    items, info = _prepare(out_dir, cfg, args, progress)
+    dev = [it for it in items if it["split"] == "dev"]
+    chosen, trace = choose_params(dev, info["rung"])
+    rows: list[dict] = []
+    detail: dict[str, Any] = {}
+    for it in items:
+        r, det = _score(it, chosen, info["rung"], section=it["split"])
+        rows += r
+        detail[f"{it['song']}:{it['scenario']}"] = det
+    atomic.write_json(out_dir / "e22_items.json", detail)
+    atomic.write_json(out_dir / "e22_decision.json", {
+        "chosen": chosen, "trace": trace, "test": decide([r for r in rows if r["section"] == "test"]),
+        "dev": decide([r for r in rows if r["section"] == "dev"])})
+    atomic.write_json(out_dir / "e22_info.json", {**info, "split_params": chosen})
     return rows
