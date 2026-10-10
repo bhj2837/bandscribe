@@ -231,13 +231,13 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         d = work / f"{song}_{sc}"
         d.mkdir(parents=True, exist_ok=True)
         sha = write_mono_f32(d / "sys_mono.wav", stem.mean(axis=1), sr)
-        views.append({"id": f"{song}|{sc}|sys", "wav": d / "sys_mono.wav", "pcm_sha256": sha, "instruments": gmask})
+        views.append({"id": f"{song}.{sc}.sys", "wav": d / "sys_mono.wav", "pcm_sha256": sha, "instruments": gmask})
         for k in sorted(pl.pans):
             rep = rel["takes"][k]["parts"][0]
             part = next(p for p in tracks[song].parts if p.id == rep)
             y = T._read(root / part.audio, pl.start_s, EXCERPT_S).mean(axis=1)
             sha = write_mono_f32(d / f"take{k}_mono.wav", y, T.SR)
-            views.append({"id": f"{song}|{sc}|t{k}", "wav": d / f"take{k}_mono.wav", "pcm_sha256": sha,
+            views.append({"id": f"{song}.{sc}.t{k}", "wav": d / f"take{k}_mono.wav", "pcm_sha256": sha,
                           "instruments": gmask})
         plans[(song, sc)] = (pl, d)
         AU.write_f32(d / "stem.wav", stem, sr)
@@ -253,14 +253,14 @@ def run_e22(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
     detail: dict[str, Any] = {}
     for (song, sc), (pl, d) in plans.items():
         stem, sr = sf.read(str(d / "stem.wav"), dtype="float32", always_2d=True)
-        sys_notes = [n for n in raws[f"{song}|{sc}|sys"].get("notes") or [] if n.get("instrument") in gclasses]
+        sys_notes = [n for n in raws[f"{song}.{sc}.sys"].get("notes") or [] if n.get("instrument") in gclasses]
         if sc == "P":
             line_of = {k: ("L" if pan < 0 else "R") for k, pan in pl.pans.items()}
         else:
             line_of = {k: ("double" if k in pl.roles["double"] else "centre") for k in pl.pans}
         ref: dict[str, list] = {}
         for k in pl.pans:
-            notes = [n for n in raws[f"{song}|{sc}|t{k}"].get("notes") or [] if n.get("instrument") in gclasses]
+            notes = [n for n in raws[f"{song}.{sc}.t{k}"].get("notes") or [] if n.get("instrument") in gclasses]
             ref.setdefault(line_of[k], []).extend(notes)
         truth = match(sys_notes, ref)
         sigs = N.signatures(stem, sr, sys_notes)
