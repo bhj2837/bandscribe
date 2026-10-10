@@ -10,9 +10,12 @@ harmonics during its first ``HOLD_S`` (the attack and early sustain, where the n
 
 Bins (n_fft ``N_FFT`` = 46 ms at 44.1 kHz, 10.8 Hz apart): the bin nearest each harmonic h * f0 below ``F_MAX``,
 from the 3rd harmonic for notes under ``LOW_HZ`` (DESIGN S7: E2-A2 fundamentals and 2nd harmonics are not resolved
-and are shared with chords and bass bleed). A bin within ``SHARE_BINS`` of a harmonic of another note sounding at
-the same time is left out (it belongs to two notes); a note left with no bins of its own uses all of them and is
-marked ``shared_bins``. Notes shorter than ``MIN_FRAMES`` STFT frames use those they have.
+and are shared with chords and bass bleed). A bin within ``SHARE_BINS`` of a bin that another note sounding at the
+same time reads (its own harmonic bins, by the same rule) is left out; a note left with no bins of its own uses all
+of them and is marked ``shared_bins``. Known gap (review 2026-10-10): harmonics another note does not read (a low
+note's 1st-2nd, any note's above the 10th) are not excluded, so an octave double played by the other part (E2 with
+E3) can still pull a note's ILD; E22b validated the split with this rule as it is. Notes shorter than
+``MIN_FRAMES`` STFT frames use those they have.
 """
 
 from __future__ import annotations

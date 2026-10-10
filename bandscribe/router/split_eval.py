@@ -364,11 +364,12 @@ def choose_params(dev: Sequence[Mapping[str, Any]], rung: str) -> tuple[dict[str
         for m in E22B_A_MS:
             prm = {**SP.DEFAULT_PARAMS, "a_coh": c, "a_ms_db": m}
             rows = [r for it in a_items for r in _score(it, prm, rung)[0]]
-            lead_s, lead_m = _mean_metric(rows, "lead_f1", "note_sig|oracle"), _mean_metric(rows, "lead_f1", "merged")
-            rh_s, rh_m = _mean_metric(rows, "rhythm_f1", "note_sig|oracle"), _mean_metric(rows, "rhythm_f1", "merged")
             leak = _mean_metric(rows, "leak_lead", "note_sig|oracle")
-            gain = None if lead_s is None or lead_m is None else 100 * (lead_s - lead_m)
-            drop = None if rh_s is None or rh_m is None else 100 * (rh_m - rh_s)
+            # remix-paired, like decide() (review 2026-10-10: E22b's run used unpaired means; A was held either way)
+            g = _paired(rows, "lead_f1", "A", "note_sig|oracle", "merged", n=1)
+            dr = _paired(rows, "rhythm_f1", "A", "note_sig|oracle", "merged", sign=-1.0, n=1)
+            gain = None if g is None else g["delta"]
+            drop = None if dr is None else dr["delta"]
             ok = bool(gain is not None and leak is not None and leak <= A_LEAK and drop is not None
                       and drop <= A_RHYTHM_DROP)
             trace["A"][f"{c}/{m}"] = {"gain": None if gain is None else round(gain, 2),

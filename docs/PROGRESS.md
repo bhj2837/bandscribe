@@ -124,6 +124,14 @@ Tests: `tests/test_router.py` (42), `tests/test_split_tracks.py` (8).
     Ele. Guitar 1 63.5 -> 65.1 (our L), Ele. Guitar 2 39.3 -> 58.1 (our R); of our notes that sit in exactly one
     sheet guitar's bar, 76.2 % went to that guitar's part (guitar 1 80.1 % of 1,992, guitar 2 72.3 % of 898;
     majority baseline 50 %). Script: `data/tmp/m6/eval_sc_split.py`.
+- **Review** (independent agent, 2026-10-10; table in `docs/acceptance/M6.md`): the viewer's track list, the S key
+  and the edit hash on part notes (fixed in f3823b7 before the review landed), shared notes missing from both
+  parts when `split_p_ild_db` > 0, the tempo hint turning a compound meter simple (now skipped with a warning; grid
+  code version 5), added notes without a part (an added note now joins the part of the note it was added next to),
+  part-track warnings, an empty stem labelled `mixed`, E22b's unpaired A means and `tierb`'s onset/activity frame
+  mapping (code version 2). The octave-overlap gap of the shared-bin rule is documented, not changed (the split was
+  validated with it). Exports of the five songs byte-identical before/after; the parts now report the notes their tab
+  drops as unplayable (seisyun complex 35 / 9, 青と夏 168 / 3, AZ 48 / 66).
 - **Not done in M6** (see `docs/acceptance/M6.md`): views S5 and the centre extractor (E7 needs the CenterWide
   download, the user's call), S7 fusion + Basic Pitch voting (E19), R1 self-agreement calibration (E6b), E8, E20
   (xlance download), the A split (held by E22b), unison (shared) notes in P (with the sign rule a unison goes to

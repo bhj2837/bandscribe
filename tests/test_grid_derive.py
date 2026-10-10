@@ -592,11 +592,10 @@ def test_tempo_hint_at_the_tracked_level_changes_nothing():
 
 
 def test_tempo_hint_that_is_not_a_power_of_two_multiple_is_ignored():
-    """A dotted-quarter tempo (60) for a 6/8 tracked in eighths (180): a 3:1 ratio, so the hint is not used."""
-    beats, ons, s = _six_eight(n_bars=16, dq=1.0)
-    eighths = np.sort(np.concatenate([beats, beats + 1 / 3, beats + 2 / 3]))
-    a = grid_of(eighths, eighths[::6], ons, s)
-    b = grid_of(eighths, eighths[::6], ons, s, tempo_bpm=60)
+    """A 4/4 tracked at 120 with a hint of 40 (a 3:1 ratio, e.g. a typo): the hint is not used."""
+    t = 1.0 + np.arange(64) * 0.5
+    a = grid_of(t, t[::4], t)
+    b = grid_of(t, t[::4], t, tempo_bpm=40)
     assert b["hypotheses"]["beat_level"]["hint_shift"] is None
     assert b["hypotheses"]["tempo_octave"]["by"] == "onsets"
     assert any("무시했습니다" in w for w in b["hypotheses"]["warnings"])
@@ -613,3 +612,16 @@ def test_tempo_hint_far_from_any_level_warns():
     g = grid_of(t, t[::4], t, tempo_bpm=15)
     assert g["tempo"][0]["bpm"] == pytest.approx(30.0, abs=0.2)
     assert any("크게 다릅니다" in w for w in g["hypotheses"]["warnings"])
+
+
+def test_tempo_hint_leaves_a_compound_meter_alone():
+    """Review 2026-10-10: a 6/8 (dotted quarter = 60) tracked in eighths; the quarter-note BPM 90 (or the dotted-quarter
+    60) must not halve the eighths into a 3/4."""
+    beats, ons, s = _six_eight(n_bars=16, dq=1.0)
+    eighths = np.sort(np.concatenate([beats, beats + 1 / 3, beats + 2 / 3]))
+    plain = grid_of(eighths, eighths[::6], ons, s)
+    for hint in (90, 60, 180):
+        g = grid_of(eighths, eighths[::6], ons, s, tempo_bpm=hint)
+        assert any("복합 박자" in w for w in g["hypotheses"]["warnings"]), hint
+        for key in ("beats", "bars", "meter", "beat_unit"):
+            assert g[key] == plain[key], (hint, key)

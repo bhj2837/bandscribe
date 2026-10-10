@@ -48,7 +48,7 @@ import numpy as np
 
 from bandscribe import atomic
 
-CODE_VERSION = "1"
+CODE_VERSION = "2"  # 2: onset frames mapped to activity frames by time (review 2026-10-10)
 REL_FORMAT = "bandscribe.router_tierb_relations/1"
 SR = 44100
 SR_REL = 22050
@@ -104,9 +104,9 @@ def pair_relation(fa: Mapping[str, np.ndarray], fb: Mapping[str, np.ndarray]) ->
     out: dict[str, Any] = {"overlap_s": overlap, "r": None, "lag_ms": None, "chroma": None, "relation": "none"}
     if overlap < MIN_OVERLAP_S:
         return out
-    k = ACT_HOP // ONSET_HOP  # onset frames per activity frame
-    m = np.repeat(both, k)
-    m = m[: min(fa["flux"].size, fb["flux"].size, m.size)]
+    n_on = min(fa["flux"].size, fb["flux"].size)
+    idx = np.minimum((np.arange(n_on) * ONSET_HOP) // ACT_HOP, both.size - 1)  # the activity frame of each onset frame
+    m = both[idx]
     x, y = fa["flux"][: m.size][m].astype(np.float64), fb["flux"][: m.size][m].astype(np.float64)
     x = (x - x.mean()) / (x.std() + 1e-9)
     y = (y - y.mean()) / (y.std() + 1e-9)

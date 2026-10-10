@@ -23,7 +23,8 @@ score is the minimum over its conditions (R3: the maximum of its two alternative
 with a positive score; when none is met the window is ``mixed`` (DESIGN S4 대안: every plausible path runs and S8
 decides). ``p`` = softmax(score / ``P_TEMPERATURE``) over R0-R3 and ``margin`` = best - second score: a measure
 of how far the window is from a rule boundary, not a calibrated probability (E6 reports how often it is right).
-A window more than ``silence_db`` under the song's loudest window is ``silent`` (no label).
+A window more than ``silence_db`` under the song's loudest window, or under ``SILENT_FLOOR_DBFS`` (an empty stem),
+is ``silent`` (no label).
 
 **Solo gate v0** (DESIGN S4, rule version; the MERT classifier is E9, M7b). Evidence by path, then a vocal veto:
 
@@ -54,6 +55,7 @@ SCALES: dict[str, float] = {"sm_db": 3.0, "coh": 0.05, "hard": 0.05, "cen": 0.1,
 P_TEMPERATURE = 1.0
 NAN_SCORE = -10.0  # an undefined feature (no coherent bins) never meets a condition
 WINDOW_BARS = 4
+SILENT_FLOOR_DBFS = -90.0  # a window this quiet is silent whatever the song's loudest window (an empty stem)
 DEFAULT_PARAMS: dict[str, Any] = {
     "window_bars": WINDOW_BARS,
     "silence_db": 40.0,
@@ -259,7 +261,7 @@ def route_song(guitar: np.ndarray, sr: int, bars: Sequence[Mapping[str, Any]],
     for w in wins:
         w["rel_db"] = round(w["level_db"] - top, 2)
         a, b = max(0, int(round(w["start_s"] * sr))), min(n, int(round(w["end_s"] * sr)))
-        if w["rel_db"] < -float(p["silence_db"]) or b - a < int(0.5 * sr):
+        if w["rel_db"] < -float(p["silence_db"]) or w["level_db"] < SILENT_FLOOR_DBFS or b - a < int(0.5 * sr):
             w.update(label="silent", features={}, scores={}, p={}, margin=None)
             continue
         f = features(st[:, a:b], sr)

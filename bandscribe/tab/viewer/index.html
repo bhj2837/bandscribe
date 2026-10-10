@@ -379,7 +379,8 @@
         if (n) send({ cmd: "assign", uid: selected, track: e.key === "1" ? "guitar_all" : "bass" });
         break;
       case "a": case "A":
-        send({ cmd: "add", track: n ? n.track : "guitar_all", t_s: audio.currentTime, pitch: n ? n.pitch : 0 });
+        send({ cmd: "add", track: n ? n.track : "guitar_all", t_s: audio.currentTime, pitch: n ? n.pitch : 0,
+               uid: selected || null });
         break;
       case "[": case "]": {
         const bi = currentBar();

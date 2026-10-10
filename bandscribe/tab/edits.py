@@ -376,7 +376,8 @@ def _added_note(e: Mapping[str, Any], tm: TempoMap, instrument: str) -> dict[str
     bar, start = tm._bar_of_beat(g / Q.TPB)
     return {"onset_s": round(on, 4), "offset_s": round(float(tm.beat_to_time((g + d) / Q.TPB)), 4),
             "pitch": int(e["pitch"]), "instrument": instrument, "gtick": g, "dur": d, "bar": int(bar),
-            "tick": g - int(round(start * Q.TPB)), "added": str(e["id"])}
+            "tick": g - int(round(start * Q.TPB)), "added": str(e["id"]),
+            **({"line": str(e["line"])} if e.get("line") else {})}  # a split song's part (M6b)
 
 
 def _instrument_of(tid: str, ns: Sequence[Mapping[str, Any]]) -> str:
@@ -900,7 +901,16 @@ class Session:
             if not pitch:
                 ps = sorted(int(n["pitch"]) for n in Q.notes_of(st.quant, tid)) or [40 if tid == T.BASS else 52]
                 pitch = ps[len(ps) // 2]
-            return {"op": "add", "track": tid, "gtick": g, "dur": ADD_STEP, "pitch": pitch}, ""
+            rec = {"op": "add", "track": tid, "gtick": g, "dur": ADD_STEP, "pitch": pitch}
+            line = None
+            if cmd.get("uid"):  # added next to a part note (M6b): the new note joins that part
+                t_, _, k_ = str(cmd["uid"]).rpartition(":")
+                ns = Q.notes_of(st.quant, t_)
+                if t_ == tid and k_.isdigit() and int(k_) < len(ns):
+                    line = ns[int(k_)].get("line")
+            if line in T.DERIVED.values():
+                rec["line"] = line
+            return rec, ""
         if c in ("barline", "tap"):
             starts = bar_starts(st.grid)
             times = [float(b["t_s"]) for b in st.grid["beats"]]

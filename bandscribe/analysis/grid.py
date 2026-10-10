@@ -31,7 +31,8 @@ in this order:
    interval, so a song tracked at half its counted tempo gets its midpoints here and step 5 cuts its 8-beat
    bars in two. Only the level comes from the hint, never the tempo itself; a hint that is not near a
    power-of-two multiple of P (more than 19 % off, e.g. a dotted-quarter tempo for tracked eighths) is ignored
-   with a warning.
+   with a warning, and so is any hint on a song that looks compound (tracked bars of 6/9/12 beats, or tracked
+   beats that divide in three): there step 6 groups the beats.
 2. **Tempo octave** (half/double, the dominant remaining failure, DESIGN S2). Candidates: the beats as
    unified in 1b, every other beat (half tempo; counted from each tracked downbeat, so every downbeat is kept
    even where a tracked bar has an odd beat count) and beats plus midpoints (double).
@@ -81,7 +82,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -380,6 +381,16 @@ def _unify_level(beats: np.ndarray, is_down: np.ndarray, act: _Act, hint_bpm: fl
     d_all = np.concatenate([new_down[kept_idx], np.zeros(len(mids), dtype=bool)])
     order = np.argsort(t_all, kind="stable")
     return t_all[order], d_all[order], info
+
+
+def _looks_compound(beats: np.ndarray, is_down: np.ndarray, ons: _Onsets, p: Mapping[str, Any]) -> bool:
+    """A tempo hint is not applied to a compound meter (review 2026-10-10): tracked eighths in bars of 6/9/12, or
+    tracked beats that already divide in three. Halving tracked eighths to the hinted "quarter" level would turn
+    a 6/8 into 3/4; the compound check (step 6) regroups them instead."""
+    if _modal_bar_beats(is_down) in (6, 9, 12):
+        return True
+    ratio = _triple_ratio(beats, ons)
+    return ratio is not None and ratio >= float(p["compound_triple_ratio"]) - float(p["compound_margin"])
 
 
 # ------------------------------------------------------------------------------------------ step 2
@@ -739,6 +750,10 @@ def derive_grid(beats_raw: dict[str, Any], activations: dict[str, Any] | None, o
         raw, is_down, n_doubles = _merge_doubles(raw, is_down, act)
         if n_doubles:
             warnings.append(f"비트 추적기가 한 박을 두 번 잡은 곳 {n_doubles}군데를 한 비트로 합쳤습니다")
+        if hint > 0 and _looks_compound(raw, is_down, ons, p):
+            warnings.append(f"복합 박자(6/8·9/8·12/8)로 보여 템포 힌트 {hint:g} BPM 을 쓰지 않았습니다(이 박자의 박은 "
+                            f"점4분음표이고, 박 단위는 자동 판정을 따릅니다)")
+            hint = 0.0
         raw, is_down, level_info = _unify_level(raw, is_down, act, hint_bpm=hint)
         if hint > 0 and level_info["hint_shift"] is None:
             warnings.append(f"템포 힌트 {hint:g} BPM 이 추적한 템포({level_info['tracked_bpm']:g} BPM)의 2배·절반 "

@@ -202,12 +202,12 @@ def track_notes(q: Mapping[str, Any], tid: str) -> list[dict[str, Any]]:
         return Q.notes_of(q, tid)
     line = DERIVED[tid]
     return [{**n, "uid": f"{GUITAR}:{k}", "src_k": k} for k, n in enumerate(Q.notes_of(q, GUITAR))
-            if n.get("line") == line or (n.get("shared") and n.get("line") in DERIVED.values())]
+            if n.get("line") == line or n.get("shared")]  # a shared note (both sides) is in both parts
 
 
 def split_on(q: Mapping[str, Any]) -> bool:
     """Whether the merged guitar's notes carry a part split (M6b)."""
-    return any(n.get("line") in DERIVED.values() for n in Q.notes_of(q, GUITAR))
+    return any(n.get("line") in DERIVED.values() or n.get("shared") for n in Q.notes_of(q, GUITAR))
 
 
 def fret_tracks(q: dict[str, Any], tun: dict[str, Any], p: dict[str, Any]) -> dict[str, Any]:
@@ -272,6 +272,15 @@ def run_tab(ctx: Any) -> None:
     chk = (tracks.get("guitar_all") or {}).get("check")
     if chk and chk.get("dropped"):
         _warn(ctx, f"합친 기타에서 한 손으로 칠 수 없는 음 {chk['dropped']}개를 탭에서 뺐습니다(MIDI·오선보에는 남음).")
+    for tid in DERIVED:  # the split parts (M6b): each is one player's tab
+        chk = (tracks.get(tid) or {}).get("check") or {}
+        name = TRACK_NAMES[tid][0]
+        if chk.get("dropped"):
+            _warn(ctx, f"{name} 에서 한 손으로 칠 수 없는 음 {chk['dropped']}개를 탭에서 뺐습니다(MIDI·오선보에는 남음).")
+        t = tun.get("guitar")
+        if chk.get("octave_shifted") and t and t.get("user") and t.get("auto_label") != t["label"]:
+            _warn(ctx, f"{name}: 지정한 튜닝 {t['label']} 으로 낼 수 없는 음 {chk['octave_shifted']}개를 옥타브를 옮겨 "
+                       f"적었습니다.")
 
 
 # ---------------------------------------------------------------------------------------------- score

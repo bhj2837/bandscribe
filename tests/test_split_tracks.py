@@ -255,3 +255,47 @@ def test_the_viewer_track_list_follows_the_written_tracks(tmp_path):
         keys = [k.split(":")[3] for k in s.map["pos"] if k.startswith(f"{ti}:")]
         assert keys and all(k[0] == ("s" if t["fretted"] else "p") for k in keys)
     assert s.close()
+
+
+# ------------------------------------------------------------------------------------------------ review fixes
+
+
+def test_a_shared_note_is_written_in_both_parts():
+    """Review 2026-10-10: a note the split writes to both sides (|ILD| under split_p_ild_db) is line "all" +
+    shared; it must be in both part tracks, not in neither."""
+    q, _grid = _quant_with_lines()
+    g = Q.notes_of(q, T.GUITAR)
+    g[0]["line"], g[0]["shared"] = "all", True
+    left, right = T.track_notes(q, "gtr_l"), T.track_notes(q, "gtr_r")
+    assert any(n["src_k"] == 0 for n in left) and any(n["src_k"] == 0 for n in right)
+
+
+def test_split_song_with_a_shared_zone_writes_shared_notes(two_parts):
+    notes, st = two_parts
+    body = RS.split_song(notes, _win("R3"), st, R.SR, {**SPLIT_ON, "p_ild_db": 60.0})
+    assert all(n["shared"] and n["line"] == "all" for n in body["notes"])  # every |ILD| is under 60 dB
+
+
+def test_a_note_added_next_to_a_part_note_joins_that_part(tmp_path):
+    job, _d = make_split_job(tmp_path)
+    s = E.Session(job)
+    uid = next(u for k, u in s.map["pos"].items() if k.startswith("1:"))  # a note written in Gtr 2 (R)
+    n_right = len(s.state.tab["tracks"]["gtr_r"]["notes"])
+    r = s.command({"cmd": "add", "track": "guitar_all", "t_s": 3.0, "pitch": 64, "uid": uid})
+    assert r["applied"]
+    added = [n for n in Q.notes_of(s.state.quant, "guitar_all") if n.get("added")]
+    assert added and added[0].get("line") == "R"
+    assert len(s.state.tab["tracks"]["gtr_r"]["notes"]) == n_right + 1
+    r = s.command({"cmd": "add", "track": "guitar_all", "t_s": 5.0, "pitch": 64})  # nothing selected: no part
+    assert r["applied"]
+    assert any(n.get("added") and n.get("line") is None for n in Q.notes_of(s.state.quant, "guitar_all"))
+    assert s.close()
+
+
+def test_an_empty_stem_is_silent_not_mixed():
+    from bandscribe.router import route as RT
+
+    x = np.zeros((2, 16 * R.SR))
+    bars = [{"bar": i, "start_s": 2.0 * i, "end_s": 2.0 * i + 2} for i in range(8)]
+    doc = RT.route_song(x, R.SR, bars, None)
+    assert {w["label"] for w in doc["windows"]} == {"silent"}
