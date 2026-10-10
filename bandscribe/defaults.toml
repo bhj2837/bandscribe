@@ -166,7 +166,14 @@ silence_db = 40.0              # windows this far under the loudest one are "sil
 solo_coh_rise = 0.10           # solo gate v0 (A path): coherent-energy share above the song's rhythm level
 solo_resid_db = -6.0           # solo gate v0 (N path): repetition residual at or above this (dB re the stem)
 solo_vocal_max = 0.5           # windows vocally active more than half the time are never solos
-[router.thresholds]            # empty = the synthetic starting values (bandscribe/router/route.py); E6 re-fits
+[router.thresholds]            # E6 (2026-10-10, GO): re-fit on separated Tier B stems; the rest are the synthetic
+                               # starting values (bandscribe/router/thresholds.py)
+r0_sm_db = -4.1445
+r0_coh = 0.8402
+r2_coh = 0.9942
+r2_hard = 0.8462
+r2_cen = 0.1169
+r3_ild_db = 1.8986
 
 [eval]
 tpb = 48

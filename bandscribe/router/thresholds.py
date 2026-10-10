@@ -11,3 +11,11 @@ THRESHOLDS: dict[str, float] = {
     "r2_coh": 0.85, "r2_hard": 0.1, "r2_cen": 0.4,
     "r3_ild_db": 6.0, "r3_hard": 0.3, "r3_coh": 0.6,
 }
+
+# E6 (docs/decisions.md, 2026-10-10, GO): re-fit on the separated stems of the dev songs' Tier B remixes; the default
+# of ``[router.thresholds]`` (the keys not listed keep their THRESHOLDS value).
+ADOPTED: dict[str, float] = {
+    "r0_sm_db": -4.1445, "r0_coh": 0.8402,
+    "r2_coh": 0.9942, "r2_hard": 0.8462, "r2_cen": 0.1169,
+    "r3_ild_db": 1.8986,
+}

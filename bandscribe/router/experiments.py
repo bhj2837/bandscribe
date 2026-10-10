@@ -385,4 +385,10 @@ def run_e6(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], Non
     return rows
 
 
-EXPERIMENTS = {"E6": run_e6}
+def _run_e22(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
+    from bandscribe.router.split_eval import run_e22  # imports this module
+
+    return run_e22(out_dir, cfg, args, **kw)
+
+
+EXPERIMENTS = {"E6": run_e6, "E22": _run_e22}

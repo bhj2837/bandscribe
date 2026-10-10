@@ -309,3 +309,162 @@ def test_bootstrap_macro_point_and_interval():
     r = X.bootstrap_macro(wins, "p", n=500)
     assert r["macro"] == pytest.approx((0.5 + 1.0) / 2) and r["r2"] == pytest.approx(0.5)
     assert r["macro_ci"][0] <= r["macro"] <= r["macro_ci"][1] and r["songs"] == 3 and r["windows"] == 12
+
+
+# ------------------------------------------------------------------------------------------------ per-note split
+
+
+def _tone_track(n, specs, sr=R.SR):
+    """Mono track of (midi, onset s, dur s, seed, detune cents) tones."""
+    x = np.zeros(n)
+    for p, t0, dur, seed, det in specs:
+        y = R.tone(440 * 2 ** ((p - 69 + det / 100) / 12), dur, 3.0, np.random.default_rng(seed))
+        a = int(t0 * sr)
+        x[a:a + len(y)] += y[: n - a]
+    return x
+
+
+@pytest.fixture(scope="module")
+def stereo_notes():
+    """Hard-left E4 + hard-right A4 together, a centred C5, a double G4 (two takes 8 ms / 6 cents apart)."""
+    from bandscribe.router import notesig as N
+
+    n = int(4 * R.SR)
+    left = _tone_track(n, [(64, 0.5, 1.0, 1, 0), (72, 2.0, 0.8, 3, 0), (67, 3.0, 0.8, 4, 0)])
+    right = _tone_track(n, [(69, 0.5, 1.0, 2, 0), (72, 2.0, 0.8, 3, 0), (67, 3.008, 0.8, 5, 6)])
+    notes = [{"onset_s": 0.5, "offset_s": 1.5, "pitch": 64}, {"onset_s": 0.5, "offset_s": 1.5, "pitch": 69},
+             {"onset_s": 2.0, "offset_s": 2.8, "pitch": 72}, {"onset_s": 3.0, "offset_s": 3.8, "pitch": 67}]
+    return notes, N.signatures(np.stack([left, right], axis=1), R.SR, notes)
+
+
+def test_note_signatures_place_each_note(stereo_notes):
+    _notes, sig = stereo_notes
+    assert sig[0]["ild_db"] > 15 and sig[1]["ild_db"] < -15  # hard left / hard right, played together
+    assert abs(sig[2]["ild_db"]) < 0.5 and sig[2]["coh"] > 0.99 and sig[2]["ms_db"] > 30  # one centred take
+    assert abs(sig[3]["ild_db"]) < 3 and sig[3]["coh"] < 0.8 and sig[3]["ms_db"] < 10  # a double
+    assert all(s["n_bins"] > 0 and not s["shared_bins"] for s in sig)
+
+
+def test_low_notes_skip_the_first_two_harmonics():
+    from bandscribe.router import notesig as N
+
+    e2 = N.harmonic_bins(40, R.SR)  # E2 = 82 Hz < 110 Hz
+    a4 = N.harmonic_bins(69, R.SR)
+    df = R.SR / N.N_FFT
+    assert min(e2) == round(3 * 82.41 / df) and min(a4) == round(440 / df)
+    assert max(a4) * df <= N.F_MAX + df
+
+
+def test_a_bin_two_notes_share_is_left_out():
+    """A3 and A4 together: A4's harmonics 1-5 are A3's 2nd-10th; only A4's 6th-10th are its own."""
+    from bandscribe.router import notesig as N
+
+    n = int(2 * R.SR)
+    x = _tone_track(n, [(57, 0.2, 1.0, 1, 0), (69, 0.2, 1.0, 2, 0)])
+    notes = [{"onset_s": 0.2, "offset_s": 1.2, "pitch": 57}, {"onset_s": 0.2, "offset_s": 1.2, "pitch": 69}]
+    sig = N.signatures(np.stack([x, x], axis=1), R.SR, notes)
+    a3, a4 = N.harmonic_bins(57, R.SR), N.harmonic_bins(69, R.SR)
+    own = [k for k in a4 if all(abs(k - o) > N.SHARE_BINS for o in a3)]
+    assert 0 < len(own) < len(a4) and sig[1]["n_bins"] == len(own) and not sig[1]["shared_bins"]
+    lone = N.signatures(np.stack([x, x], axis=1), R.SR, [notes[1], {**notes[0], "pitch": 45}])  # A2: h3.. = A4 h..
+    assert lone[0]["n_bins"] >= 1
+
+
+def test_split_by_window_label_and_signature(stereo_notes):
+    from bandscribe.router import split as SP
+
+    notes, sig = stereo_notes
+    p_win = [{"start_s": 0.0, "end_s": 4.0, "label": "R3"}]
+    got = SP.assign(notes, sig, p_win)
+    assert [a["lines"] for a in got[:2]] == [["L"], ["R"]]
+    assert got[2]["lines"] == ["L", "R"] and got[2]["shared"]  # centred: heard from both sides
+    a_win = [{"start_s": 0.0, "end_s": 4.0, "label": "R2"}]
+    got = SP.assign(notes, sig, a_win)
+    assert got[2]["lines"] == ["centre"] and got[3]["lines"] == ["double"]
+    n_win = [{"start_s": 0.0, "end_s": 4.0, "label": "mixed"}]
+    assert all(a["lines"] == ["all"] for a in SP.assign(notes, sig, n_win))
+    assert SP.assign(notes[:1], sig[:1], [])[0]["lines"] == ["all"]  # outside every window
+    s = SP.summary(SP.assign(notes, sig, p_win), p_win)  # the centred C5 and the double G4 go to both sides
+    assert s["share_split"] == 1.0 and s["lines"] == {"L": 3, "R": 3} and s["shared"] == 2
+
+
+# ------------------------------------------------------------------------------------------------ E22 scoring
+
+
+def test_e22_match_greedy_per_line():
+    from bandscribe.router import split_eval as E
+
+    sys_notes = [{"onset_s": 1.00, "pitch": 60}, {"onset_s": 1.02, "pitch": 60}, {"onset_s": 2.0, "pitch": 64},
+                 {"onset_s": 3.0, "pitch": 67}]
+    ref = {"L": [{"onset_s": 1.01, "pitch": 60}, {"onset_s": 2.03, "pitch": 64}],
+           "R": [{"onset_s": 2.01, "pitch": 64}, {"onset_s": 3.2, "pitch": 67}]}
+    got = E.match(sys_notes, ref)
+    assert got[0] == {"L"} or got[1] == {"L"}  # one L reference note, one system note gets it
+    assert sum(1 for g in got[:2] if g) == 1
+    assert got[2] == {"L", "R"}  # a unison: both takes play it
+    assert got[3] == set()  # 200 ms off: not matched
+
+
+def test_e22_assign_macro_counts_exact_line_sets():
+    from bandscribe.router import split_eval as E
+
+    truth = [{"L"}, {"L"}, {"R"}, {"R"}, {"L", "R"}, set()]
+    pred = [["L"], ["L", "R"], ["R"], ["L"], ["L", "R"], ["R"]]
+    macro, extra = E.assign_macro(truth, pred)
+    assert macro == pytest.approx((0.5 + 0.5) / 2)  # a single-line note written to both lines is wrong
+    assert extra["unison_n"] == 1 and extra["unison_hit"] == 1.0 and extra["n"] == 5
+    assert E.assign_macro([set()], [["L"]])[0] is None
+
+
+def test_e22_line_f1_and_leakage():
+    from bandscribe.router import split_eval as E
+
+    sys_notes = [{"onset_s": t, "pitch": 60} for t in (1.0, 2.0, 3.0, 4.0)]
+    pred = [["centre"], ["centre"], ["double"], ["double"]]
+    ref_centre = [{"onset_s": 1.0, "pitch": 60}, {"onset_s": 2.0, "pitch": 60}, {"onset_s": 5.0, "pitch": 60}]
+    assert E.line_f1(sys_notes, pred, "centre", ref_centre) == pytest.approx(2 * 1.0 * (2 / 3) / (1 + 2 / 3))
+    truth = [{"centre"}, {"double"}, {"double"}, {"centre"}]
+    assert E.leakage(truth, pred, "centre", "double") == pytest.approx(0.5)
+    assert E.leakage(truth, pred, "double", "centre") == pytest.approx(0.5)
+    assert E.leakage([set()] * 4, pred, "centre", "double") is None
+
+
+def test_e22_window_pan_sends_each_window_to_its_louder_side():
+    from bandscribe.router import split_eval as E
+
+    sr = 1000
+    stem = np.zeros((4000, 2), dtype=np.float32)
+    stem[:2000, 0] = 1.0  # 0-2 s left
+    stem[2000:, 1] = 1.0  # 2-4 s right
+    wins = [{"start_s": 0.0, "end_s": 2.0}, {"start_s": 2.0, "end_s": 4.0}]
+    notes = [{"onset_s": 0.5}, {"onset_s": 2.5}, {"onset_s": 5.0}]
+    assert E.window_pan_lines(stem, sr, notes, wins) == [["L"], ["R"], ["all"]]
+
+
+def test_e22_decide_applies_the_registered_rules():
+    from bandscribe.router import split_eval as E
+
+    rows = []
+    for song, (ns, maj, win) in {"a": (0.9, 0.55, 0.6), "b": (0.85, 0.5, 0.7), "c": (0.8, 0.6, 0.65)}.items():
+        for arm, v in (("note_sig|oracle", ns), ("majority", maj), ("window_pan", win), ("note_sig|router", ns)):
+            rows.append({"item": f"{song}:P", "group": song, "scenario": "P", "system": arm,
+                         "metric": "assign_macro", "value": v})
+        for arm, lead, rhy, leak in (("note_sig|oracle", 0.7, 0.8, 0.1), ("merged", 0.4, 0.78, None),
+                                     ("note_sig|router", 0.6, 0.8, 0.2)):
+            rows.append({"item": f"{song}:A", "group": song, "scenario": "A", "system": arm, "metric": "lead_f1",
+                         "value": lead})
+            rows.append({"item": f"{song}:A", "group": song, "scenario": "A", "system": arm, "metric": "rhythm_f1",
+                         "value": rhy})
+            if leak is not None:
+                rows.append({"item": f"{song}:A", "group": song, "scenario": "A", "system": arm,
+                             "metric": "leak_lead", "value": leak})
+    d = E.decide(rows)
+    assert d["P"]["vs_majority"]["delta"] == pytest.approx(100 * (0.85 - 0.55), abs=0.01)
+    assert d["P"]["decision"] == "adopt" and d["P"]["per_note_beats_window"]
+    assert d["A"]["lead_gain"]["delta"] == pytest.approx(30.0, abs=0.01)
+    assert d["A"]["rhythm_drop"]["delta"] == pytest.approx(-2.0, abs=0.01)  # the split's rhythm line is better
+    assert d["A"]["decision"] == "adopt"
+    rows = [r for r in rows if not (r["system"] == "note_sig|oracle" and r["metric"] == "leak_lead")]
+    rows.append({"item": "a:A", "group": "a", "scenario": "A", "system": "note_sig|oracle", "metric": "leak_lead",
+                 "value": 0.5})
+    assert E.decide(rows)["A"]["decision"] == "hold"  # leakage over 25 %

@@ -307,12 +307,19 @@ class BassCfg(_Section):
     techniques: bool = True  # vibrato / dead-note suggestions on the notes
 
 
+def _router_adopted() -> dict[str, float]:
+    from bandscribe.router.thresholds import ADOPTED  # no numpy: config loads on every CLI start
+
+    return dict(ADOPTED)
+
+
 class RouterCfg(_Section):
     # M6 (DESIGN S4): per-window stereo image of the separated guitar stem -> scenario label (bandscribe.router).
     window_bars: int = Field(4, ge=1, le=16)  # 2 vs 4 bars is E9's (M7b)
     silence_db: float = Field(40.0, gt=0.0)  # windows this far under the loudest one are "silent"
-    # rule thresholds over the synthetic starting values (bandscribe.router.route.THRESHOLDS); E6 re-fits them
-    thresholds: dict[str, float] = Field(default_factory=dict)
+    # rule thresholds over the synthetic starting values (bandscribe.router.thresholds.THRESHOLDS); the default is
+    # E6's re-fit (ADOPTED, 2026-10-10)
+    thresholds: dict[str, float] = Field(default_factory=lambda: _router_adopted())
     solo_coh_rise: float = 0.10  # solo gate v0, A path: coherent-energy share over the song's rhythm level
     solo_resid_db: float = -6.0  # N path: repetition residual (dB re the stem) at or above this
     solo_vocal_max: Prob = 0.5  # vocal veto: windows vocally active more than this are not solos
