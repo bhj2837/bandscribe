@@ -1,7 +1,8 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-10 (**tempo hint** for songs the beat tracker counts at half or double speed, see "Grid: tempo
-hint" below; then M6 starts. 2026-10-08: **M5 done with known gaps**: bass F0 trackers, the bass clean-up and E13, see "M5" below and
+Last updated: 2026-10-10 (**M6 done with known gaps**: the stereo router and the first automatic part split - two
+guitars at different stereo positions become two fretted parts - see "M6" below and `docs/acceptance/M6.md`; before
+it the **tempo hint**, see "Grid: tempo hint". 2026-10-08: **M5 done with known gaps**: bass F0 trackers, the bass clean-up and E13, see "M5" below and
 `docs/acceptance/M5.md`. 2026-10-05: **grid fix after M4a**: beats that Beat This! tracked twice are joined, see "Grid: beats
 tracked twice" below. **M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
 After M3: viewer scroll, silence gate, `hints.title`, see "After M3" below.
@@ -24,8 +25,9 @@ fixes).
 | M3 first tabs | ✅ quantisation, A4, tuning, Viterbi fretting (E12 → E12b), alphaTex/GP5/MIDI export, synced viewer; acceptance `docs/acceptance/M3.md`: **9 pass / 1 fail / 3 blocked** (tag `m3`) |
 | M4a editing | ✅ keyboard edits in `bandscribe view`, `edits.jsonl`, replay + re-export, re-applied after `run`; acceptance `docs/acceptance/M4a.md`: **4 pass / 1 blocked** (human baseline) (tag `m4a`) |
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
+| M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **5 pass / 3 fail / 2 blocked** (tag `m6`) |
 
-All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`).
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`).
 
 ## M5 (2026-10-08): bass
 
@@ -79,6 +81,53 @@ Two stages between `notes` and `quant` (code `bandscribe/bass/`, worker `bandscr
   contamination-unknown and the rule forbids absolute claims; they need Tier A (the user's Guitar Pro files).
 - Not done: SCNet ensemble and the 3-voter (YourMT3+) policy of E13 (not installed), HO/PO and slap (no ground truth),
   S14 root cross-check (needs rhythm Lines, M7a), a real F0 HMM segmenter (the gap fill is a simple stable-run rule).
+
+## M6 (2026-10-10): stereo router and the first automatic part split
+
+Code: `bandscribe/router/` (`route.py` windows/features/labels/solo gate, `thresholds.py`, `notesig.py` per-note stereo
+signature, `split.py` line assignment, `stage.py` the `router` and `split` stages, `tierb.py` Tier B remixes,
+`experiments.py` E6, `split_eval.py` E22/E22b); part tracks in `bandscribe/tab/stage.py` (`DERIVED`, `track_notes`).
+Tests: `tests/test_router.py` (42), `tests/test_split_tracks.py` (8).
+
+- **What a run does now** (default `--until score`, both stages CPU, seconds):
+  - `router`: per 4-bar window (cut at sections) the stereo image of SW's guitar stem -> R0 narrow / R1 ADT /
+    R2 wide same-part double / R3 parts at different positions / mixed / silent (`router.json`), thresholds re-fit
+    by E6; the solo gate v0 is computed and recorded but nothing uses it yet.
+  - `split`: each guitar note's own ILD / coherence / mid-side at its harmonic bins (`notesig`); in R3 windows the
+    sign of the ILD sends it to L or R (E22b). A / narrow / ADT / mixed windows stay merged. The song is split only
+    when >= 50 % of its guitar notes are in R3 windows and each side has >= 30 notes; `tab.guitar_parts = 1`
+    turns it off.
+  - Then `tab` frets **Gtr 1 (L)** and **Gtr 2 (R)** (one player each) from the merged guitar's notes, the merged
+    guitar stays a staff (`Guitar (all parts)`), plus `tab/gtr_l.txt`, `tab/gtr_r.txt` and their quantised MIDI.
+    A part note is the guitar note (uid `guitar_all:<i>`): a viewer edit of a part note edits the guitar note and
+    the part follows; a bar-line edit re-quantises from the split notes.
+- **E6** (`20261010-180608_6bed725_exp-e6`, GPU 11.5 min): 13 Cambridge-MT songs remixed into B / A / P / ADT scenes
+  (45 mixes, 284 windows). Machine take labels first (onset correlation + chroma): the lines.yaml drafts were wrong
+  both ways (Woodfire "1a/1b" = one performance on two mics; Mu Gtr1/Gtr2 = a double under two line ids).
+  Router features survive SW (true bus and SW stem score alike); the synthetic thresholds missed real doubles (dev
+  R2 0.29-0.35). Re-fit on dev songs: test macro 0.994 [0.985, 1.000], R2 1.00 -> **GO**; re-fit thresholds are the
+  defaults (`router/thresholds.py` ADOPTED). Pre-registration changes from a 2-song smoke run: ADT needs the delayed
+  peak to beat the zero-lag correlation (centred mono parts looked like ADT), grouped threshold search.
+- **E22** (as registered, synthetic split thresholds; `20261010-183611_fc4ac94_exp-e22`, GPU ~13 min): held. P +18.4
+  [7.9, 29.6] points over majority (< 20); A lost the lead line (-35 points).
+- **E22b** (registered before E22's results; thresholds chosen on dev songs, judged on test; no GPU): **P adopted**,
+  `p_ild_db` 0 (the sign alone): test +33.6 [16.2, 44.6] points over majority, +32.7 [15.3, 44.5] over window-level
+  pan. **A held**: the only dev settings within the leak/drop limits put nothing in the centre line.
+- **Five songs** (all MuScriptor views from the cache; router + split + quant + tab + score on the CPU):
+  - split on: seisyun complex (L 2,800 / R 1,726 notes, 233 merged), 青と夏 (2,514 / 457 / 38), AZ (2,542 / 2,259 /
+    16); off: KH (one
+    guitar by hint), AIZO (45 % of its notes in P windows). alphaTab parses all five scores (split songs: four
+    tracks).
+  - Router (re-fit thresholds): mostly R3 (seisyun complex 39/41 windows, 青と夏 48/52, AZ 23/23); AIZO R2 7, R3 6,
+    R0 4.
+  - **seisyun complex vs the user's Guitar Pro tabs** (descriptive, Tier A): part bag F1 per bar, merged -> part:
+    Ele. Guitar 1 63.5 -> 65.1 (our L), Ele. Guitar 2 39.3 -> 58.1 (our R); of our notes that sit in exactly one
+    sheet guitar's bar, 76.2 % went to that guitar's part (guitar 1 80.1 % of 1,992, guitar 2 72.3 % of 898;
+    majority baseline 50 %). Script: `data/tmp/m6/eval_sc_split.py`.
+- **Not done in M6** (see `docs/acceptance/M6.md`): views S5 and the centre extractor (E7 needs the CenterWide
+  download, the user's call), S7 fusion + Basic Pitch voting (E19), R1 self-agreement calibration (E6b), E8, E20
+  (xlance download), the A split (held by E22b), unison (shared) notes in P (with the sign rule a unison goes to
+  the louder side only), human-checked Tier B labels.
 
 ## Grid: tempo hint (2026-10-10)
 
@@ -542,7 +591,10 @@ mask the backing used:
 4. ~~Commit the milestone on `main` and tag it (`m2`).~~ Done 2026-10-05 (tags `m1a`, `m2`; M2 with known gaps, see the top of this file).
 5. ~~M3~~ done 2026-10-05 (tag `m3`). ~~M4a~~ done 2026-10-05 (tag `m4a`, see "M4a" at the top; the NVML pre-check
    item 6 stays open: the editor never starts GPU runs). ~~M5~~ done 2026-10-08 (tag `m5`, see "M5"). Next (DESIGN
-   order): **M6** (stereo router, first automatic part split; tempo hint done 2026-10-10, see "Grid: tempo hint"), or first the grid's tempo level (~~spurious beats~~:
+   order): ~~**M6**~~ done 2026-10-10 (tag `m6`, see "M6"; tempo hint first, see "Grid: tempo hint"). Next (DESIGN order): **M7a**
+   (Part view v0: K estimate, symbolic split, Unassigned) - before it E6b (R1 self-agreement calibration, needs L/R
+   transcriptions); or the M6 gaps (A path: E7 centre extractor needs the CenterWide download, the user's call). Older
+   note: the grid's tempo level (~~spurious beats~~:
    doubles joined 2026-10-05, see "Grid: beats tracked twice"; left: aotonat is 185 BPM but gridded at 93, AIZO
    29–44 s and AZ tracked at double time), or first the M3 gaps (fretting toward 75 %: same fingering
    for repeated sections, chord-shape templates; E16 if a detuned song shows up). Original M3 item: **First task of M3 (done

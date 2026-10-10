@@ -1,11 +1,14 @@
 # bandscribe
 
 > **English summary.** bandscribe is a personal, local Windows tool whose goal is to turn one band recording into
-> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestone M3 of M0–M12) it
+> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestone M6 of M0–M12) it
 > separates 6 stems, transcribes guitar and bass, quantises them onto the beat grid, picks the tuning, assigns
 > strings and frets by Viterbi, and writes a **bass tab** and a **staff for all guitars together** (alphaTex, Guitar
-> Pro 5, MIDI) that a local alphaTab viewer plays in sync with the original recording. Splitting several guitars into
-> parts, the core of the project, is planned for M6–M8 (`--parts 1` already frets the merged guitar as one part).
+> Pro 5, MIDI) that a local alphaTab viewer plays in sync with the original recording. When the guitars sit at
+> different stereo positions it also **splits them into two fretted parts** (left / right) by each note's own
+> inter-channel level difference: +34 points of assignment accuracy over the majority baseline on held-out
+> multitrack remixes, 76 % of the notes to the right guitar on a real song's Guitar Pro tabs. Splitting doubled or
+> centred guitars, part counting and identity tracking come in M7–M8.
 > Engineering highlights: a one-model-at-a-time GPU worker inside Windows Job Objects, a content-addressed stage
 > cache, pre-registered experiments judged with song-block bootstrap CIs (the fretting model was chosen that way:
 > 74.6 % string/fret agreement per note on GuitarSet vs 55.9 % for the open-source tuttut), and a sampled presence
@@ -14,10 +17,10 @@
 밴드 녹음 한 곡을 넣으면 **기타 파트마다 탭 하나와 베이스 탭**을 만드는 것이 목표인 Windows 로컬 도구다.
 드럼·피아노 악보는 그 다음 계획이다. 기타가 두 대 이상인 곡에서 "누가 어떤 음을 쳤는가"는 오디오 분리만으로는
 거의 가를 수 없다. 그래서 bandscribe는 분리와 전사로 음표 후보와 증거(스테레오 위치, 음색 클래스, 반복, 기호 규칙)를
-모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M3까지 구현되어 6 스템 분리, 기타·베이스 전사,
+모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M6까지 구현되어 6 스템 분리, 기타·베이스 전사,
 양자화, 튜닝 추정, 줄·프렛 배정을 거쳐 **베이스 탭과 기타 전체 오선보**(alphaTex·Guitar Pro 5·MIDI)를 만들고,
-원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. **기타 파트 분리는 아직 없다**(합친 기타를 한 대로 보고 탭을
-만드는 `--parts 1` 은 있다).
+원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. 기타 두 대가 **좌우에 따로** 있는 곡은 음마다 좌우 에너지 차로
+**왼쪽·오른쪽 파트 탭 두 개**로 나눈다(M6). 가운데 겹친 더블·리드, 파트 수 추정, 곡 전체 정체성 추적은 M7–M8 이다.
 
 - 설계서: [`docs/DESIGN.md`](docs/DESIGN.md) · 구현 명세: [`docs/M0_SPEC.md`](docs/M0_SPEC.md), [`docs/M1_M2_SPEC.md`](docs/M1_M2_SPEC.md)
 - 실험 등록부: [`docs/decisions.md`](docs/decisions.md) · 현재 상태와 측정 기록: [`docs/PROGRESS.md`](docs/PROGRESS.md)
@@ -40,12 +43,13 @@
 
 | 결과 | 설명 |
 |---|---|
-| 악보 `tab/score.alphatex` | 모든 트랙: **Guitar (all parts)** 는 오선보(파트를 아직 못 나누므로 운지 없음), **Bass** 는 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
+| 악보 `tab/score.alphatex` | 모든 트랙: 기타가 좌우로 나뉜 곡은 **Gtr 1 (L)**·**Gtr 2 (R)** 탭, 그리고 **Guitar (all parts)** 오선보(모든 기타 음, 운지 없음)와 **Bass** 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
+| 기타 파트 나누기(M6) | 라우터가 4마디마다 기타 스템의 스테레오 모양을 본다(가운데·ADT·넓은 더블·좌우 다른 파트). 좌우 다른 파트 구간의 음은 자기 배음의 좌우 에너지 차(ILD) 부호로 왼쪽·오른쪽 파트에 간다. 곡 음의 절반 넘게 그런 구간에 있고 양쪽이 30음 이상일 때만 나눈다. 두 파트는 각각 한 사람이 치는 탭으로 운지된다. 넓은 더블·가운데 리드 구간은 아직 나누지 않는다. 끄려면 `[router] split = false`, 기타가 한 대면 `[tab] guitar_parts = 1` |
 | 베이스 정리(M5) | 피치 추적기 셋(CREPE·PESTO·pyin)이 베이스 스템의 음높이를 10 ms 마다 잰다. 그것으로 계단처럼 쪼개 적힌 슬라이드를 첫 음 + 슬라이드 하나로 합치고(탭에 `\` `/`, 두 음은 같은 줄에 운지), 같은 음 조각을 합친다. 비브라토·데드 노트는 정확도가 낮아 악보에 쓰지 않고 `score.json` 의 제안 표시로만 남긴다. 옥타브·반음 교정, 킥 거부, 빈 곳 채우기도 만들었지만 실험 E13 에서 효과가 없어 꺼 두었다(`[bass]` 설정) |
-| `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(기본: 베이스. `--parts 1` 이면 기타도) |
+| `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(베이스, 나뉜 기타 파트, `--parts 1` 이면 합친 기타) |
 | `tab/*.txt` | 운지된 트랙의 텍스트 탭(대략적인 미리보기) |
 | 튜닝 | 기타·베이스 함께 추정(표준·드롭·반음/온음 다운·카포·오픈 튜닝, 7현은 D2 아래 음이 있을 때만). `tab/tab.json` |
-| MIDI | 연주 그대로(`guitar_all.mid`, 전사 그대로의 `bass_raw.mid`, 정리한 `bass.mid`)와 양자화판(`*_quantized.mid`) |
+| MIDI | 연주 그대로(`guitar_all.mid`, 전사 그대로의 `bass_raw.mid`, 정리한 `bass.mid`)와 양자화판(`*_quantized.mid`, 나뉜 곡은 `gtr_l`·`gtr_r` 도) |
 | 6 스템 | vocals, drums, bass, guitar, piano, other (+ `nonvox` = 믹스 − 보컬·드럼·베이스, `leftover` = 믹스 − 6 스템 합) |
 | 박·마디 격자 | Beat This! 비트·다운비트에 자체 후처리(한 박을 두 번 잡은 비트 합치기, 곡 안의 반/배 박 전환 정리, 동적 계획법 마디선)를 더한 템포맵·박자표 |
 | 편성 추정 | 악기 클래스별 존재 확률(`instrumentation.json`, 건반·신스·현악 등). 기타 전사의 악기 마스크를 정하는 데 쓴다 |
@@ -82,8 +86,10 @@
 - `bandscribe gt ...`: Guitar Pro 정답 가져오기(반복·다른 엔딩 펼침), 참조 렌더, DTW 정렬, 다운비트 탭 보정.
 - `bandscribe data ...`: 평가용 데이터셋(Cambridge-MT, EGDB, GuitarSet, IDMT-SMT-Bass, FiloBass, MedleyDB) 받기·검증·로더.
 
-**아직 없는 것:** 기타 파트(Line) 분리(M6–M8; 그래서 기타는 오선보만), 베이스 완성(M5: 옥타브 앵커, 슬라이드 같은 주법),
-A/B 믹서·검토 큐(M4b), 화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
+**아직 없는 것:** 좌우가 아닌 기타 나누기(가운데 겹친 더블·리드, 좁은 믹스: M7–M8), 파트 수 추정·곡 전체 정체성 추적(M7a–M7b),
+뷰어에서 파트 바꾸기(파트 트랙의 음을 고르면 합친 기타의 같은 음이 골라지고 고친 결과는 파트에도 반영되지만, 새로 넣은 음은
+파트가 없다), A/B 믹서·검토 큐(M4b), 화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는
+v1 범위 밖이다.
 
 ## 마일스톤
 
@@ -98,8 +104,8 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 | **M2** | 첫 수직 슬라이스: 분리, 전사, 편성 추정, MIDI, 연습용 반주, GPU 벤치 | **완료, 알려진 한계 있음** (인수 25개 중 통과 19 · 미달 3 · 보류 3, 태그 `m2`; [인수 문서](docs/acceptance/M1a_M2.md)) |
 | **M3** | 첫 탭: 양자화, 튜닝·Viterbi 운지, .gp5/alphaTex 내보내기(기타는 합친 트랙, 베이스는 원시 탭), 원곡 동기 뷰어 | **완료, 알려진 한계 있음** (기준 13개 중 통과 9 · 미달 1 · 보류 3, 태그 `m3`; [인수 문서](docs/acceptance/M3.md)) |
 | **M4a** | 편집 UI(뷰어 위 키보드 편집, 수정 로그, 다시 내보내기) | **완료, 알려진 한계 있음** (기준 5개 중 통과 4 · 보류 1, 태그 `m4a`; [인수 문서](docs/acceptance/M4a.md)) |
-| M5 | 베이스 완성: 옥타브 앵커, 튜닝 후보, 주법 | 다음 |
-| **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리** | 계획 (핵심) |
+| **M5** | 베이스 완성: F0 추적기 3개, 슬라이드 합치기, 주법 제안 | **완료, 알려진 한계 있음** (기준 8개 중 통과 4 · 미달 1 · 보류 3, 태그 `m5`; [인수 문서](docs/acceptance/M5.md)) |
+| **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리**(좌우 다른 파트) | **완료, 알려진 한계 있음** (기준 10개 중 통과 5 · 미달 3 · 보류 2; [인수 문서](docs/acceptance/M6.md)) |
 | **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | 계획 (핵심) |
 | M4b | A/B 믹서, 검토 큐 | 계획 |
 | **M7b** | 정체성 추적: 트랙렛, 재식별, HMM 평활 | 계획 (핵심) |
@@ -114,10 +120,11 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 
 ## 파이프라인
 
-### 지금 (M3, 17단계)
+### 지금 (M6, 21단계)
 
-입력 처리(ingest) 뒤에 17단계가 돈다. 주황색이 GPU 단계다. 주요 의존만 그렸고, 정확한 의존 관계는
-[`bandscribe/pipeline/graph.py`](bandscribe/pipeline/graph.py)에 있다. M3 단계(초록)는 모두 CPU 이고 곡당 몇 초다.
+입력 처리(ingest) 뒤에 21단계가 돈다. 주황색이 GPU 단계다. 주요 의존만 그렸고, 정확한 의존 관계는
+[`bandscribe/pipeline/graph.py`](bandscribe/pipeline/graph.py)에 있다. M3 단계(초록)와 M6 단계(파랑)는 모두 CPU 이고 곡당
+몇 초다.
 
 ```mermaid
 flowchart LR
@@ -145,9 +152,14 @@ flowchart LR
     notes --> bass["bass<br/>조각·슬라이드 합치기<br/>주법 제안 · bass.mid"]
     f0 --> bass
     bass --> quant
+    sep --> router["router<br/>4마디마다 스테레오 모양<br/>가운데 · ADT · 더블 · 좌우"]
+    sections --> router
+    router --> split["split<br/>음마다 좌우 에너지 차로<br/>왼쪽 · 오른쪽 파트"]
+    notes --> split
+    split --> quant
     notes --> quant["quant<br/>박마다 16분·셋잇단 선택<br/>셔플·12/8 · 셋잇단 느낌"]
     grid --> quant
-    quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi"]
+    quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi<br/>파트마다 운지"]
     a4 --> tab
     tab --> score["score<br/>alphaTex · GP5 · 양자화 MIDI"]
     score --> edit["편집 (M4a)<br/>edits.jsonl 재생<br/>export 다시 쓰기"]
@@ -157,6 +169,8 @@ flowchart LR
     class a4,quant,tab,score,edit m3
     classDef m5 fill:#e3dcf5,stroke:#5a4a9a,color:#000
     class bass m5
+    classDef m6 fill:#d6e6f7,stroke:#2b5d8f,color:#000
+    class router,split m6
 ```
 
 `notes` 는 MuScriptor 가 무음 스템 위에 지어낸 음을 뺀다(`amt.silence_gate_db`). `bass_f0` 는 베이스 스템의 기본 주파수를
@@ -166,14 +180,15 @@ flowchart LR
 `bandscribe run` 이 `edits.jsonl` 을 단계 결과 위에 다시 재생해 export 를 고친다(마디선 편집은 양자화부터, 음 편집은 운지부터
 다시 계산하고 GPU 단계·튜닝 탐색은 다시 하지 않는다).
 
-### 계획 (M4–M8)
+### 계획 (M7–M8)
 
-M3 의 양자화·튜닝·운지·내보내기(초록)는 이미 있다. 그 앞에 파트 분리가 들어간다.
+M3 의 양자화·튜닝·운지·내보내기(초록)와 M6 의 라우터·좌우 파트 나누기(파랑)는 이미 있다. 그 사이에 뷰별 전사, 음표 융합,
+파트 다이어라이저가 들어간다.
 
 ```mermaid
 flowchart LR
-    cand["M2 음표 후보<br/>스템 · 편성"] --> router["S4 라우터 (M6)<br/>4마디 창마다 스테레오 경로 판정"]
-    router --> views["S5 뷰 (M6, M8)<br/>centre · S · L · R · 반복 잔차"]
+    cand["M2 음표 후보<br/>스템 · 편성"] --> router["S4 라우터 (M6, 있음)<br/>4마디 창마다 스테레오 경로 판정"]
+    router --> views["S5 뷰 (M7–M8)<br/>centre · S · L · R · 반복 잔차"]
     views --> tx["S6 뷰별 전사<br/>MuScriptor + Basic Pitch"]
     tx --> fuse["S7 음표 융합<br/>블리드 감점 · 반복 합의"]
     fuse --> diar["S8 파트 다이어라이저 (M7)<br/>파트 수 K · 음표별 배정"]
@@ -184,6 +199,8 @@ flowchart LR
     fret --> export["S15 .gp5 · alphaTex · MIDI (M3, 있음)"]
     classDef m3 fill:#d8efe5,stroke:#2f6f5e,color:#000
     class quant,fret,export m3
+    classDef m6 fill:#d6e6f7,stroke:#2b5d8f,color:#000
+    class router m6
 ```
 
 단계별 입력·출력·위험은 [`docs/DESIGN.md`](docs/DESIGN.md) §2–§3에 있다.
@@ -205,16 +222,20 @@ flowchart LR
   K를 추정하는 부분은 자체 구현이다(M7a). 자체 lead/rhythm 분리기 학습은 평가가 필요를 보일 때만 한다(M12).
 - 근거: [`docs/DESIGN.md`](docs/DESIGN.md) §1.3, §1.4, §4.
 
-### 2. 스테레오: 팬 위치가 아니라 L/R coherence로 경로를 고른다 (M6, 설계 단계)
+### 2. 스테레오: 팬 위치가 아니라 L/R coherence로 경로를 고른다 (M6)
 
 - **결정:** 4마디 창마다 S/M 에너지비, 에너지 가중 L/R coherence, |ILD| 비율, 1–40 ms 지연 상호상관으로 경로를 고른다.
   경로는 R0 좁음, R1 ADT, R2 넓은 더블, R3 다른 위치의 다른 파트이고, 경로마다 다른 뷰와 분할 규칙을 쓴다.
 - **이유:** 합성 실험([`router_exp.py`](docs/research/experiments/router_exp.py))에서 bin별 ILD(팬)는 리듬 더블 구간
   에너지의 56 %를 '센터'로 잘못 봤다. 좌우로 벌린 리듬 더블은 양쪽 에너지가 비슷해서 레벨 차이로는 가운데 있는
   것처럼 보인다. 하지만 서로 다른 두 테이크라 좌우 coherence가 낮고, 가운데 놓인 모노 음원은 coherence가 높다.
-- **지금 상태:** 특징 추출([`analysis/stereo.py`](bandscribe/analysis/stereo.py))은 연구 스크립트를 그대로 옮겼고,
-  원본과 ±0.02 안에서 같은지 테스트한다. 라우터 자체는 M6이다. 분리기가 스테레오 정보를 보존하는지가 이 설계의
-  전제라서, 그 측정(`stereo-preservation`)을 먼저 사전 등록해 뒀다(아직 실행 전).
+- **확인한 것(M6, E6):** 분리기(SW)가 스테레오 정보를 보존하는지가 이 설계의 전제다. Cambridge-MT 13곡을 가운데·넓은
+  더블·좌우 다른 파트·ADT 로 다시 섞어(45개) 참 기타 합과 분리된 기타 스템에서 특징을 비교했더니 창 판정 정확도가 같았다.
+  합성에서 나온 문턱은 실제 더블을 놓쳤고(dev 29 %), 분리 스템으로 다시 맞춘 문턱은 처음 보는 곡에서 99.4 % 였다.
+- **파트 나누기(M6, E22·E22b):** 좌우 다른 파트 구간의 음은 **음 하나하나의** 배음에서 잰 좌우 에너지 차(ILD) 부호로
+  나눈다. 창 전체의 팬으로 나누면 두 기타가 함께 치는 창을 가를 수 없다(음표별이 창 단위보다 +32.7점). 합성에서 정한 6 dB
+  "애매함" 구간은 실제 믹스에서 너무 넓었다(상대 기타와 분리 잔여물이 섞여 ILD 가 ±5 dB 안팎으로 줄어든다). 그래서 문턱을 dev
+  곡에서 다시 골랐다(0 dB, 부호만). 넓은 더블 위 가운데 리드는 같은 방법으로 가를 수 없어 아직 나누지 않는다.
 - 근거: [`docs/DESIGN.md`](docs/DESIGN.md) §4.5, S4.
 
 ### 3. GPU에는 모델 하나: Job Object 워커, 프로세스가 모두 끝날 때까지 락 유지

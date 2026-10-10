@@ -228,3 +228,30 @@ def test_a_click_on_a_part_track_edits_the_guitar_note_and_the_part_follows(tmp_
     assert r["applied"] and {"gtr_l", "gtr_r"} <= set(s.state.tab["tracks"])  # re-quantised from the split notes
     assert s.close()
     assert (job / "export" / "tab" / "gtr_l.txt").is_file()  # the edited parts are exported too
+
+
+def test_the_string_key_on_a_part_note_pins_it_in_its_part(tmp_path):
+    job, _d = make_split_job(tmp_path)
+    s = E.Session(job)
+    part_uids = [u for k, u in s.map["pos"].items() if k.startswith("0:")]  # written in Gtr 1 (L)
+    uid = next(u for u in part_uids if s.map["notes"][u]["string"] is not None and s.map["notes"][u]["pitch"] >= 45)
+    before = s.map["notes"][uid]
+    assert before["track"] == "guitar_all" and before["fret"] is not None  # shown with its part's fret
+    r = s.command({"cmd": "string", "uid": uid, "dir": 1})  # A2 and up: always another string
+    assert r["applied"], r["message"]
+    after = s.map["notes"][r["select"]]
+    assert after["pinned"] and (after["string"], after["fret"]) != (before["string"], before["fret"])
+    assert r["hash"] != E.state_hash(E.build(E.load_base(job), []).state)  # the part's new fret is in the hash
+    assert s.close()
+
+
+def test_the_viewer_track_list_follows_the_written_tracks(tmp_path):
+    """The viewer looks up ``map.tracks[alphaTab track index]``: it must list every written track in order."""
+    job, _d = make_split_job(tmp_path)
+    s = E.Session(job)
+    assert [t["id"] for t in s.map["tracks"]] == ["gtr_l", "gtr_r", "guitar_all", "bass"]
+    assert [t["fretted"] for t in s.map["tracks"]] == [True, True, False, True]
+    for ti, t in enumerate(s.map["tracks"]):  # every position key of a track uses that track's key kind
+        keys = [k.split(":")[3] for k in s.map["pos"] if k.startswith(f"{ti}:")]
+        assert keys and all(k[0] == ("s" if t["fretted"] else "p") for k in keys)
+    assert s.close()

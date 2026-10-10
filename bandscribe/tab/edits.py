@@ -505,10 +505,30 @@ def state_hash(state: State) -> str:
             rows[tid] = [[n["gtick"], n["dur"], n["pitch"], n["string"], n["fret"]] for n in tr["notes"]]
         else:
             rows[tid] = [[n["gtick"], n["dur"], n["pitch"]] for n in Q.notes_of(state.quant, tid)]
+    for tid in T.DERIVED:  # a split song's parts (M6b): a pinned part note changes only its part's fretting
+        tr = state.tab["tracks"].get(tid) or {}
+        if tr.get("fretted"):
+            rows[tid] = [[n["gtick"], n["dur"], n["pitch"], n["string"], n["fret"]] for n in tr["notes"]]
     return _digest(rows)
 
 
 # ------------------------------------------------------------------------------------------ the score
+
+
+def fretted_row(tab: Mapping[str, Any], tid: str, k: int) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """(fretted track, its row) of note ``tid:k``: the track itself when fretted, else (a split song's merged
+    guitar, M6b) the part track that holds the note; (None, None) when no tab has it."""
+    tr = (tab.get("tracks") or {}).get(tid) or {}
+    if tr.get("fretted"):
+        return tr, next((r for r in tr["notes"] if int(r["i"]) == k), None)
+    uid = f"{tid}:{k}"
+    for dt in T.DERIVED:
+        dtr = (tab.get("tracks") or {}).get(dt) or {}
+        if dtr.get("fretted"):
+            row = next((r for r in dtr.get("notes") or [] if r.get("uid") == uid), None)
+            if row is not None:
+                return dtr, row
+    return None, None
 
 
 def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
@@ -530,13 +550,21 @@ def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
     for tid in TRACKS:
         tr = state.tab["tracks"].get(tid) or {}
         frets = {int(n["i"]): n for n in tr.get("notes") or []} if tr.get("fretted") else {}
+        if not frets:  # a split song's merged guitar: string / fret from the part track that holds the note (M6b)
+            for dt in T.DERIVED:
+                dtr = state.tab["tracks"].get(dt) or {}
+                for r in (dtr.get("notes") or []) if dtr.get("fretted") else []:
+                    t_, _, i_ = str(r.get("uid") or "").partition(":")
+                    if t_ == tid and i_.isdigit():
+                        frets.setdefault(int(i_), r)
         for k, n in enumerate(Q.notes_of(state.quant, tid)):
             f = frets.get(k) or {}
             notes[f"{tid}:{k}"] = {"track": tid, "pitch": int(f.get("pitch", n["pitch"])), "bar": int(n["bar"]),
                                    "string": f.get("string"), "fret": f.get("fret"), "pinned": bool(f.get("pinned")),
                                    "added": bool(n.get("added"))}
-    tracks = [{"id": tid, "fretted": bool((state.tab["tracks"].get(tid) or {}).get("fretted"))}
-              for tid in TRACKS if Q.notes_of(state.quant, tid)]
+    # one entry per written track, in alphaTab's track order (the viewer indexes it by track index): a split song
+    # writes Gtr 1 (L), Gtr 2 (R), the merged guitar and the bass (M6b)
+    tracks = [{"id": tr.tid, "fretted": bool(tr.fretted)} for tr in score.tracks]
     return {"tracks": tracks, "pos": pos, "at": at, "notes": notes}
 
 
@@ -916,10 +944,9 @@ class Session:
                 return None, "이미 그 트랙입니다"
             return {"op": "assign", "note": a, "to": to}, ""
         # string
-        tr = st.tab["tracks"].get(tid) or {}
-        if not tr.get("fretted"):
+        tr, row = fretted_row(st.tab, tid, k)
+        if tr is None:
             return None, "이 트랙은 오선보라 줄이 없습니다(기타 탭은 --parts 1)"
-        row = next((r for r in tr["notes"] if int(r["i"]) == k), None)
         inst = F.Instrument(tuple(tr["tuning"]), max_fret=24, capo=int(tr.get("capo") or 0))
         pitch = int(row["pitch"]) if row else int(n["pitch"])
         opts = sorted(inst.positions(pitch))  # string 1 (highest) first

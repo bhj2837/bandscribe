@@ -40,6 +40,7 @@ class WTrack:
     capo: int
     beats: list[list[WBeat]]      # per bar of the score
     clef: str | None = None       # "f4" for a bass staff in score view
+    tid: str = ""                 # the job's track id ("guitar_all", "gtr_l", "bass", ...); not written
 
 
 @dataclass

@@ -386,7 +386,7 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
         score.tracks.append(ATX.WTrack(name=name, short=short, instrument=instrument, fretted=fretted,
                                        tuning=(tr or {}).get("tuning") if fretted else None,
                                        capo=int((tr or {}).get("capo") or 0) if fretted else 0, beats=spelled,
-                                       clef="f4" if tid == BASS and not fretted else None))
+                                       clef="f4" if tid == BASS and not fretted else None, tid=tid))
     return score, problems
 
 
