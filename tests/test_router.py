@@ -220,6 +220,29 @@ def test_plans_pick_the_most_joint_playing_and_the_right_pans():
     assert adt.roles == {"adt": [0]} and adt.delay_ms == T.ADT_DELAY_MS and adt.start_s == 0
 
 
+def test_variants_keep_the_base_scenarios_takes_and_starts():
+    rel = _rel()
+    a1 = T.variant_plan(rel, "A1", eval_s=60)
+    assert a1.pans == {0: -1.0, 1: 1.0, 2: 0.0} and a1.start_s == T.plan(rel, "A").start_s
+    assert a1.roles == {"double": [0, 1], "centre": [2]}
+    rel4 = _rel()
+    rel4["takes"].append({"parts": ["p4"], "line": "G4", "active_s": list(range(90, 200))})
+    assert T.variant_plan(rel4, "A1", eval_s=60).pans == {0: -1.0, 1: 1.0, 3: 0.0}  # plays more of 90-149
+    b2 = T.variant_plan(rel, "B2", song_index=1)
+    p = T.plan(rel, "P", song_index=1)
+    assert b2.pans == {k: 0.0 for k in p.pans} and b2.start_s == p.start_s and b2.roles == {"pair": [0, 2]}
+    n1 = T.variant_plan(rel, "N1")
+    assert n1.pans == {0: 0.0} and n1.delay_ms == 0.0 and n1.roles == {"single": [0]}
+    silent = _rel()
+    silent["takes"][2]["active_s"] = []
+    assert T.variant_plan(silent, "A1") is None  # no other take plays in the excerpt
+    assert T.window_truth("B2", {"pair": [0, 2]}, {0: 1.0, 2: 1.0}, -20.0)[0] == "R0"
+    assert T.window_truth("N1", {"single": [0]}, {0: 1.0}, -20.0)[0] == "R0"
+    assert T.window_truth("A1", a1.roles, {0: 1.0, 1: 0.8, 2: 0.3}, -20.0)[0] == "R2"
+    with pytest.raises(ValueError):
+        T.variant_plan(rel, "A")
+
+
 def test_plan_without_a_double_or_a_pair_is_none():
     rel = _rel()
     rel["links"] = [ln for ln in rel["links"] if ln["relation"] != "double"]

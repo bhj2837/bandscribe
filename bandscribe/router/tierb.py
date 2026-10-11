@@ -32,6 +32,14 @@ constant-power pan, mastered to -8 LUFS like E1; the true guitar bus gets the ma
 A window (``WINDOW_S``, non-overlapping) whose guitar bus is below ``SILENT_DBFS`` is ``silent``. The excerpt
 starts on the whole second that maximises the scenario's playing time (A: both double takes; P: both takes
 + half of either alone; B: any take; ADT: its take); ties -> earliest.
+
+**Variants** (``VARIANTS``, M7a / E25: the DESIGN 4.5 scenarios with a known part count, built from the same takes and
+starts as the scenario they vary, so the takes' reference transcriptions are shared):
+
+- ``A1``: ``A``'s double hard left / hard right and one other take at the centre - the one playing most within the
+  first ``eval_s`` seconds (ties -> lower index), the rest muted: DESIGN's "넓은 리듬 더블 + 가운데 파트 하나".
+- ``B2``: ``P``'s two takes, both at the centre -> ``R0``.
+- ``N1``: ``ADT``'s take alone at the centre (no delayed copy) -> ``R0``: one guitar, mono.
 """
 
 from __future__ import annotations
@@ -68,6 +76,7 @@ P_PAN = 0.7
 ADT_DELAY_MS = 15.0
 MASTER_LUFS = -8.0
 SCENARIOS = ("B", "A", "P", "ADT")
+VARIANTS = ("A1", "B2", "N1")
 
 
 # ------------------------------------------------------------------------------------------- relations
@@ -301,6 +310,30 @@ def plan(rel: Mapping[str, Any], scenario: str, song_index: int = 0, excerpt_s: 
     return Plan("P", _best_start(both + 0.5 * either, dur), {i: -p, j: p}, {"pair": [i, j]})
 
 
+def variant_plan(rel: Mapping[str, Any], scenario: str, song_index: int = 0, excerpt_s: float = EXCERPT_S,
+                 eval_s: float | None = None) -> Plan | None:
+    """The plan of a variant (module doc) or None when its base scenario has none (``A1``: also when no other take
+    plays in the first ``eval_s`` seconds)."""
+    base = {"A1": "A", "B2": "P", "N1": "ADT"}.get(scenario)
+    if base is None:
+        raise ValueError(f"unknown variant {scenario!r}")
+    pl = plan(rel, base, song_index=song_index, excerpt_s=excerpt_s)
+    if pl is None:
+        return None
+    if scenario == "B2":
+        return Plan("B2", pl.start_s, {k: 0.0 for k in pl.pans}, {"pair": list(pl.roles["pair"])})
+    if scenario == "N1":
+        return Plan("N1", pl.start_s, {k: 0.0 for k in pl.pans}, {"single": list(pl.roles["adt"])})
+    i, j = pl.roles["double"]
+    span = float(eval_s if eval_s is not None else excerpt_s)
+    act = {k: sum(1 for s in rel["takes"][k]["active_s"] if pl.start_s <= s < pl.start_s + span)
+           for k in pl.roles["centre"]}
+    if not act or max(act.values()) == 0:
+        return None
+    c = max(sorted(act), key=lambda k: (act[k], -k))
+    return Plan("A1", pl.start_s, {i: -1.0, j: 1.0, c: 0.0}, {"double": [i, j], "centre": [c]})
+
+
 def _pan(x: np.ndarray, p: float) -> np.ndarray:
     """Constant-power pan of a mono (n,) signal -> (n, 2) (``remix.pan`` is channel-first)."""
     th = (p + 1) * np.pi / 4
@@ -344,7 +377,7 @@ def window_truth(scenario: str, roles: Mapping[str, Sequence[int]], src_energy: 
     active = {k for k, e in src_energy.items() if e > 0 and 10 * math.log10(e / top) >= ACTIVE_REL_DB}
     total = sum(src_energy.values())
     shares = {role: round(sum(src_energy.get(k, 0.0) for k in ks) / total, 4) for role, ks in roles.items()}
-    if scenario == "B":
+    if scenario in ("B", "B2", "N1"):
         return "R0", shares
     if scenario == "ADT":
         return ("R1" if set(roles["adt"]) & active else "silent"), shares

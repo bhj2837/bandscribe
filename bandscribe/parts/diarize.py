@@ -1,0 +1,48 @@
+"""S8 v0 end to end (M7a): symbolic features -> part count -> per-note Lines -> Part view order and names.
+
+``diarize`` is what the ``parts`` stage and E25 run. ``k_force`` (the user's ``--parts N``) replaces the estimated
+count; Lines that end up with no notes are dropped and the rest renumbered (S9).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+from bandscribe.parts import arbitration as A
+from bandscribe.parts import layers as LY
+from bandscribe.parts import reid as R
+from bandscribe.parts import roles as RO
+
+
+def diarize(notes: Sequence[Mapping[str, Any]], sigs: Sequence[Mapping[str, Any]],
+            windows: Sequence[Mapping[str, Any]], *, bar_of: Sequence[int] | None = None,
+            params: Mapping[str, Any] | None = None, weights: Mapping[str, float] | None = None,
+            k_force: int | None = None, tau: float = A.TAU) -> dict[str, Any]:
+    """-> {count: reid estimate + chosen / forced / reasons, lines: [{number, name, short, role, cls, position,
+    notes, bars, key, kind}] in number order, note: [{line: number or None, p, amber}] per note}. ``windows`` carry
+    ``start_s``, ``end_s``, ``label`` (router) and ``section``; ``bar_of`` defaults to 2 s cells."""
+    feats = LY.note_features(notes)
+    est = R.estimate(notes, feats, sigs, windows, params)
+    k = int(k_force) if k_force else int(est["k"])
+    wins = sorted(windows, key=lambda w: float(w["start_s"]))
+    of = R.window_index(notes, wins)
+    labels = [wins[j].get("label") if j is not None else None for j in of]
+    res = A.assign(notes, feats, sigs, labels, k, est["evidence"], weights=weights, tau=tau)
+    bars = list(bar_of) if bar_of is not None else [int(float(n["onset_s"]) // 2.0) for n in notes]
+    named = RO.order_and_names(res["lines"], res["line"], notes, feats, bars)
+    keep = sorted((r for r in named if r["notes"] > 0), key=lambda r: r["number"])
+    renum = {r["j"]: num for num, r in enumerate(keep, start=1)}
+    lines = []
+    for num, r in enumerate(keep, start=1):
+        short = "Gtr" if len(keep) == 1 else f"Gtr {num}"
+        name = short + r["name"][len(r["short"]):]
+        prof = res["lines"][r["j"]]
+        lines.append({"number": num, "name": name, "short": short, "role": r["role"], "cls": r["cls"],
+                      "position": r["position"], "notes": r["notes"], "bars": r["bars"], "key": prof["key"],
+                      "kind": prof["kind"], "profile": prof})
+    note = [{"line": renum.get(j) if j is not None else None, "p": p, "amber": a}
+            for j, p, a in zip(res["line"], res["p"], res["amber"])]
+    count = {**{k_: v for k_, v in est.items() if k_ != "windows"}, "chosen": len(lines),
+             "forced": int(k_force) if k_force else None, "reasons": res["reasons"]}
+    return {"count": count, "windows": est["windows"], "lines": lines, "note": note, "feats": feats}

@@ -1142,6 +1142,7 @@ Line마다 구간별로 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet} 중 하나�
 | E22 | L/R 음표 집합 연산 vs centre−S, 음표별 스테레오 서명 가설(창 단위 팬 대비), 유니즌 판정 문턱 | M6 |
 | E23 | Basic Pitch 최소 음 길이(남기는 프레임 {3,4,5,6,7,12}; 12 = 업스트림 127.7 ms)·onset/frame threshold 튜닝 | M2 |
 | E24 | 백엔드별 dtype: 업스트림 기본 vs fp16 캐스팅 | M2/M10 |
+| E25 | Part 뷰 v0: 파트 수 강건 하한과 음표 Line 할당(다수 클래스·기호 분할 기준선 대비), Tier B 변형 리믹스 A1·B2·N1 | M7a |
 | distractors | 방해 소리(신스·건반·현악·효과음)별 기타 FP·FN 증가와 원인, 분리 누출 (서술, 8.8) | M2 |
 
 ### 8.7 리포트
