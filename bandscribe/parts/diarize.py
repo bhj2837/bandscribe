@@ -43,6 +43,11 @@ def diarize(notes: Sequence[Mapping[str, Any]], sigs: Sequence[Mapping[str, Any]
                       "kind": prof["kind"], "profile": prof})
     note = [{"line": renum.get(j) if j is not None else None, "p": p, "amber": a}
             for j, p, a in zip(res["line"], res["p"], res["amber"])]
+    reasons = list(res["reasons"])
+    if len(keep) < len(named):
+        empty = [res["lines"][r["j"]]["key"] for r in named if r["notes"] == 0]
+        reasons.append(f"근거로 만든 파트 {len(named)}개 중 음이 하나도 가지 않은 파트({', '.join(empty)})가 있어 "
+                       f"{len(keep)}파트입니다")
     count = {**{k_: v for k_, v in est.items() if k_ != "windows"}, "chosen": len(lines),
-             "forced": int(k_force) if k_force else None, "reasons": res["reasons"]}
+             "forced": int(k_force) if k_force else None, "reasons": reasons}
     return {"count": count, "windows": est["windows"], "lines": lines, "note": note, "feats": feats}

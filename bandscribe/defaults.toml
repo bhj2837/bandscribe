@@ -175,13 +175,13 @@ r2_hard = 0.8462
 r2_cen = 0.1169
 r3_ild_db = 1.8986
 
-[parts]                        # M7a: guitar part count and each note's part (Part view v0, E25)
-n_min = 8                      # notes per stream in a window
-min_windows = 3                # two streams in at least this many windows ...
+[parts]                        # M7a: guitar part count and each note's part (Part view v0; E25 dev choice)
+n_min = 6                      # notes per stream in a window
+min_windows = 2                # two streams in at least this many windows ...
 min_sections = 2               # ... spread over this many sections (all of them when a song has fewer)
-side_db = 0.0                  # P windows: a note counts on a side at |ILD| >= this (0 = the sign, E22b)
-use_class = true               # two guitar classes sounding together are two streams
-use_symbolic = true            # chord notes and a line over them are two streams
+side_db = 3.0                  # P windows: a note counts on a side at |ILD| >= this
+use_class = false              # two guitar classes sounding together are two streams (E25: split one guitar)
+use_symbolic = false           # chord notes and a line over them are two streams (E25: never fired)
 tau = 0.4                      # best part posterior under this -> Unassigned
 
 [eval]

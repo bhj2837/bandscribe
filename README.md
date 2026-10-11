@@ -1,14 +1,14 @@
 # bandscribe
 
 > **English summary.** bandscribe is a personal, local Windows tool whose goal is to turn one band recording into
-> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestone M6 of M0–M12) it
+> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestone M7a of M0–M12) it
 > separates 6 stems, transcribes guitar and bass, quantises them onto the beat grid, picks the tuning, assigns
-> strings and frets by Viterbi, and writes a **bass tab** and a **staff for all guitars together** (alphaTex, Guitar
-> Pro 5, MIDI) that a local alphaTab viewer plays in sync with the original recording. When the guitars sit at
-> different stereo positions it also **splits them into two fretted parts** (left / right) by each note's own
-> inter-channel level difference: +34 points of assignment accuracy over the majority baseline on held-out
-> multitrack remixes, 76 % of the notes to the right guitar on a real song's Guitar Pro tabs. Splitting doubled or
-> centred guitars, part counting and identity tracking come in M7–M8.
+> strings and frets by Viterbi, counts the guitar parts and writes **one fretted tab per part**, a **bass tab** and a
+> reference staff of all guitars together (alphaTex, Guitar Pro 5, MIDI) that a local alphaTab viewer plays in sync
+> with the original recording. Parts are told apart when they sit at different stereo positions, note by note from
+> each note's own inter-channel level difference (78 % of the notes to the right guitar on a real song's Guitar Pro
+> tabs); a single guitar stays one part (12/12 held-out remixes). Guitars at the same position (a wide double with a
+> centred part, two centred parts) still come out as one part; identity tracking and that split come in M7b–M8.
 > Engineering highlights: a one-model-at-a-time GPU worker inside Windows Job Objects, a content-addressed stage
 > cache, pre-registered experiments judged with song-block bootstrap CIs (the fretting model was chosen that way:
 > 74.6 % string/fret agreement per note on GuitarSet vs 55.9 % for the open-source tuttut), and a sampled presence
@@ -17,10 +17,11 @@
 밴드 녹음 한 곡을 넣으면 **기타 파트마다 탭 하나와 베이스 탭**을 만드는 것이 목표인 Windows 로컬 도구다.
 드럼·피아노 악보는 그 다음 계획이다. 기타가 두 대 이상인 곡에서 "누가 어떤 음을 쳤는가"는 오디오 분리만으로는
 거의 가를 수 없다. 그래서 bandscribe는 분리와 전사로 음표 후보와 증거(스테레오 위치, 음색 클래스, 반복, 기호 규칙)를
-모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M6까지 구현되어 6 스템 분리, 기타·베이스 전사,
-양자화, 튜닝 추정, 줄·프렛 배정을 거쳐 **베이스 탭과 기타 전체 오선보**(alphaTex·Guitar Pro 5·MIDI)를 만들고,
-원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. 기타 두 대가 **좌우에 따로** 있는 곡은 음마다 좌우 에너지 차로
-**왼쪽·오른쪽 파트 탭 두 개**로 나눈다(M6). 가운데 겹친 더블·리드, 파트 수 추정, 곡 전체 정체성 추적은 M7–M8 이다.
+모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M7a까지 구현되어 6 스템 분리, 기타·베이스 전사,
+양자화, 튜닝 추정, 줄·프렛 배정을 거쳐 **기타 파트마다 탭 하나, 베이스 탭, 모든 기타의 참조 오선보**(alphaTex·Guitar
+Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. 파트 수는 곡마다 센다: 기타가 **좌우에 따로**
+있으면 음마다 좌우 에너지 차로 파트를 가르고(M6–M7a), 기타가 한 대면 한 파트로 둔다. 같은 위치에 겹친 기타(넓은 더블 +
+가운데 파트, 가운데 둘)는 아직 한 파트로 나오고, 곡 전체 정체성 추적은 M7b 다.
 
 - 설계서: [`docs/DESIGN.md`](docs/DESIGN.md) · 구현 명세: [`docs/M0_SPEC.md`](docs/M0_SPEC.md), [`docs/M1_M2_SPEC.md`](docs/M1_M2_SPEC.md)
 - 실험 등록부: [`docs/decisions.md`](docs/decisions.md) · 현재 상태와 측정 기록: [`docs/PROGRESS.md`](docs/PROGRESS.md)
@@ -43,13 +44,13 @@
 
 | 결과 | 설명 |
 |---|---|
-| 악보 `tab/score.alphatex` | 모든 트랙: 기타가 좌우로 나뉜 곡은 **Gtr 1 (L)**·**Gtr 2 (R)** 탭, 그리고 **Guitar (all parts)** 오선보(모든 기타 음, 운지 없음)와 **Bass** 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
-| 기타 파트 나누기(M6) | 라우터가 4마디마다 기타 스템의 스테레오 모양을 본다(가운데·ADT·넓은 더블·좌우 다른 파트). 좌우 다른 파트 구간의 음은 자기 배음의 좌우 에너지 차(ILD) 부호로 왼쪽·오른쪽 파트에 간다. 곡 음의 절반 넘게 그런 구간에 있고 양쪽이 30음 이상일 때만 나눈다. 두 파트는 각각 한 사람이 치는 탭으로 운지된다. 넓은 더블·가운데 리드 구간은 아직 나누지 않는다. 끄려면 `[router] split = false`, 기타가 한 대면 `[tab] guitar_parts = 1` |
+| 악보 `tab/score.alphatex` | 모든 트랙: 기타 파트마다 탭(**Gtr 1 - Rhythm (dist., L)** 처럼 번호·역할·음색·위치 이름, 한 파트면 **Gtr - …**), **All guitars (reference)** 오선보(모든 기타 음, 운지 없음), 어느 파트에도 넣지 못한 음이 있으면 **Unassigned (review)** 오선보, **Bass** 탭. 마디마다 원곡 시각(`\sync`)이 붙어 있다 |
+| 기타 파트(M6–M7a) | 라우터가 4마디마다 기타 스템의 스테레오 모양을 본다(가운데·ADT·넓은 더블·좌우 다른 파트). `parts` 단계가 창마다 동시에 울리는 파트 수를 세고(좌우 다른 파트 구간에서 양쪽에 음이 6개 이상), 그런 창이 2개 이상이면 2 파트, 아니면 1 파트로 본다. 음은 자기 배음의 좌우 에너지 차(ILD)로 파트에 간다. 파트마다 한 사람이 치는 탭으로 운지하고, 그 파트의 음이 분명히 다른 튜닝을 원하면 그 튜닝을 쓴다. 넓은 더블·가운데 파트는 아직 나누지 않는다. 파트 수를 정하려면 `--parts 1`–`4`(설정 `[tab] guitar_parts`), 세는 기준은 `[parts]` |
 | 베이스 정리(M5) | 피치 추적기 셋(CREPE·PESTO·pyin)이 베이스 스템의 음높이를 10 ms 마다 잰다. 그것으로 계단처럼 쪼개 적힌 슬라이드를 첫 음 + 슬라이드 하나로 합치고(탭에 `\` `/`, 두 음은 같은 줄에 운지), 같은 음 조각을 합친다. 비브라토·데드 노트는 정확도가 낮아 악보에 쓰지 않고 `score.json` 의 제안 표시로만 남긴다. 옥타브·반음 교정, 킥 거부, 빈 곳 채우기도 만들었지만 실험 E13 에서 효과가 없어 꺼 두었다(`[bass]` 설정) |
-| `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(베이스, 나뉜 기타 파트, `--parts 1` 이면 합친 기타) |
+| `tab/score.gp5` | Guitar Pro 5(TuxGuitar 등에서 열림). 운지된 트랙만 들어간다(기타 파트, 베이스) |
 | `tab/*.txt` | 운지된 트랙의 텍스트 탭(대략적인 미리보기) |
 | 튜닝 | 기타·베이스 함께 추정(표준·드롭·반음/온음 다운·카포·오픈 튜닝, 7현은 D2 아래 음이 있을 때만). `tab/tab.json` |
-| MIDI | 연주 그대로(`guitar_all.mid`, 전사 그대로의 `bass_raw.mid`, 정리한 `bass.mid`)와 양자화판(`*_quantized.mid`, 나뉜 곡은 `gtr_l`·`gtr_r` 도) |
+| MIDI | 연주 그대로(`guitar_all.mid`, 전사 그대로의 `bass_raw.mid`, 정리한 `bass.mid`)와 양자화판(`*_quantized.mid`, 기타 파트 `gtr_1`… 와 `unassigned` 도) |
 | 6 스템 | vocals, drums, bass, guitar, piano, other (+ `nonvox` = 믹스 − 보컬·드럼·베이스, `leftover` = 믹스 − 6 스템 합) |
 | 박·마디 격자 | Beat This! 비트·다운비트에 자체 후처리(한 박을 두 번 잡은 비트 합치기, 곡 안의 반/배 박 전환 정리, 동적 계획법 마디선)를 더한 템포맵·박자표 |
 | 편성 추정 | 악기 클래스별 존재 확률(`instrumentation.json`, 건반·신스·현악 등). 기타 전사의 악기 마스크를 정하는 데 쓴다 |
@@ -86,10 +87,10 @@
 - `bandscribe gt ...`: Guitar Pro 정답 가져오기(반복·다른 엔딩 펼침), 참조 렌더, DTW 정렬, 다운비트 탭 보정.
 - `bandscribe data ...`: 평가용 데이터셋(Cambridge-MT, EGDB, GuitarSet, IDMT-SMT-Bass, FiloBass, MedleyDB) 받기·검증·로더.
 
-**아직 없는 것:** 좌우가 아닌 기타 나누기(가운데 겹친 더블·리드, 좁은 믹스: M7–M8), 파트 수 추정·곡 전체 정체성 추적(M7a–M7b),
-뷰어에서 파트 바꾸기(파트 트랙의 음을 고르면 합친 기타의 같은 음이 골라지고 고친 결과는 파트에도 반영되지만, 새로 넣은 음은
-파트가 없다), A/B 믹서·검토 큐(M4b), 화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는
-v1 범위 밖이다.
+**아직 없는 것:** 같은 위치에 겹친 기타 나누기(넓은 더블 + 가운데 파트, 가운데 둘, 좁은 믹스: M7b–M8), 곡 전체 정체성
+추적(M7b), 3 파트 이상 자동 세기(지금은 `--parts` 로만), 뷰어에서 파트 바꾸기·파트 수 전환(M7c; 지금은 파트 트랙의 음을 고르면
+합친 기타의 같은 음이 골라지고 고친 결과는 파트에도 반영되며, 새로 넣은 음은 옆에 고른 음의 파트로 간다), A/B 믹서·검토 큐(M4b),
+화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
 
 ## 마일스톤
 
@@ -106,7 +107,7 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 | **M4a** | 편집 UI(뷰어 위 키보드 편집, 수정 로그, 다시 내보내기) | **완료, 알려진 한계 있음** (기준 5개 중 통과 4 · 보류 1, 태그 `m4a`; [인수 문서](docs/acceptance/M4a.md)) |
 | **M5** | 베이스 완성: F0 추적기 3개, 슬라이드 합치기, 주법 제안 | **완료, 알려진 한계 있음** (기준 8개 중 통과 4 · 미달 1 · 보류 3, 태그 `m5`; [인수 문서](docs/acceptance/M5.md)) |
 | **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리**(좌우 다른 파트) | **완료, 알려진 한계 있음** (기준 10개 중 통과 7 · 미달 2 · 보류 1; [인수 문서](docs/acceptance/M6.md)) |
-| **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | 계획 (핵심) |
+| **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | **완료, 알려진 한계 있음** (기준 7개 중 통과 3 · 미달 4; [인수 문서](docs/acceptance/M7a.md)) |
 | M4b | A/B 믹서, 검토 큐 | 계획 |
 | **M7b** | 정체성 추적: 트랙렛, 재식별, HMM 평활 | 계획 (핵심) |
 | M7c | Role/Player 뷰(연주자 수에 맞춘 트랙 배치) | 계획 |
@@ -154,12 +155,14 @@ flowchart LR
     bass --> quant
     sep --> router["router<br/>4마디마다 스테레오 모양<br/>가운데 · ADT · 더블 · 좌우"]
     sections --> router
-    router --> split["split<br/>음마다 좌우 에너지 차로<br/>왼쪽 · 오른쪽 파트"]
-    notes --> split
-    split --> quant
+    notes --> notesig["notesig<br/>음마다 좌우 에너지 차 ·<br/>coherence"]
+    sep --> notesig
+    router --> parts["parts<br/>창마다 동시 파트 수 → 곡 파트 수<br/>음마다 파트 · 이름"]
+    notesig --> parts
+    parts --> quant
     notes --> quant["quant<br/>박마다 16분·셋잇단 선택<br/>셔플·12/8 · 셋잇단 느낌"]
     grid --> quant
-    quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi<br/>파트마다 운지"]
+    quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi<br/>파트마다 운지 · 파트별 튜닝"]
     a4 --> tab
     tab --> score["score<br/>alphaTex · GP5 · 양자화 MIDI"]
     score --> edit["편집 (M4a)<br/>edits.jsonl 재생<br/>export 다시 쓰기"]
@@ -170,7 +173,9 @@ flowchart LR
     classDef m5 fill:#e3dcf5,stroke:#5a4a9a,color:#000
     class bass m5
     classDef m6 fill:#d6e6f7,stroke:#2b5d8f,color:#000
-    class router,split m6
+    class router m6
+    classDef m7 fill:#f7e1ea,stroke:#9a3b62,color:#000
+    class notesig,parts m7
 ```
 
 `notes` 는 MuScriptor 가 무음 스템 위에 지어낸 음을 뺀다(`amt.silence_gate_db`). `bass_f0` 는 베이스 스템의 기본 주파수를
@@ -236,6 +241,11 @@ flowchart LR
   나눈다. 창 전체의 팬으로 나누면 두 기타가 함께 치는 창을 가를 수 없다(음표별이 창 단위보다 +32.7점). 합성에서 정한 6 dB
   "애매함" 구간은 실제 믹스에서 너무 넓었다(상대 기타와 분리 잔여물이 섞여 ILD 가 ±5 dB 안팎으로 줄어든다). 그래서 문턱을 dev
   곡에서 다시 골랐다(0 dB, 부호만). 넓은 더블 위 가운데 리드는 같은 방법으로 가를 수 없어 아직 나누지 않는다.
+- **파트 수(M7a, E25):** 창마다 동시에 울리는 파트를 근거 종류별로 센다 — 좌우(좌우 다른 파트 구간에서 양쪽에 음이 있음),
+  음색(MuScriptor 기타 클래스 두 개가 같이 울림), 기호(코드와 그 위 리드 층). 나쁜 창 하나가 곡 전체 파트 수를 올리지 않도록
+  두 파트가 창 2개 이상에서 보여야 2 파트로 센다. 설정은 dev 곡에서 골랐다: 음색 근거는 기타 1대를 둘로 갈라(MuScriptor 가
+  한 기타를 어쿠스틱/클린으로 나눔) 껐고, 기호 근거는 Tier B 에서 한 번도 발동하지 않았다. 처음 보는 곡에서 기타 1대 리믹스
+  12개는 모두 1 파트로 남았지만, 같은 위치의 두 파트는 1 파트로 셌다(A1·B2).
 - 근거: [`docs/DESIGN.md`](docs/DESIGN.md) §4.5, S4.
 
 ### 3. GPU에는 모델 하나: Job Object 워커, 프로세스가 모두 끝날 때까지 락 유지
@@ -440,7 +450,7 @@ cd node && npm ci && cd ..
 ```bat
 bandscribe.cmd doctor                              :: 환경 점검 (GPU 셀프테스트 포함)
 bandscribe.cmd run "C:\music\song.flac"            :: 기본: --until score, --profile quality
-bandscribe.cmd run "C:\music\song.flac" --parts 1  :: 기타를 한 대로 보고 기타 탭까지
+bandscribe.cmd run "C:\music\song.flac" --parts 2  :: 기타 파트 수를 정하기(auto 가 기본, 1-4)
 bandscribe.cmd run "C:\music\song.flac" --tempo 185 :: 템포 단위를 185 BPM 에 맞추기(박을 절반으로 셀 때)
 bandscribe.cmd view "C:\music\song.flac"           :: 악보를 브라우저로 보고 키보드로 고치기 (작업 키 앞부분만 써도 됨)
 bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만 보기
@@ -456,7 +466,7 @@ bandscribe.cmd config show                         :: 지금 적용되는 설정
   ```toml
   [tab]
   guitar_tuning = "E standard"   # "Eb standard"(또는 "하프다운"), "Drop D", "D standard", "Open G, capo 2" …
-  guitar_parts = 1               # 기타 탭까지 (--parts 1 과 같음)
+  guitar_parts = 1               # 기타 파트 수 (--parts 1 과 같음; 0 = 자동)
   ```
 
   를 적거나 한 번만 `--set tab.guitar_tuning="E standard"`. 그 튜닝으로 낼 수 없는 음은 옥타브를 옮겨 적고 경고한다.

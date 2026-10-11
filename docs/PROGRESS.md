@@ -1,7 +1,10 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-10 (**M6 done with known gaps**: the stereo router and the first automatic part split - two
-guitars at different stereo positions become two fretted parts - see "M6" below and `docs/acceptance/M6.md`; before
+Last updated: 2026-10-11 (**M7a done with known gaps**: the Part view - the guitar part count per song, each note's
+part, one fretted tab per part next to the merged reference staff - see "M7a" below and `docs/acceptance/M7a.md`;
+before it the M6 follow-up (E6b, E7, CenterWide models). 2026-10-10: **M6 done with known gaps**: the stereo router and
+the first automatic part split - two guitars at different stereo positions become two fretted parts - see "M6"
+below and `docs/acceptance/M6.md`; before
 it the **tempo hint**, see "Grid: tempo hint". 2026-10-08: **M5 done with known gaps**: bass F0 trackers, the bass clean-up and E13, see "M5" below and
 `docs/acceptance/M5.md`. 2026-10-05: **grid fix after M4a**: beats that Beat This! tracked twice are joined, see "Grid: beats
 tracked twice" below. **M4a done**: editing in the viewer, see "M4a" below and `docs/acceptance/M4a.md`.
@@ -26,8 +29,9 @@ fixes).
 | M4a editing | ✅ keyboard edits in `bandscribe view`, `edits.jsonl`, replay + re-export, re-applied after `run`; acceptance `docs/acceptance/M4a.md`: **4 pass / 1 blocked** (human baseline) (tag `m4a`) |
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
+| M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
-All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`).
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`).
 
 ## M5 (2026-10-08): bass
 
@@ -81,6 +85,51 @@ Two stages between `notes` and `quant` (code `bandscribe/bass/`, worker `bandscr
   contamination-unknown and the rule forbids absolute claims; they need Tier A (the user's Guitar Pro files).
 - Not done: SCNet ensemble and the 3-voter (YourMT3+) policy of E13 (not installed), HO/PO and slap (no ground truth),
   S14 root cross-check (needs rhythm Lines, M7a), a real F0 HMM segmenter (the gap fill is a simple stable-run rule).
+
+## M7a (2026-10-11): Part view v0
+
+Code: `bandscribe/parts/` (`layers.py` symbolic layers + the TabForge-style baseline, `reid.py` streams per window
+and the robust part count, `arbitration.py` per-note Line posteriors and Unassigned, `roles.py` S9 order and
+names, `diarize.py` end to end, `stage.py` the `notesig` and `parts` stages, `eval.py` E25), Tier B variants in
+`bandscribe/router/tierb.py` (`VARIANTS`, `variant_plan`), part tracks in `bandscribe/tab/stage.py` (`DERIVED` =
+`gtr_1`..`gtr_4` + `unassigned`, `track_name`, `line_tunings`). Tests: `tests/test_parts.py`,
+`tests/test_parts_tracks.py` (replaces `test_split_tracks.py`).
+
+- **What a run does now** (default `--until score`; both new stages CPU, seconds):
+  - `notesig`: each guitar note's stereo signature (ILD / coherence / mid-side at its harmonic bins), once per
+    notes result (another `--parts` does not redo it; seisyun complex 7.2 s).
+  - `parts`: per router window the simultaneous streams - spatial only by default: an R3 window with 6+ notes at
+    |ILD| >= 3 dB on each side; two parts when two streams hold in 2+ windows (over 2 sections, or all of them),
+    else one. Lines are seeded by that evidence; each note's posterior from pan, role, class and share (strums
+    outside R3 decided together); Unassigned under 0.4, amber under 0.6; names like `Gtr 1 - Rhythm (dist., L)`
+    (ASCII: MIDI track names are Latin-1), Gtr 1 = most active bars. `--parts N` forces N; a forced part that gets
+    no notes is dropped with a reason.
+  - `tab` frets each part (`gtr_1`..), with its own tuning only when its 150+ notes clearly want another one (bass
+    held at the song's tuning, 0.3 cost per note better); the merged guitar is the staff `All guitars (reference)`,
+    Unassigned notes a staff `Unassigned (review)`; a one-part song is `Gtr` fretted. The M3-M6 path that fretted the
+    merged guitar itself (`--parts 1`) is gone.
+- **E25** (`20261011-182127_2436e55_exp-e25`; registered before running; settings chosen on dev songs, judged on
+  test): E6's P and ADT remixes plus new variants A1 (wide double + one centred take), B2 (both P takes centred) and
+  N1 (one take, mono), first 32 s. Dev choice `n_min` 6, 2 windows, side 3 dB, class and symbolic evidence off
+  (class evidence split 3 of 10 dev one-guitar remixes - MuScriptor labels one take acoustic/clean; the symbolic
+  lead layer never made two streams). Test: part count 0.72 (P 0.8, ADT 1.0, A1 0.0, B2 0.4, N1 1.0; A1+P 0.50),
+  MAE 0.28; assignment over majority P +15.2 [0.0, 30.5] (the two P remixes whose count was right: +38; two P
+  remixes have one active part, zeno's second take plays 7 s), A1 0, B2 0 (the symbolic-only baseline beat s8v0
+  on A1 by 24.5 points: zeno, signejakobsen, rememberdecember have parts with different chord/single-note texture);
+  one guitar 12/12; Unassigned 0 %; coverage-accuracy flat (posteriors over-confident).
+  - The GPU cache fill ran one song at a time (`data/tmp/m7a/orchestrate.sh`, not tracked): it waited while a game
+    held the GPU and redid a song a game interrupted.
+- **Tier A** (descriptive, GPU stages cached): part counts seisyun complex 2 (37 of 41 windows), 青と夏 2 (19/52),
+  AZ 2 (20/23), AIZO 2 (5/21; M6 left it merged; Gtr 2 = 205 notes in 19 bars), 怪獣の花唄 1 (its `hints.toml`
+  `guitar_parts = 1` from M3; the estimate is 2). **seisyun complex vs the user's Guitar Pro tabs**: 77.6 % of the
+  notes that sit in exactly one sheet guitar's bar went to that guitar's part (guitar 1 83.6 % of 1,992, guitar 2
+  71.6 % of 898; M6 76.2 %); part bag F1 merged -> part 63.5 -> 65.7, 39.3 -> 58.1; every note is now in a part
+  (M6 left 233 in merged windows). Script: `data/tmp/m7a/eval_sc_parts.py`.
+- **`--parts` switch**: seisyun complex `--parts 3` rerun 26.5 s (parts 0.2, quant 0.7, tab 23.5 = song tuning 8.4
+  + per-part tunings 13.4 + fretting 0.6, score 2.1) - far over the 2 s criterion; `--parts 3` there gives 2 parts
+  (the spatial evidence wins every note; reason logged).
+- **Not done in M7a** (see `docs/acceptance/M7a.md`): same-position parts (A, B), automatic counts over 2, unison
+  (R3) and twin (R5) rules and their fixtures, R4/R6/R9 rules, calibrated posteriors, a fast part-count switch.
 
 ## M6 (2026-10-10): stereo router and the first automatic part split
 
@@ -576,6 +625,13 @@ mask the backing used:
   - S7's bleed penalty (M6) needs the full-length piano+other pass (eval or on-demand).
 
 ## Priority for the next session
+
+- **After M7a (2026-10-11):** by DESIGN's order the next milestone is M4b (A/B mixer, review queue), then M7b
+  (identity tracking). Open M7a items: a fast `--parts` switch (a tuning stage that does not depend on the parts;
+  the viewer switch in M7c re-frets with the stored tuning like M4a edits), same-position parts (E25: the
+  symbolic-only split beat v0 on some A1/B2 songs but splits single guitars too - a gated symbolic evidence would
+  need its own experiment), calibrated part posteriors (M10), and 怪獣の花唄's `hints.toml` `guitar_parts = 1`
+  (set in M3 to get a tab; with M7a it forces one part - ask the user before removing it).
 
 - **Guitar mask:** the distractor run found 0 notes relabelled non-guitar and −2.1 F1 points on average when the
   production mask added keys/synth classes (13 conditions), but E3c (held-out windows) rejected `guitar_only`

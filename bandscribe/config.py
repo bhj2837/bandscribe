@@ -338,13 +338,14 @@ class RouterCfg(_Section):
 
 class PartsCfg(_Section):
     # M7a (DESIGN S8 v0, bandscribe.parts): how many guitar parts play at once and each guitar note's Line. The
-    # count's settings are E25's dev choice (docs/decisions.md); tab.guitar_parts = N forces N Lines.
-    n_min: int = Field(8, ge=1)  # notes per stream in a window (DESIGN 4.4: 8+)
-    min_windows: int = Field(3, ge=1)  # two streams in at least this many windows ...
+    # count's settings are E25's dev choice (docs/decisions.md, 2026-10-11; the starting values are
+    # bandscribe.parts.reid.DEFAULT_PARAMS); tab.guitar_parts = N forces N Lines.
+    n_min: int = Field(6, ge=1)  # notes per stream in a window (DESIGN 4.4 started from 8)
+    min_windows: int = Field(2, ge=1)  # two streams in at least this many windows (DESIGN: 3) ...
     min_sections: int = Field(2, ge=1)  # ... spread over this many sections (all of them when a song has fewer)
-    side_db: float = Field(0.0, ge=0.0)  # P windows: a note counts on a side at |ILD| >= this (0: the sign, E22b)
-    use_class: bool = True  # two MuScriptor guitar classes sounding together are two streams
-    use_symbolic: bool = True  # chord notes and a line over them are two streams
+    side_db: float = Field(3.0, ge=0.0)  # P windows: a note counts on a side at |ILD| >= this
+    use_class: bool = False  # two MuScriptor guitar classes sounding together are two streams (E25: split 1 guitar)
+    use_symbolic: bool = False  # chord notes and a line over them are two streams (E25: never fired)
     tau: Prob = 0.4  # best Line posterior under this -> Unassigned (DESIGN 4.2: 0.4 to start)
 
 

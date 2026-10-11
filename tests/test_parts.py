@@ -189,6 +189,13 @@ def test_forced_count_overrides_the_estimate():
     assert out["count"]["k"] == 1 and out["count"]["forced"] == 2 and out["count"]["chosen"] == 2
 
 
+def test_a_forced_part_that_gets_no_notes_is_dropped_with_a_reason():
+    notes, sigs = _p_song()  # the right side is the lead layer: a third (lead) part takes it whole
+    out = D.diarize(notes, sigs, _wins(), k_force=3)
+    assert out["count"]["forced"] == 3 and out["count"]["chosen"] == len(out["lines"]) == 2
+    assert any("음이 하나도 가지 않은 파트(R)" in r for r in out["count"]["reasons"])
+
+
 @pytest.mark.parametrize("pos, want", [(0.8, "L"), (-0.8, "R"), (0.1, "")])
 def test_position_is_named_only_beyond_the_side_threshold(pos, want):
     notes = [_n(0, 40), _n(0, 47)]
