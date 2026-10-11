@@ -52,7 +52,7 @@ def test_cache_hit_on_rerun_and_from_cascades(job, fakes):
     # amt_ms1 follows sections (presence windows); its unchanged views come from the transcription cache; the bass
     # clean-up follows notes (M5), its F0 tracks (stems only) stay cached
     assert set(fakes.calls) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes", "bass", "quant",
-                                "tab", "score", "router", "split"}
+                                "tab", "score", "router", "notesig", "parts"}
     items = runner.plan(key, None, store=store)
     assert all(it.cached for it in items)
 

@@ -2,11 +2,12 @@
 
 - ``Gtr 1`` is the Line active in the most bars (usually the rhythm part); the others are numbered by their first
   note, ties by position left -> right (DESIGN: "동률이면 팬 위치 왼쪽 → 오른쪽").
-- A name is "number – role (class, position)", e.g. ``Gtr 1 – Rhythm (dist., L)``. Role: ``Rhythm`` when at least
-  ``RHYTHM_CHORD_SHARE`` of the Line's notes are chord notes, ``Lead`` when at least ``LEAD_SHARE`` are lead-layer
-  notes or most notes are single and high (median at or above ``LEAD_PITCH``), else ``Riff``. Class: the most
-  frequent MuScriptor guitar class. Position (from the Line's seeds in ``R3`` windows): ``L`` / ``R`` beyond
-  ``POS_SIDE``, else none is written (a part not heard at a side has no position worth naming).
+- A name is "number - role (class, position)", e.g. ``Gtr 1 - Rhythm (dist., L)`` (ASCII: MIDI track names are
+  Latin-1). Role: ``Rhythm`` when at least ``RHYTHM_CHORD_SHARE`` of the Line's notes are chord notes, ``Lead``
+  when at least ``LEAD_SHARE`` are lead-layer notes or most notes are single and high (median at or above
+  ``LEAD_PITCH``), else ``Riff``. Class: the most frequent MuScriptor guitar class. Position (from the Line's seeds
+  in ``R3`` windows): ``L`` / ``R`` beyond ``POS_SIDE``, else none is written (a part not heard at a side has no
+  position worth naming).
 - One Line (one guitar) is ``Gtr`` with no number.
 """
 
@@ -68,5 +69,5 @@ def order_and_names(profiles: Sequence[Mapping[str, Any]], line: Sequence[int | 
         short = "Gtr" if k == 1 else f"Gtr {num}"
         detail = ", ".join(x for x in (r["cls"], r["position"]) if x)
         out.append({**r, "number": num, "short": short,
-                    "name": f"{short} – {r['role']}" + (f" ({detail})" if detail else "")})
+                    "name": f"{short} - {r['role']}" + (f" ({detail})" if detail else "")})
     return sorted(out, key=lambda r: r["j"])

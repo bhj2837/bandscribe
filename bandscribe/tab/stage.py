@@ -2,18 +2,20 @@
 
 - ``a4`` (CPU): ``a4.json`` - the recording's A4 offset in cents from the pitched stem views
   (``bandscribe.tab.a4``); a Korean warning from 25 cents (varispeed is E16, not applied).
-- ``quant`` (CPU): ``quant.json`` - ``notes/guitar_all.json`` (track ``guitar_all``) and the bass stage's
-  ``bass.json`` (track ``bass``; M5: the pass-1 bass after the silence gate, cleaned with the F0 tracks; a run from
-  before M5 used ``notes/bass_raw.json``) quantised on the grid with one subdivision decision per beat, the meter
-  re-read (shuffle vs 12/8) and the triplet feel per section (``bandscribe.tab.quantize``).
+- ``quant`` (CPU): ``quant.json`` - the guitar notes (track ``guitar_all``; M7a: from the parts stage, each with its
+  part ``line``; without one, ``notes/guitar_all.json``) and the bass stage's ``bass.json`` (track ``bass``; M5: the
+  pass-1 bass after the silence gate, cleaned with the F0 tracks; a run from before M5 used ``notes/bass_raw.json``)
+  quantised on the grid with one subdivision decision per beat, the meter re-read (shuffle vs 12/8) and the
+  triplet feel per section (``bandscribe.tab.quantize``); ``parts`` = the parts stage's count and Line names.
 - ``tab`` (CPU): ``tab.json`` + ``text/<track>.txt`` - guitar and bass tuning chosen jointly
   (``bandscribe.tab.tuning``, fake low guitar notes left out of the evidence), the bass fretted
-  (``bandscribe.tab.fretting``), the merged guitar fretted only with ``tab.guitar_parts = 1`` (otherwise staff +
-  MIDI only, DESIGN 4.2).
-- ``score`` (CPU): ``tab/score.alphatex`` (every track; the guitar staff-only unless fretted; one ``\\sync`` per
-  bar on the recording's time), ``tab/score.gp5`` (fretted tracks), ``tab/<track>.txt``,
-  ``midi/<track>_quantized.mid`` and ``score.json`` (schema v0), all from the same spelled bars
-  (``bandscribe.tab.notation``).
+  (``bandscribe.tab.fretting``), each guitar part (``gtr_1``..``gtr_4``, M7a) fretted as one player's part, with a
+  tuning of its own when its notes clearly prefer one (``line_tunings``); the merged guitar and the Unassigned
+  notes stay staff + MIDI only (DESIGN 4.2).
+- ``score`` (CPU): ``tab/score.alphatex`` (every track; staffs where not fretted; one ``\\sync`` per bar on the
+  recording's time), ``tab/score.gp5`` (fretted tracks), ``tab/<track>.txt``, ``midi/<track>_quantized.mid`` and
+  ``score.json`` (schema v0), all from the same spelled bars (``bandscribe.tab.notation``). Track order and names:
+  the Part view (DESIGN 4.9) - the parts, ``All guitars (reference)``, ``Unassigned (review)``, ``Bass``.
 
 Stage functions read only their dep dirs, the job input and ``ctx.params`` (M1_M2_SPEC 3.1).
 """
@@ -42,11 +44,16 @@ A4_VIEWS = ("guitar_mono", "bass_mono", "piano_other_mono")
 BASS_RAW = "bass_raw.json"  # in the notes stage dir: the pass-1 bass minus the notes over a silent stem
 BASS_JSON = "bass.json"  # in the bass stage dir (M5): BASS_RAW cleaned with the F0 tracks
 BASS = "bass"  # the bass track id (M5; "bass_raw" before, still read from old edit logs)
-GUITAR = "guitar_all"  # the merged guitar (all parts); its notes carry the split's ``line`` (M6b)
-LINES_JSON = "guitar_lines.json"  # in the split stage dir (M6b): GUITAR's notes with their line
-# M6b: tracks derived from GUITAR by the split's line (P windows: left / right part). Their notes are GUITAR's
-# notes (uid ``guitar_all:<index>``), so an edit of a guitar note shows in its part track too.
-DERIVED = {"gtr_l": "L", "gtr_r": "R"}
+GUITAR = "guitar_all"  # the merged guitar (all parts); its notes carry the parts stage's ``line`` (M7a)
+LINES_JSON = "guitar_lines.json"  # in the parts stage dir (M7a): GUITAR's notes with their line
+PARTS_FORMAT = "bandscribe.guitar_lines/2"
+PART_LINES = ("1", "2", "3", "4")  # a part's line value is its number in the Part view
+UNASSIGNED = "unassigned"  # the staff of the guitar notes no part took (DESIGN 4.2 "Unassigned (review)")
+# M7a: tracks derived from GUITAR by its notes' line. Their notes are GUITAR's notes (uid ``guitar_all:<index>``),
+# so an edit of a guitar note shows in its part track too.
+DERIVED = {**{f"gtr_{x}": x for x in PART_LINES}, UNASSIGNED: "u"}
+LINE_TUNING_MIN_NOTES = 150  # a part's own tuning needs this many notes ...
+LINE_TUNING_MARGIN = 0.3  # ... and must beat the song's guitar tuning on them by this cost per note
 
 
 class TabStageError(RuntimeError):
@@ -86,12 +93,12 @@ def quant_params(cfg: Any) -> dict[str, Any]:
 
 def quant_tracks(dep_dirs: Mapping[str, Path]) -> dict[str, list[dict[str, Any]]]:
     """{track id: notes} the quantiser reads: guitar classes of the guitar pass (notes stage, without the notes over
-    a silent stem; from the split stage when there is one, M6b: the same notes with their ``line``) and the bass
-    stage's cleaned bass (M5; without a ``bass`` dep - a run from before M5 - the gated pass-1 bass of the notes
-    stage)."""
-    split_dir = dep_dirs.get("split")
-    if split_dir is not None and (Path(split_dir) / LINES_JSON).is_file():
-        gtr = atomic.read_json(Path(split_dir) / LINES_JSON).get("notes") or []
+    a silent stem; from the parts stage when there is one, M7a: the same notes with their ``line``; M6b's split
+    stage for an older run) and the bass stage's cleaned bass (M5; without a ``bass`` dep - a run from before M5 -
+    the gated pass-1 bass of the notes stage)."""
+    lines_dir = dep_dirs.get("parts") or dep_dirs.get("split")
+    if lines_dir is not None and (Path(lines_dir) / LINES_JSON).is_file():
+        gtr = atomic.read_json(Path(lines_dir) / LINES_JSON).get("notes") or []
     else:
         gtr = atomic.read_json(Path(dep_dirs["notes"]) / "guitar_all.json").get("notes") or []
     bass_dir = dep_dirs.get("bass")
@@ -103,11 +110,25 @@ def quant_tracks(dep_dirs: Mapping[str, Path]) -> dict[str, list[dict[str, Any]]
     return {"guitar_all": gtr, BASS: bass}
 
 
+def parts_meta(dep_dirs: Mapping[str, Path]) -> dict[str, Any] | None:
+    """The parts stage's count and Lines (number, name, short, role, ...), or None without one (M7a)."""
+    d = dep_dirs.get("parts")
+    if d is None or not (Path(d) / LINES_JSON).is_file():
+        return None
+    doc = atomic.read_json(Path(d) / LINES_JSON)
+    if doc.get("format") != PARTS_FORMAT:
+        return None
+    return {"count": doc.get("count"), "lines": doc.get("lines") or []}
+
+
 def run_quant(ctx: Any) -> None:
     dd = {k: Path(v) for k, v in ctx.dep_dirs.items()}
     grid = atomic.read_json(dd["grid"] / "grid.json")
     sections = atomic.read_json(dd["sections"] / "sections.json").get("sections") or []
     doc = Q.quantize(quant_tracks(dd), grid, sections, dict(ctx.params))
+    meta = parts_meta(dd)
+    if meta is not None:
+        doc["parts"] = meta
     atomic.write_json(Path(ctx.out_dir) / "quant.json", doc)
 
 
@@ -195,48 +216,79 @@ def slide_links(events: list[F.Event], notes: list[dict[str, Any]]) -> set[int]:
 
 
 def track_notes(q: Mapping[str, Any], tid: str) -> list[dict[str, Any]]:
-    """Notes of a track of ``q`` (quant.json or an edited quantisation): a derived part track (``DERIVED``) is the
-    merged guitar's notes on that line (plus the ``shared`` ones), each a copy carrying ``uid`` =
-    ``guitar_all:<index>`` and ``src_k`` = that index."""
+    """Notes of a track of ``q`` (quant.json or an edited quantisation): a derived track (``DERIVED``: a part, or the
+    Unassigned staff) is the merged guitar's notes on that line (a ``shared`` note is in every part), each a copy
+    carrying ``uid`` = ``guitar_all:<index>`` and ``src_k`` = that index."""
     if tid not in DERIVED:
         return Q.notes_of(q, tid)
     line = DERIVED[tid]
     return [{**n, "uid": f"{GUITAR}:{k}", "src_k": k} for k, n in enumerate(Q.notes_of(q, GUITAR))
-            if n.get("line") == line or n.get("shared")]  # a shared note (both sides) is in both parts
+            if n.get("line") == line or (n.get("shared") and tid != UNASSIGNED)]
 
 
 def split_on(q: Mapping[str, Any]) -> bool:
-    """Whether the merged guitar's notes carry a part split (M6b)."""
-    return any(n.get("line") in DERIVED.values() or n.get("shared") for n in Q.notes_of(q, GUITAR))
+    """Whether the merged guitar's notes carry their parts (M7a)."""
+    return any(n.get("line") in DERIVED.values() for n in Q.notes_of(q, GUITAR))
+
+
+def _staff(t: Mapping[str, Any]) -> dict[str, Any]:
+    return {"fretted": False, "tuning": t["tuning"], "capo": t["capo"], "label": t["label"], "notes": [],
+            "check": None}
 
 
 def fret_tracks(q: dict[str, Any], tun: dict[str, Any], p: dict[str, Any]) -> dict[str, Any]:
-    """{track id: fretting} of ``q``'s tracks with the chosen tunings (``tun`` = tab.json "tuning"); with a part split
-    (M6b) also the derived part tracks, each fretted as one player's part (``--parts 1`` frets the merged guitar
-    instead and has no split)."""
-    g_notes = Q.notes_of(q, "guitar_all")
+    """{track id: fretting} of ``q``'s tracks with the chosen tunings (``tun`` = tab.json "tuning"; a part with a
+    tuning of its own in ``tun["lines"]``): the bass, each guitar part fretted as one player's part, the merged guitar
+    and the Unassigned notes as staffs (DESIGN 4.2: merged parts cannot be played by one hand)."""
+    g_notes = Q.notes_of(q, GUITAR)
     b_notes = Q.notes_of(q, BASS)
     w = p["weights"]
     tracks: dict[str, Any] = {}
     if b_notes and tun.get("bass"):
         tracks[BASS] = _fret_track(b_notes, tun["bass"], w, p["model"])
     if g_notes and tun.get("guitar"):
-        if int(p["guitar_parts"]) == 1:
-            tracks["guitar_all"] = _fret_track(g_notes, tun["guitar"], w, p["model"])
-        else:  # staff + MIDI only (DESIGN 4.2): merged parts cannot be played by one hand
-            tracks["guitar_all"] = {"fretted": False, "tuning": tun["guitar"]["tuning"], "capo": tun["guitar"]["capo"],
-                                    "label": tun["guitar"]["label"], "notes": [], "check": None}
-            if split_on(q):
-                for tid in DERIVED:
-                    notes = track_notes(q, tid)
-                    if notes:
-                        tracks[tid] = _fret_track(notes, tun["guitar"], w, p["model"])
+        tracks[GUITAR] = _staff(tun["guitar"])
+        for tid in DERIVED:
+            notes = track_notes(q, tid)
+            if not notes:
+                continue
+            own = (tun.get("lines") or {}).get(tid) or tun["guitar"]
+            tracks[tid] = _staff(tun["guitar"]) if tid == UNASSIGNED else _fret_track(notes, own, w, p["model"])
     return tracks
+
+
+def line_tunings(q: Mapping[str, Any], tun: Mapping[str, Any], p: Mapping[str, Any], fake: set[int]
+                 ) -> dict[str, Any]:
+    """Parts whose own notes clearly prefer another tuning than the song's guitar tuning (DESIGN M7a "Line별 튜닝
+    탐색", v0): with ``LINE_TUNING_MIN_NOTES`` notes (fake low notes left out), an automatic choice that is not
+    unknown, the bass held at the song's tuning, and the song's tuning at least ``LINE_TUNING_MARGIN`` dearer per
+    note on them. Two or more parts only; none when the user named the guitar tuning."""
+    g = tun.get("guitar")
+    parts = [tid for tid in DERIVED if tid != UNASSIGNED and track_notes(q, tid)]
+    if not g or len(parts) < 2 or str(p.get("guitar_tuning", "auto")).lower() != "auto":
+        return {}
+    b_events = F.group_events(Q.notes_of(q, BASS))
+    bass = (tun.get("bass") or {}).get("label") or "auto"
+    out: dict[str, Any] = {}
+    for tid in parts:
+        notes = [n for n in track_notes(q, tid) if int(n["src_k"]) not in fake]
+        if len(notes) < LINE_TUNING_MIN_NOTES:
+            continue
+        got = TU.choose(F.group_events(notes), b_events, p["tuning"], fixed={"guitar": "auto", "bass": bass})
+        lg = got.get("guitar")
+        if not lg or lg["label"] == g["label"] or lg.get("unknown"):
+            continue
+        song_cost = next((t["cost"] for t in lg.get("top") or [] if t["label"] == g["label"]), None)
+        if song_cost is not None and song_cost - lg["cost"] < LINE_TUNING_MARGIN:
+            continue
+        out[tid] = {**lg, "song_cost": song_cost}
+    return out
 
 
 def text_tab(tid: str, tr: dict[str, Any], q: dict[str, Any]) -> str:
     """The plain-text tab of a fretted track (``tab/<track>.txt``)."""
-    title = f"{tid} — {tr['label']} ({' '.join(ascii_tab.string_names(tr['tuning'])[::-1])})"
+    name = track_name(q, tid)[0] if tid in DERIVED else tid  # a part by its Part view name (M7a)
+    title = f"{name} — {tr['label']} ({' '.join(ascii_tab.string_names(tr['tuning'])[::-1])})"
     return ascii_tab.render(tr["notes"], q["bars"], tr["tuning"], title=title)
 
 
@@ -250,6 +302,7 @@ def run_tab(ctx: Any) -> None:
     evidence = F.group_events([n for i, n in enumerate(g_notes) if i not in fake])
     tun = TU.choose(evidence, F.group_events(b_notes), p["tuning"],
                     fixed={"guitar": p.get("guitar_tuning", "auto"), "bass": p.get("bass_tuning", "auto")})
+    tun["lines"] = line_tunings(q, tun, p, fake)
     tracks = fret_tracks(q, tun, p)
     doc = {"format": "bandscribe.tab/1", "guitar_parts": int(p["guitar_parts"]), "tuning": tun,
            "fake_low_guitar_notes": len(fake), "a4": {k: a4.get(k) for k in ("cents", "a4_hz", "confidence")},
@@ -269,12 +322,13 @@ def run_tab(ctx: Any) -> None:
         if t and t.get("user") and t.get("auto_label") != t["label"] and shifted:
             _warn(ctx, f"{ko} 튜닝을 지정한 대로 {t['label']} 로 썼습니다(자동 판정은 {t['auto_label']}). 이 튜닝으로는 "
                        f"낼 수 없는 음 {shifted}개를 옥타브를 옮겨 적었습니다.")
-    chk = (tracks.get("guitar_all") or {}).get("check")
-    if chk and chk.get("dropped"):
-        _warn(ctx, f"합친 기타에서 한 손으로 칠 수 없는 음 {chk['dropped']}개를 탭에서 뺐습니다(MIDI·오선보에는 남음).")
-    for tid in DERIVED:  # the split parts (M6b): each is one player's tab
+    for tid in DERIVED:  # the parts (M7a): each is one player's tab
         chk = (tracks.get(tid) or {}).get("check") or {}
-        name = TRACK_NAMES[tid][0]
+        name = track_name(q, tid)[0]
+        own = (tun.get("lines") or {}).get(tid)
+        if own:
+            _warn(ctx, f"{name}: 이 파트의 음은 곡의 기타 튜닝({tun['guitar']['label']})보다 {own['label']} 에 맞아 "
+                       f"그 튜닝으로 적었습니다. 확인하세요.")
         if chk.get("dropped"):
             _warn(ctx, f"{name} 에서 한 손으로 칠 수 없는 음 {chk['dropped']}개를 탭에서 뺐습니다(MIDI·오선보에는 남음).")
         t = tun.get("guitar")
@@ -287,9 +341,21 @@ def run_tab(ctx: Any) -> None:
 
 GUITAR_INSTRUMENT = {"distorted_electric_guitar": "distortionguitar", "clean_electric_guitar": "electricguitarclean",
                      "acoustic_guitar": "acousticguitarsteel"}
-TRACK_NAMES = {"gtr_l": ("Gtr 1 (L)", "Gtr 1"), "gtr_r": ("Gtr 2 (R)", "Gtr 2"),
-               "guitar_all": ("Guitar (all parts)", "Gtr"), BASS: ("Bass", "Bass")}
-TRACK_ORDER = ("gtr_l", "gtr_r", "guitar_all", BASS)
+# the Part view (DESIGN 4.9): the parts, the merged reference, the Unassigned notes, the bass
+TRACK_NAMES = {GUITAR: ("All guitars (reference)", "All gtr"), UNASSIGNED: ("Unassigned (review)", "Unasg."),
+               BASS: ("Bass", "Bass")}
+TRACK_ORDER = (*(f"gtr_{x}" for x in PART_LINES), GUITAR, UNASSIGNED, BASS)
+
+
+def track_name(q: Mapping[str, Any], tid: str) -> tuple[str, str]:
+    """(name, short name) of a track: a part's from the parts stage (S9, e.g. "Gtr 1 - Rhythm (dist., L)")."""
+    if tid in TRACK_NAMES:
+        return TRACK_NAMES[tid]
+    num = DERIVED.get(tid, tid)
+    for ln in (q.get("parts") or {}).get("lines") or []:
+        if str(ln.get("number")) == num:
+            return str(ln["name"]), str(ln.get("short") or f"Gtr {num}")
+    return f"Gtr {num}", f"Gtr {num}"
 
 
 def score_params(cfg: Any) -> dict[str, Any]:
@@ -367,7 +433,7 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
     for tid in TRACK_ORDER:
         tr = (tab.get("tracks") or {}).get(tid)
         qn = track_notes(quant, tid)
-        if not qn or (tid in DERIVED and not (tr and tr.get("fretted"))):
+        if not qn or (tid in DERIVED and not tr):  # a part is written once the tab stage made it (M7a)
             continue
         fretted = bool(tr and tr.get("fretted"))
         tracks_src.append((tid, tr, fretted, tr["notes"] if fretted else qn))
@@ -391,7 +457,7 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
             # most frequent class; ties by name, so the output does not depend on string hashing (review)
             top = sorted(set(classes), key=lambda c: (-classes.count(c), str(c)))[0] if classes else None
             instrument = GUITAR_INSTRUMENT.get(str(top), "electricguitarclean")
-        name, short = TRACK_NAMES[tid]
+        name, short = track_name(quant, tid)
         score.tracks.append(ATX.WTrack(name=name, short=short, instrument=instrument, fretted=fretted,
                                        tuning=(tr or {}).get("tuning") if fretted else None,
                                        capo=int((tr or {}).get("capo") or 0) if fretted else 0, beats=spelled,
@@ -408,7 +474,7 @@ def score_doc(song_key: str, meta: dict[str, Any], title: str, quant: dict[str, 
     lines = []
     for tid in TRACK_ORDER:
         qn = track_notes(quant, tid)
-        if not qn or (tid in DERIVED and not ((tab.get("tracks") or {}).get(tid) or {}).get("fretted")):
+        if not qn or (tid in DERIVED and not (tab.get("tracks") or {}).get(tid)):
             continue
         tr = (tab.get("tracks") or {}).get(tid) or {}
         fretted = bool(tr.get("fretted"))
@@ -426,11 +492,14 @@ def score_doc(song_key: str, meta: dict[str, Any], title: str, quant: dict[str, 
                 flags["low_conf"] = True  # a note only the F0 trackers found (E13 two-voter gap fill)
             notes.append(Note(onset_s=on, offset_s=off, pitch=int(f.get("pitch", n["pitch"])),
                               string=f.get("string") if placed else None, fret=f.get("fret") if placed else None,
-                              confidence=Confidence(fret=f.get("conf") if placed else None),
+                              confidence=Confidence(fret=f.get("conf") if placed else None,
+                                                    part=n.get("p") if tid in DERIVED else None),
                               sources=["f0"] if n.get("src") == "f0" else ["muscriptor"], flags=flags))
         notes.sort(key=lambda x: (x.onset_s, x.pitch))
-        kind = "bass" if tid == BASS else ("guitar" if fretted else "reference")
-        lines.append(Line(id=tid, name=TRACK_NAMES[tid][0], kind=kind, tuning=tr.get("tuning") if fretted else None,
+        kind = ("bass" if tid == BASS else "guitar" if fretted else "unassigned" if tid == UNASSIGNED
+                else "reference")
+        lines.append(Line(id=tid, name=track_name(quant, tid)[0], kind=kind,
+                          tuning=tr.get("tuning") if fretted else None,
                           capo=int(tr.get("capo") or 0) if fretted else None, notes=notes))
     src = meta.get("source") or {}
     return Score(song=SongMeta(song_key=str(song_key), title=title,
@@ -459,13 +528,13 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
     tm = TempoMap.from_dict(grid)
     for tid in TRACK_ORDER:
         qn = track_notes(quant, tid)
-        if tid in DERIVED and not ((tab.get("tracks") or {}).get(tid) or {}).get("fretted"):
+        if tid in DERIVED and not (qn and (tab.get("tracks") or {}).get(tid)):
             continue
         notes = [{"onset_s": max(0.0, float(tm.beat_to_time(int(n["gtick"]) / Q.TPB))),
                   "offset_s": max(0.0, float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB))),
                   "pitch": int(n["pitch"])} for n in qn]
         midi.write_performance_midi(out / "midi" / f"{tid}_quantized.mid",
-                                    [(TRACK_NAMES[tid][0], 33 if tid == BASS else 27, notes)], grid)
+                                    [(track_name(quant, tid)[0], 33 if tid == BASS else 27, notes)], grid)
     save_score(out / "score.json", score_doc(song_key, meta, title, quant, tab, grid))
     return score
 
@@ -479,12 +548,13 @@ def run_score(ctx: Any) -> None:
                 params=dict(ctx.params))
 
 
-# quant 3 / tab 6 / score 4: M6b part split (guitar notes from the split stage; derived part tracks)
+# quant 4 / tab 7 / score 5: M7a Part view (guitar notes and Line names from the parts stage; K part tracks with
+# their own tunings, the Unassigned staff)
 STAGES: dict[str, dict] = {
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
-    "quant": {"run": run_quant, "code_version": "3", "params": quant_params, "device": "cpu",
+    "quant": {"run": run_quant, "code_version": "4", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
-    "tab": {"run": run_tab, "code_version": "6", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
-    "score": {"run": run_score, "code_version": "4", "params": score_params, "device": "cpu",
+    "tab": {"run": run_tab, "code_version": "7", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
+    "score": {"run": run_score, "code_version": "5", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

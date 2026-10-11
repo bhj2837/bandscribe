@@ -43,9 +43,9 @@ def run_cmd(
                           "추가 결과로 더해 훨씬 느리다(편성·기타 전사는 quality 와 같다).")] = None,
     instruments: Annotated[str | None, typer.Option(
         "--instruments", help='편성 힌트: auto 또는 "guitar,keys" 처럼 악기군 목록')] = None,
-    parts: Annotated[int | None, typer.Option(
-        "--parts", help="기타 파트 수. 1 이면 합친 기타를 한 대로 보고 탭(줄·프렛)까지 만든다. "
-                        "기본(자동)은 M3 에서 오선보·MIDI 만(파트 나누기는 M7a).")] = None,
+    parts: Annotated[str | None, typer.Option(
+        "--parts", help="기타 파트 수: auto(기본, 곡에서 센다) 또는 1-4. 파트마다 탭 트랙 하나가 생기고, 합친 기타는 "
+                        "오선보로 남는다. 바꿔서 다시 돌리면 파트 나누기부터만 다시 한다.")] = None,
     tempo: Annotated[float | None, typer.Option(
         "--tempo", help="곡의 템포(4분음표 BPM). 박 추적이 절반·두 배 속도로 셀 때 박 단위만 이 값에 맞춘다. "
                         "곡마다 고정하려면 작업 폴더 hints.toml 의 [grid] tempo_bpm.")] = None,
@@ -71,9 +71,10 @@ def run_cmd(
             fail(f"--profile 은 fast, quality, eval 중 하나입니다: {profile}", 2)
         overrides.append(f"run.profile={profile}")
     if parts is not None:
-        if parts != 1:
-            fail("--parts 는 지금 1 만 됩니다(여러 파트 나누기는 M7a). 자동은 옵션을 빼세요.", 2)
-        overrides.append("tab.guitar_parts=1")
+        v = parts.strip().lower()
+        if v not in ("auto", "1", "2", "3", "4"):
+            fail(f"--parts 는 auto 또는 1-4 입니다: {parts}", 2)
+        overrides.append(f"tab.guitar_parts={0 if v == 'auto' else int(v)}")
     if tempo is not None:
         if not 0 < tempo <= 400:
             fail(f"--tempo 는 0 보다 크고 400 이하인 BPM 입니다: {tempo:g}", 2)

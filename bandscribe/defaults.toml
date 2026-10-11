@@ -147,7 +147,7 @@ vocal_active_rel_db = -30.0
 resid_min_occurrences = 3
 
 [tab]                          # M3 tabs
-guitar_parts = 0               # 0 = auto (merged guitar: staff + MIDI only), 1 = fret it as one part (--parts 1)
+guitar_parts = 0               # 0 = auto (the parts stage counts them), N = N guitar parts (--parts N; 1 = one)
 guitar_tuning = "auto"          # auto = tuning search; or e.g. "E standard", "Eb standard", "Drop D" (per song: hints.toml)
 bass_tuning = "auto"
 
@@ -166,10 +166,6 @@ silence_db = 40.0              # windows this far under the loudest one are "sil
 solo_coh_rise = 0.10           # solo gate v0 (A path): coherent-energy share above the song's rhythm level
 solo_resid_db = -6.0           # solo gate v0 (N path): repetition residual at or above this (dB re the stem)
 solo_vocal_max = 0.5           # windows vocally active more than half the time are never solos
-split = true                   # M6b: P windows' notes to Gtr 1 (L) / Gtr 2 (R) by the sign of their ILD (E22b)
-split_p_ild_db = 0.0           # |ILD| under this -> both parts (E22b chose 0)
-split_min_share = 0.5          # split a song only when this share of its guitar notes is in P windows
-split_min_notes = 30           # ... and each side gets at least this many notes
 [router.thresholds]            # E6 (2026-10-10, GO): re-fit on separated Tier B stems; the rest are the synthetic
                                # starting values (bandscribe/router/thresholds.py)
 r0_sm_db = -4.1445
@@ -178,6 +174,15 @@ r2_coh = 0.9942
 r2_hard = 0.8462
 r2_cen = 0.1169
 r3_ild_db = 1.8986
+
+[parts]                        # M7a: guitar part count and each note's part (Part view v0, E25)
+n_min = 8                      # notes per stream in a window
+min_windows = 3                # two streams in at least this many windows ...
+min_sections = 2               # ... spread over this many sections (all of them when a song has fewer)
+side_db = 0.0                  # P windows: a note counts on a side at |ILD| >= this (0 = the sign, E22b)
+use_class = true               # two guitar classes sounding together are two streams
+use_symbolic = true            # chord notes and a line over them are two streams
+tau = 0.4                      # best part posterior under this -> Unassigned
 
 [eval]
 tpb = 48

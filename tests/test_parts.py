@@ -167,15 +167,15 @@ def test_gtr_1_is_the_line_in_most_bars_and_names_say_role_class_position():
     out = D.diarize(notes, sigs, _wins())
     assert [ln["number"] for ln in out["lines"]] == [1, 2]
     by = {ln["key"]: ln for ln in out["lines"]}
-    assert by["L"]["name"] == "Gtr 1 – Rhythm (dist., L)"  # same bars and notes: the earlier first note
-    assert by["R"]["name"] == "Gtr 2 – Lead (dist., R)"
+    assert by["L"]["name"] == "Gtr 1 - Rhythm (dist., L)"  # same bars and notes: the earlier first note
+    assert by["R"]["name"] == "Gtr 2 - Lead (dist., R)"
     assert {n["line"] for n in out["note"]} == {1, 2}
 
 
 def test_one_guitar_is_named_gtr_without_a_number():
     notes = [x for k in range(64) for x in _strum(k * 0.5, 40)]
     out = D.diarize(notes, [{} for _ in notes], _wins(label="R0"))
-    assert [ln["name"] for ln in out["lines"]] == ["Gtr – Rhythm (dist.)"]
+    assert [ln["name"] for ln in out["lines"]] == ["Gtr - Rhythm (dist.)"]
     assert out["count"]["chosen"] == 1
 
 

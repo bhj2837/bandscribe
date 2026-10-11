@@ -55,11 +55,10 @@ EXPORT_MAP: tuple[tuple[str, str, str, bool, bool], ...] = (
     ("tab/tab.json", "tab", "tab.json", False, False),
     ("midi/guitar_all_quantized.mid", "score", "midi/guitar_all_quantized.mid", False, False),
     ("midi/bass_quantized.mid", "score", "midi/bass_quantized.mid", False, False),
-    # M6b (optional): the two guitar parts of a split song (left / right), fretted
-    ("tab/gtr_l.txt", "score", "tab/gtr_l.txt", False, False),
-    ("tab/gtr_r.txt", "score", "tab/gtr_r.txt", False, False),
-    ("midi/gtr_l_quantized.mid", "score", "midi/gtr_l_quantized.mid", False, False),
-    ("midi/gtr_r_quantized.mid", "score", "midi/gtr_r_quantized.mid", False, False),
+    # M7a (optional): the guitar parts of the Part view (fretted) and the notes no part took (staff)
+    *((f"tab/gtr_{x}.txt", "score", f"tab/gtr_{x}.txt", False, False) for x in "1234"),
+    *((f"midi/gtr_{x}_quantized.mid", "score", f"midi/gtr_{x}_quantized.mid", False, False) for x in "1234"),
+    ("midi/unassigned_quantized.mid", "score", "midi/unassigned_quantized.mid", False, False),
     ("score.json", "score", "score.json", False, False),
 )
 

@@ -72,6 +72,15 @@ def test_bad_stage_names_are_usage_errors(tmp_path, monkeypatch):
     assert r.exit_code == 2
 
 
+def test_parts_takes_auto_or_one_to_four(tmp_path, monkeypatch):
+    _job(tmp_path, monkeypatch)
+    for bad in ("5", "0", "two"):
+        r = CliRunner().invoke(_app(), ["run", KEY, "--parts", bad, "--dry-run"])
+        assert r.exit_code == 2 and "--parts" in r.output
+    for ok in ("auto", "1", "3"):
+        assert CliRunner().invoke(_app(), ["run", KEY, "--parts", ok, "--dry-run"]).exit_code == 0
+
+
 def test_from_reruns_downstream(tmp_path, monkeypatch):
     f = _job(tmp_path, monkeypatch)
     assert CliRunner().invoke(_app(), ["run", KEY, "--until", "sections"]).exit_code == 0

@@ -27,13 +27,14 @@ EXPECTED.update({  # M5 bass: F0 tracks (GPU worker) and the clean-up of the gat
     "bass_f0": {"stems"},
     "bass": {"notes", "bass_f0", "stems", "sep", "grid"},
 })
-EXPECTED.update({  # M6 router and the part split (M6b: quant reads the guitar notes with their line from split)
+EXPECTED.update({  # M6 router; M7a note signatures and the Part view (quant reads the guitar notes with their line)
     "router": {"sep", "grid", "sections", "vocal", "resid1"},
-    "split": {"notes", "router", "sep"},
+    "notesig": {"notes", "sep"},
+    "parts": {"notes", "notesig", "router", "grid"},
 })
 EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},
-    "quant": {"notes", "bass", "split", "grid", "sections"},  # the bass from the bass stage (M5), guitar from split
+    "quant": {"notes", "bass", "parts", "grid", "sections"},  # the bass from the bass stage (M5), guitar from parts
     "tab": {"quant", "a4"},
     "score": {"tab", "quant", "grid", "sections"},
 })
@@ -77,9 +78,9 @@ def test_until_notes_includes_s35_parts():
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
     assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes",
-                                               "bass", "quant", "tab", "score", "router", "split"}
-    assert {"router", "split"} <= set(graph.selected("score")) and graph.selected("router")[-1] == "router"
-    assert graph.selected("score")[-5:] == ["split", "a4", "quant", "tab", "score"]
+                                               "bass", "quant", "tab", "score", "router", "notesig", "parts"}
+    assert {"router", "notesig", "parts"} <= set(graph.selected("score")) and graph.selected("router")[-1] == "router"
+    assert graph.selected("score")[-5:] == ["parts", "a4", "quant", "tab", "score"]
     assert "bass_f0" in graph.selected("score") and "bass" in graph.selected("score")
 
 

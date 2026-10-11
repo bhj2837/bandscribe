@@ -89,6 +89,7 @@ class Base:
     tab_params: dict[str, Any]
     score_params: dict[str, Any]
     keys: dict[str, str] = field(default_factory=dict)  # stage -> key12
+    parts: dict[str, Any] | None = None  # the parts stage's count and Line names (M7a), kept on re-quantisation
 
 
 def _manifest(d: Path) -> dict[str, Any]:
@@ -119,12 +120,14 @@ def load_base(job_dir: Path) -> Base:
         raw_dirs = {"notes": notes_dir}
         if qm["deps"].get("bass"):  # M5: the cleaned bass (a run from before M5 reads the notes stage's)
             raw_dirs["bass"] = stages / "bass" / str(qm["deps"]["bass"])[:12]
-        if qm["deps"].get("split"):  # M6b: the guitar notes with their part line (a re-quantisation keeps it)
-            raw_dirs["split"] = stages / "split" / str(qm["deps"]["split"])[:12]
+        for st in ("parts", "split"):  # M7a (M6b: split): the guitar notes with their part line, kept on re-quantisation
+            if qm["deps"].get(st):
+                raw_dirs[st] = stages / st / str(qm["deps"][st])[:12]
         grid = atomic.read_json(stages / "grid" / dep["grid"] / "grid.json")
         sections = atomic.read_json(stages / "sections" / dep["sections"] / "sections.json").get("sections") or []
         tab = atomic.read_json(stages / "tab" / dep["tab"] / "tab.json")
         raw = T.quant_tracks(raw_dirs)
+        parts = T.parts_meta(raw_dirs)
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise EditError(f"편집할 악보를 찾지 못했습니다({job_dir.name}): 먼저 `bandscribe run` 으로 악보를 만드세요. ({e})") from e
     try:
@@ -137,7 +140,7 @@ def load_base(job_dir: Path) -> Base:
                 sections=sections, raw=raw, quant_params=dict(qm.get("params") or {}), tab=tab,
                 tab_params=dict(tm.get("params") or {}), score_params=score_params,
                 keys={"score": key12, "tab": dep["tab"], "quant": dep["quant"], "grid": dep["grid"],
-                      "notes": str(qm["deps"]["notes"])[:12]})
+                      "notes": str(qm["deps"]["notes"])[:12]}, parts=parts)
 
 
 # ---------------------------------------------------------------------------------------------- the log
@@ -461,6 +464,8 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
         grid = edited_grid(base.grid, moves, grid_report)
         quant0 = Q.quantize(base.raw, grid, sections_on(grid, base.sections) if moves else base.sections,
                             base.quant_params)
+        if base.parts is not None:
+            quant0["parts"] = base.parts
         report["applied"] += grid_report["applied"]
         report["unmatched"] += grid_report["unmatched"]
         if cache is not None:
@@ -484,12 +489,14 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
     tracks: dict[str, Any] = {}
     for tid, inst in ((T.BASS, "bass"), ("guitar_all", "guitar")):
         sub = {"tracks": {tid: quant["tracks"][tid]}}
-        key = _digest([tid, quant["tracks"][tid]["notes"], tun.get(inst), base.tab_params])
+        sub["parts"] = quant.get("parts")
+        lines = tun.get("lines") if inst == "guitar" else None  # the parts' own tunings (M7a)
+        key = _digest([tid, quant["tracks"][tid]["notes"], tun.get(inst), lines, base.tab_params])
         if cache is not None and tid in cache.frets and cache.frets[tid][0] == key:
             got = cache.frets[tid][1]
         else:
-            # the guitar also gives the part tracks derived from its notes' split line (M6b)
-            got = T.fret_tracks(sub, {inst: tun.get(inst)}, base.tab_params)
+            # the guitar also gives the part tracks derived from its notes' line (M7a)
+            got = T.fret_tracks(sub, {inst: tun.get(inst), "lines": lines}, base.tab_params)
             if cache is not None:
                 cache.frets[tid] = (key, got)
         tracks.update(got or {})
@@ -506,7 +513,7 @@ def state_hash(state: State) -> str:
             rows[tid] = [[n["gtick"], n["dur"], n["pitch"], n["string"], n["fret"]] for n in tr["notes"]]
         else:
             rows[tid] = [[n["gtick"], n["dur"], n["pitch"]] for n in Q.notes_of(state.quant, tid)]
-    for tid in T.DERIVED:  # a split song's parts (M6b): a pinned part note changes only its part's fretting
+    for tid in T.DERIVED:  # a song's parts (M7a): a pinned part note changes only its part's fretting
         tr = state.tab["tracks"].get(tid) or {}
         if tr.get("fretted"):
             rows[tid] = [[n["gtick"], n["dur"], n["pitch"], n["string"], n["fret"]] for n in tr["notes"]]
@@ -517,8 +524,8 @@ def state_hash(state: State) -> str:
 
 
 def fretted_row(tab: Mapping[str, Any], tid: str, k: int) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """(fretted track, its row) of note ``tid:k``: the track itself when fretted, else (a split song's merged
-    guitar, M6b) the part track that holds the note; (None, None) when no tab has it."""
+    """(fretted track, its row) of note ``tid:k``: the track itself when fretted, else (the merged guitar, M7a)
+    the part track that holds the note; (None, None) when no tab has it (an Unassigned note)."""
     tr = (tab.get("tracks") or {}).get(tid) or {}
     if tr.get("fretted"):
         return tr, next((r for r in tr["notes"] if int(r["i"]) == k), None)
@@ -551,7 +558,7 @@ def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
     for tid in TRACKS:
         tr = state.tab["tracks"].get(tid) or {}
         frets = {int(n["i"]): n for n in tr.get("notes") or []} if tr.get("fretted") else {}
-        if not frets:  # a split song's merged guitar: string / fret from the part track that holds the note (M6b)
+        if not frets:  # the merged guitar: string / fret from the part track that holds the note (M7a)
             for dt in T.DERIVED:
                 dtr = state.tab["tracks"].get(dt) or {}
                 for r in (dtr.get("notes") or []) if dtr.get("fretted") else []:
@@ -563,8 +570,8 @@ def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
             notes[f"{tid}:{k}"] = {"track": tid, "pitch": int(f.get("pitch", n["pitch"])), "bar": int(n["bar"]),
                                    "string": f.get("string"), "fret": f.get("fret"), "pinned": bool(f.get("pinned")),
                                    "added": bool(n.get("added"))}
-    # one entry per written track, in alphaTab's track order (the viewer indexes it by track index): a split song
-    # writes Gtr 1 (L), Gtr 2 (R), the merged guitar and the bass (M6b)
+    # one entry per written track, in alphaTab's track order (the viewer indexes it by track index): the parts,
+    # the merged guitar, the Unassigned staff and the bass (M7a)
     tracks = [{"id": tr.tid, "fretted": bool(tr.fretted)} for tr in score.tracks]
     return {"tracks": tracks, "pos": pos, "at": at, "notes": notes}
 
@@ -903,7 +910,7 @@ class Session:
                 pitch = ps[len(ps) // 2]
             rec = {"op": "add", "track": tid, "gtick": g, "dur": ADD_STEP, "pitch": pitch}
             line = None
-            if cmd.get("uid"):  # added next to a part note (M6b): the new note joins that part
+            if cmd.get("uid"):  # added next to a part note (M7a): the new note joins that part
                 t_, _, k_ = str(cmd["uid"]).rpartition(":")
                 ns = Q.notes_of(st.quant, t_)
                 if t_ == tid and k_.isdigit() and int(k_) < len(ns):
@@ -956,7 +963,7 @@ class Session:
         # string
         tr, row = fretted_row(st.tab, tid, k)
         if tr is None:
-            return None, "이 트랙은 오선보라 줄이 없습니다(기타 탭은 --parts 1)"
+            return None, "이 음은 오선보에만 있어 줄이 없습니다(미배정 음은 파트에 넣어야 탭이 됩니다)"
         inst = F.Instrument(tuple(tr["tuning"]), max_fret=24, capo=int(tr.get("capo") or 0))
         pitch = int(row["pitch"]) if row else int(n["pitch"])
         opts = sorted(inst.positions(pitch))  # string 1 (highest) first

@@ -285,9 +285,9 @@ class S35Cfg(_Section):
 
 
 class TabCfg(_Section):
-    # M3: 0 = auto (the merged guitar is written as staff + MIDI only, DESIGN 4.2; part splitting comes in M7a),
-    # 1 = the guitars are one part: fret the merged guitar into a tab track (`bandscribe run --parts 1`)
-    guitar_parts: int = Field(0, ge=0, le=1)
+    # M7a: 0 = auto (the parts stage counts the guitar parts), N = N parts (`bandscribe run --parts N`; 1 = the
+    # guitars are one part). Each part is a fretted tab track; the merged guitar stays a staff + MIDI (DESIGN 4.2).
+    guitar_parts: int = Field(0, ge=0, le=4)
     # "auto" = tuning search; else a tuning the user names ("E standard", "Eb standard"/"하프다운", "Drop D",
     # "Open G, capo 2", ...; checked by the tab stage's params, Korean ConfigError). Usually set per song in the
     # job's hints.toml.
@@ -323,11 +323,6 @@ class RouterCfg(_Section):
     solo_coh_rise: float = 0.10  # solo gate v0, A path: coherent-energy share over the song's rhythm level
     solo_resid_db: float = -6.0  # N path: repetition residual (dB re the stem) at or above this
     solo_vocal_max: Prob = 0.5  # vocal veto: windows vocally active more than this are not solos
-    # M6b part split (stage `split`, E22b): P windows' notes to L / R by the sign of their own ILD
-    split: bool = True
-    split_p_ild_db: float = Field(0.0, ge=0.0)  # |ILD| under this -> both lines (E22b chose 0: the sign alone)
-    split_min_share: Prob = 0.5  # split only when at least this share of the guitar notes is in P windows ...
-    split_min_notes: int = Field(30, ge=0)  # ... and each side has at least this many notes
 
     @field_validator("thresholds")
     @classmethod
@@ -339,6 +334,18 @@ class RouterCfg(_Section):
             raise ValueError(f"router.thresholds 에 알 수 없는 키: {', '.join(unknown)} "
                              f"(가능: {', '.join(sorted(THRESHOLDS))})")
         return v
+
+
+class PartsCfg(_Section):
+    # M7a (DESIGN S8 v0, bandscribe.parts): how many guitar parts play at once and each guitar note's Line. The
+    # count's settings are E25's dev choice (docs/decisions.md); tab.guitar_parts = N forces N Lines.
+    n_min: int = Field(8, ge=1)  # notes per stream in a window (DESIGN 4.4: 8+)
+    min_windows: int = Field(3, ge=1)  # two streams in at least this many windows ...
+    min_sections: int = Field(2, ge=1)  # ... spread over this many sections (all of them when a song has fewer)
+    side_db: float = Field(0.0, ge=0.0)  # P windows: a note counts on a side at |ILD| >= this (0: the sign, E22b)
+    use_class: bool = True  # two MuScriptor guitar classes sounding together are two streams
+    use_symbolic: bool = True  # chord notes and a line over them are two streams
+    tau: Prob = 0.4  # best Line posterior under this -> Unassigned (DESIGN 4.2: 0.4 to start)
 
 
 class EvalCfg(_Section):
@@ -386,6 +393,7 @@ class Config(BaseModel):
     tab: TabCfg = Field(default_factory=TabCfg)
     bass: BassCfg = Field(default_factory=BassCfg)
     router: RouterCfg = Field(default_factory=RouterCfg)
+    parts: PartsCfg = Field(default_factory=PartsCfg)
     eval: EvalCfg = Field(default_factory=EvalCfg)
     datasets: DatasetsCfg = Field(default_factory=DatasetsCfg)
     # Unknown top-level sections, kept verbatim (see module docstring).

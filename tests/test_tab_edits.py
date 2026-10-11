@@ -19,7 +19,7 @@ from bandscribe.tab import stage as T
 from test_tab_quantize import beat_times, grid_doc
 from test_tab_tuning import E_STD, bass_line, song
 
-KEYS = {s: (s[:2] * 32)[:64] for s in ("notes", "grid", "sections", "quant", "a4", "tab", "score")}
+KEYS = {s: (s[:2] * 32)[:64] for s in ("notes", "grid", "sections", "parts", "quant", "a4", "tab", "score")}
 
 
 def _raw(events, offset: float, instrument: str) -> list[dict]:
@@ -28,7 +28,9 @@ def _raw(events, offset: float, instrument: str) -> list[dict]:
 
 
 def make_job(root: Path, *, guitar_parts: int = 1, shift_s: float = 0.0) -> Path:
-    """A finished run of a synthetic song laid out like a real job (stage dirs with manifests, export/)."""
+    """A finished run of a synthetic song laid out like a real job (stage dirs with manifests, export/). One guitar
+    part (M7a): the parts stage put every guitar note in Line 1, fretted as ``gtr_1``; ``guitar_parts=0``: a run
+    without a parts stage (the merged guitar is only a staff)."""
     job = root / "f-test"
     st = job / "stages"
     d = {s: st / s / KEYS[s][:12] for s in KEYS}
@@ -43,7 +45,17 @@ def make_job(root: Path, *, guitar_parts: int = 1, shift_s: float = 0.0) -> Path
     atomic.write_json(d["grid"] / "grid.json", grid)
     atomic.write_json(d["sections"] / "sections.json", {"sections": sections})
     qp = T.quant_params(None)
-    atomic.write_json(d["quant"] / "quant.json", Q.quantize(T.quant_tracks({"notes": d["notes"]}), grid, sections, qp))
+    qdirs = {"notes": d["notes"]}
+    if guitar_parts == 1:
+        atomic.write_json(d["parts"] / T.LINES_JSON, {
+            "format": T.PARTS_FORMAT, "count": {"chosen": 1},
+            "lines": [{"number": 1, "name": "Gtr - Rhythm (dist.)", "short": "Gtr"}],
+            "notes": [{**n, "line": "1", "p": 1.0, "amber": False, "shared": False} for n in raw["guitar_all"]]})
+        qdirs["parts"] = d["parts"]
+    quant = Q.quantize(T.quant_tracks(qdirs), grid, sections, qp)
+    if T.parts_meta(qdirs):
+        quant["parts"] = T.parts_meta(qdirs)
+    atomic.write_json(d["quant"] / "quant.json", quant)
     atomic.write_json(d["a4"] / "a4.json", {"cents": 0.0, "a4_hz": 440.0, "confidence": 0.9})
     tp = T.tab_params({"tab.guitar_parts": guitar_parts})
 
@@ -56,7 +68,9 @@ def make_job(root: Path, *, guitar_parts: int = 1, shift_s: float = 0.0) -> Path
     sp = T.score_params(None)
     atomic.write_json(job / "input" / "meta.json", {"source": {"filename": "song.wav"}, "duration_s": times[-1] + 1})
     T.run_score(ctx("score", ("tab", "quant", "grid", "sections"), sp))
-    for stage, params, deps in (("quant", qp, {"notes": KEYS["notes"], "grid": KEYS["grid"], "sections": KEYS["sections"]}),
+    qdeps = {"notes": KEYS["notes"], "grid": KEYS["grid"], "sections": KEYS["sections"],
+             **({"parts": KEYS["parts"]} if guitar_parts == 1 else {})}
+    for stage, params, deps in (("quant", qp, qdeps),
                                 ("tab", tp, {"quant": KEYS["quant"], "a4": KEYS["a4"]}),
                                 ("score", sp, {k: KEYS[k] for k in ("tab", "quant", "grid", "sections")})):
         atomic.write_json(d[stage] / "manifest.json", {"stage": stage, "key": KEYS[stage], "song_key": "f-test",
