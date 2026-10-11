@@ -468,3 +468,67 @@ def test_e22_decide_applies_the_registered_rules():
     rows.append({"item": "a:A", "group": "a", "scenario": "A", "system": "note_sig|oracle", "metric": "leak_lead",
                  "value": 0.5})
     assert E.decide(rows)["A"]["decision"] == "hold"  # leakage over 25 %
+
+
+# ------------------------------------------------------------------------------------------------ E6b / E7
+
+
+def test_chroma_onset_f1_forgives_octaves_not_timing():
+    from bandscribe.router import views_eval as V
+
+    a = [{"onset_s": 1.0, "pitch": 52}, {"onset_s": 2.0, "pitch": 55}, {"onset_s": 3.0, "pitch": 59}]
+    b = [{"onset_s": 1.02, "pitch": 64}, {"onset_s": 2.0, "pitch": 55}, {"onset_s": 3.2, "pitch": 59}]
+    assert V.chroma_onset_f1(a, b) == pytest.approx(2 * 2 / 6)  # octave apart counts, 200 ms late does not
+    assert V.chroma_onset_f1([], []) is None and V.chroma_onset_f1(a, []) == 0.0
+
+
+def test_lead_is_the_centre_notes_the_side_does_not_play():
+    from bandscribe.router import views_eval as V
+
+    centre = [{"onset_s": 1.0, "pitch": 64}, {"onset_s": 2.0, "pitch": 67}, {"onset_s": 3.0, "pitch": 70}]
+    side_ = [{"onset_s": 1.03, "pitch": 65}, {"onset_s": 3.0, "pitch": 73}]
+    assert V.lead_minus_side(centre, side_) == [False, True, True]  # 1 semitone and 30 ms: the side's note
+    assert V.lead_minus_side(centre, []) == [True, True, True]
+
+
+def test_ipd_ild_keeps_the_centre_and_drops_hard_panned_sound():
+    from bandscribe.router import centre as C
+
+    n = 3 * R.SR
+    t = np.arange(n) / R.SR
+    c = np.sin(2 * np.pi * 440 * t) * 0.3
+    left_only = np.sin(2 * np.pi * 660 * t) * 0.3
+    x = np.stack([c + left_only, c], axis=1).astype(np.float32)
+    y = C.ipd_ild(x)
+    spec = np.abs(np.fft.rfft(y[R.SR:2 * R.SR]))
+    f = np.fft.rfftfreq(R.SR, 1 / R.SR)
+    at = lambda hz: spec[np.argmin(np.abs(f - hz))]  # noqa: E731
+    assert at(440) > 10 * at(660)
+    assert C.mid(x).shape == (n,) and C.side(x)[0] == pytest.approx((x[0, 0] - x[0, 1]) / 2)
+
+
+def test_a_single_target_msst_model_outputs_only_its_target():
+    from bandscribe.third_party.msst import loader
+
+    cfg = {"model": {"num_stems": 1}, "training": {"instruments": ["center", "wide"], "target_instrument": "center"}}
+    assert loader.stem_order(cfg) == ["center"]
+    assert loader.stem_order({**cfg, "model": {"num_stems": 2}}) == ["center", "wide"]
+    assert loader.stem_order({"model": {}, "training": {"instruments": ["a", "b"]}}) == ["a", "b"]
+
+
+def test_e7_decision_rule():
+    from bandscribe.router import views_eval as V
+
+    rows = []
+    for song, (mid_lead, cw_lead, merged_lead) in {"a": (0.5, 0.7, 0.3), "b": (0.45, 0.65, 0.3),
+                                                   "c": (0.55, 0.75, 0.35)}.items():
+        for arm, lead, rhy, leak in (("merged", merged_lead, 0.6, None), ("mid", mid_lead, 0.6, 0.4),
+                                     ("ipd_ild", 0.3, 0.6, 0.1), ("cw_bs_v2", cw_lead, 0.6, 0.1),
+                                     ("cw_bs_v3beta", cw_lead - 0.05, 0.6, 0.1)):
+            common = {"item": f"{song}:A", "group": song, "scenario": "A", "system": arm}
+            rows += [{**common, "metric": "lead_f1", "value": lead}, {**common, "metric": "rhythm_f1", "value": rhy}]
+            if leak is not None:
+                rows.append({**common, "metric": "leak_lead", "value": leak})
+    d = V.decide_e7(rows)
+    assert d["arms"]["mid"]["within_limits"] is False  # leaks 40 %
+    assert d["chosen"] == "cw_bs_v2" and d["decision"] == "adopt"

@@ -21,3 +21,43 @@ sha256 = "8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331"
 license = "MIT (code and published weights, CPJKU/beat_this README, checked 2026-09-30); training data partly copyrighted"
 source = "https://github.com/CPJKU/beat_this"
 notes = "Beat This! final0 (ISMIR 2024): trained on all data except GTZAN, PyTorch Lightning checkpoint without optimizer state. The JKU Nextcloud server announces a SHA1 (OC-Checksum), which the download verifies; no sha256 is published."
+
+# M6 E7 (2026-10-11): phantom-centre extractors for the A path (DESIGN S5 R2). Two BS-RoFormer CenterWide models; they run
+# on the vendored MSST BSRoformer (the Mel-Band RoFormer v3 named in DESIGN needs librosa's mel filters, not in the gpu
+# env). The Hugging Face card says cc-by-nc-sa-4.0 (added on the repo 2026-10-11; DESIGN 2026-09 found no tag): personal,
+# non-commercial use only, never redistributed (data/ is gitignored). Pinned to repo revision 74e5bdad and the LFS sha256.
+["centerwide.bs_v2"]
+url = "https://huggingface.co/gilliaan/CenterWide-Models/resolve/74e5bdadc3c5f552c3780508b02cd36cf72f7b3e/BandSplitRoformer/gilliaan_bsroformer_centerwide_v2.ckpt"
+dest = "data/models/centerwide/gilliaan_bsroformer_centerwide_v2.ckpt"
+bytes = 204435682
+sha256 = "72cbc991fc8fe96a9f6c33d5683649c662343a9e906e6c73189ff0f692ef9fe4"
+license = "CC BY-NC-SA 4.0 (Hugging Face model card, checked 2026-10-11)"
+source = "https://huggingface.co/gilliaan/CenterWide-Models"
+notes = "gilliaan CenterWide BS-RoFormer v2: one target stem 'center' (wide = mix - center), 44.1 kHz stereo, chunk 154350."
+
+["centerwide.bs_v2.yaml"]
+url = "https://huggingface.co/gilliaan/CenterWide-Models/resolve/74e5bdadc3c5f552c3780508b02cd36cf72f7b3e/BandSplitRoformer/gilliaan_bsroformer_centerwide_v2.yaml"
+dest = "data/models/centerwide/gilliaan_bsroformer_centerwide_v2.yaml"
+bytes = 2184
+sha256 = "455ad0e20aa27fe63a8e0a25b01827ea8e38c6f0982de70b7ec22d089b594d03"
+license = "CC BY-NC-SA 4.0 (Hugging Face model card, checked 2026-10-11)"
+source = "https://huggingface.co/gilliaan/CenterWide-Models"
+notes = "MSST config of centerwide.bs_v2."
+
+["centerwide.bs_v3beta"]
+url = "https://huggingface.co/gilliaan/CenterWide-Models/resolve/74e5bdadc3c5f552c3780508b02cd36cf72f7b3e/BandSplitRoformer/gilliaan_bsroformer_centerwide_v3beta.ckpt"
+dest = "data/models/centerwide/gilliaan_bsroformer_centerwide_v3beta.ckpt"
+bytes = 303490227
+sha256 = "9dc81b9d8080224325d96cf54b195d149f7cf7ab508b9b982efb17a35e9c8d66"
+license = "CC BY-NC-SA 4.0 (Hugging Face model card, checked 2026-10-11)"
+source = "https://huggingface.co/gilliaan/CenterWide-Models"
+notes = "gilliaan CenterWide BS-RoFormer v3beta: stems center + wide, 44.1 kHz stereo, chunk 132300, STFT hop 512."
+
+["centerwide.bs_v3beta.yaml"]
+url = "https://huggingface.co/gilliaan/CenterWide-Models/resolve/74e5bdadc3c5f552c3780508b02cd36cf72f7b3e/BandSplitRoformer/gilliaan_bsroformer_centerwide_v3beta.yaml"
+dest = "data/models/centerwide/gilliaan_bsroformer_centerwide_v3beta.yaml"
+bytes = 2258
+sha256 = "021ebb28b028c2546b753285a6af9277783252d07ed557f0178165836b79d327"
+license = "CC BY-NC-SA 4.0 (Hugging Face model card, checked 2026-10-11)"
+source = "https://huggingface.co/gilliaan/CenterWide-Models"
+notes = "MSST config of centerwide.bs_v3beta."

@@ -397,4 +397,16 @@ def _run_e22b(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
     return run_e22b(out_dir, cfg, args, **kw)
 
 
-EXPERIMENTS = {"E6": run_e6, "E22": _run_e22, "E22b": _run_e22b}
+def _run_e6b(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
+    from bandscribe.router.views_eval import run_e6b
+
+    return run_e6b(out_dir, cfg, args, **kw)
+
+
+def _run_e7(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
+    from bandscribe.router.views_eval import run_e7
+
+    return run_e7(out_dir, cfg, args, **kw)
+
+
+EXPERIMENTS = {"E6": run_e6, "E6b": _run_e6b, "E7": _run_e7, "E22": _run_e22, "E22b": _run_e22b}

@@ -41,10 +41,18 @@ def load_yaml(path: Path | str) -> dict[str, Any]:
 
 
 def stem_order(config: dict[str, Any]) -> list[str]:
-    """The model's output stem order = ``training.instruments`` (SW: bass, drums, other, vocals, guitar, piano)."""
-    names = list((config.get("training") or {}).get("instruments") or [])
+    """The model's output stem order = ``training.instruments`` (SW: bass, drums, other, vocals, guitar, piano); a
+    single-target model (``training.target_instrument`` set and ``model.num_stems`` 1, e.g. CenterWide BS-RoFormer
+    v2 -> ``center``) outputs only that stem, as in MSST (the rest is the mix minus it)."""
+    tr = config.get("training") or {}
+    names = list(tr.get("instruments") or [])
     if not names:
         raise ValueError("config has no training.instruments")
+    target = tr.get("target_instrument")
+    if target and int((config.get("model") or {}).get("num_stems", len(names))) == 1:
+        if str(target) not in [str(n) for n in names]:
+            raise ValueError(f"target_instrument {target!r} is not one of {names}")
+        return [str(target)]
     return [str(n) for n in names]
 
 
