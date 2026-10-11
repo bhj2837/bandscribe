@@ -120,9 +120,10 @@ def load_base(job_dir: Path) -> Base:
         raw_dirs = {"notes": notes_dir}
         if qm["deps"].get("bass"):  # M5: the cleaned bass (a run from before M5 reads the notes stage's)
             raw_dirs["bass"] = stages / "bass" / str(qm["deps"]["bass"])[:12]
-        for st in ("parts", "split"):  # M7a (M6b: split): the guitar notes with their part line, kept on re-quantisation
-            if qm["deps"].get(st):
-                raw_dirs[st] = stages / st / str(qm["deps"][st])[:12]
+        if not qm["deps"].get("parts"):  # a run from before M7a: its parts (M6b's L / R) are not the Part view's
+            raise EditError(f"이 악보는 파트 나누기(M7a) 전에 만든 것입니다({job_dir.name}): `bandscribe run` 으로 다시 만든 "
+                            "뒤 편집하세요(그래픽카드 단계는 캐시라 금방 끝납니다).")
+        raw_dirs["parts"] = stages / "parts" / str(qm["deps"]["parts"])[:12]  # the guitar notes with their part
         grid = atomic.read_json(stages / "grid" / dep["grid"] / "grid.json")
         sections = atomic.read_json(stages / "sections" / dep["sections"] / "sections.json").get("sections") or []
         tab = atomic.read_json(stages / "tab" / dep["tab"] / "tab.json")
@@ -379,8 +380,20 @@ def _added_note(e: Mapping[str, Any], tm: TempoMap, instrument: str) -> dict[str
     bar, start = tm._bar_of_beat(g / Q.TPB)
     return {"onset_s": round(on, 4), "offset_s": round(float(tm.beat_to_time((g + d) / Q.TPB)), 4),
             "pitch": int(e["pitch"]), "instrument": instrument, "gtick": g, "dur": d, "bar": int(bar),
-            "tick": g - int(round(start * Q.TPB)), "added": str(e["id"]),
-            **({"line": str(e["line"])} if e.get("line") else {})}  # a split song's part (M6b)
+            "tick": g - int(round(start * Q.TPB)), "added": str(e["id"])}
+
+
+def _part_of(notes: Mapping[str, list[dict[str, Any]]], e: Mapping[str, Any]) -> str | None:
+    """The part an added note joins (M7a): the part the note it was added next to (``near``, an anchor) has now - a
+    re-run may renumber or recount the parts - or none (then it is an Unassigned note). A record from before
+    (``line``) keeps its part only while a note of that part exists."""
+    if e.get("near"):
+        hit = find(notes, e["near"])
+        line = notes[hit[0]][hit[1]].get("line") if hit is not None else None
+        return line if line in T.PART_LINES else None
+    line = str(e.get("line") or "")
+    present = {n.get("line") for ns in notes.values() for n in ns}
+    return line if line in T.PART_LINES and line in present else None
 
 
 def _instrument_of(tid: str, ns: Sequence[Mapping[str, Any]]) -> str:
@@ -395,7 +408,11 @@ def apply_note_edit(notes: dict[str, list[dict[str, Any]]], e: Mapping[str, Any]
     op = e["op"]
     if op == "add":
         tid = str(e["track"])
-        notes.setdefault(tid, []).append(_added_note(e, tm, _instrument_of(tid, notes.get(tid) or [])))
+        new = _added_note(e, tm, _instrument_of(tid, notes.get(tid) or []))
+        line = _part_of(notes, e)
+        if line:
+            new["line"] = line
+        notes.setdefault(tid, []).append(new)
         report["applied"] += 1
         return
     hit = find(notes, e["note"])
@@ -909,14 +926,11 @@ class Session:
                 ps = sorted(int(n["pitch"]) for n in Q.notes_of(st.quant, tid)) or [40 if tid == T.BASS else 52]
                 pitch = ps[len(ps) // 2]
             rec = {"op": "add", "track": tid, "gtick": g, "dur": ADD_STEP, "pitch": pitch}
-            line = None
-            if cmd.get("uid"):  # added next to a part note (M7a): the new note joins that part
-                t_, _, k_ = str(cmd["uid"]).rpartition(":")
+            if cmd.get("uid"):  # added next to a part note (M7a): the new note joins that note's part, whatever its
+                t_, _, k_ = str(cmd["uid"]).rpartition(":")  # number is after a re-run
                 ns = Q.notes_of(st.quant, t_)
-                if t_ == tid and k_.isdigit() and int(k_) < len(ns):
-                    line = ns[int(k_)].get("line")
-            if line in T.DERIVED.values():
-                rec["line"] = line
+                if t_ == tid and k_.isdigit() and int(k_) < len(ns) and ns[int(k_)].get("line") in T.PART_LINES:
+                    rec["near"] = anchor(t_, ns[int(k_)])
             return rec, ""
         if c in ("barline", "tap"):
             starts = bar_starts(st.grid)
@@ -963,7 +977,7 @@ class Session:
         # string
         tr, row = fretted_row(st.tab, tid, k)
         if tr is None:
-            return None, "이 음은 오선보에만 있어 줄이 없습니다(미배정 음은 파트에 넣어야 탭이 됩니다)"
+            return None, "이 음은 오선보에만 있어 줄이 없습니다(미배정 음은 파트에 들어가야 탭이 됩니다)"
         inst = F.Instrument(tuple(tr["tuning"]), max_fret=24, capo=int(tr.get("capo") or 0))
         pitch = int(row["pitch"]) if row else int(n["pitch"])
         opts = sorted(inst.positions(pitch))  # string 1 (highest) first

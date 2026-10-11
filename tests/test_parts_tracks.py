@@ -144,6 +144,20 @@ def test_a_shared_note_is_in_every_part_but_not_unassigned():
     g[0]["shared"] = True
     assert any(n["src_k"] == 0 for n in T.track_notes(q, "gtr_2"))
     assert not any(n["src_k"] == 0 for n in T.track_notes(q, T.UNASSIGNED))
+    assert T.track_notes(q, "gtr_3") == []  # only the parts the song has (review 2026-10-11: no phantom tracks)
+
+
+def test_a_guitar_note_without_a_part_is_unassigned():
+    q, _grid = _quant_with_lines()
+    g = Q.notes_of(q, T.GUITAR)
+    g[1]["line"] = None  # an added note with nothing selected, or a bass note moved to the guitar
+    g[2].pop("line")
+    un = {n["src_k"] for n in T.track_notes(q, T.UNASSIGNED)}
+    assert {1, 2, len(g) - 1} <= un
+    parts = sum(len(T.track_notes(q, t)) for t in ("gtr_1", "gtr_2"))
+    assert parts + len(un) == len(g)  # parts + Unassigned = every guitar note
+    no_parts = Q.quantize({"guitar_all": [{"onset_s": 1.0, "offset_s": 1.5, "pitch": 60}], "bass": []}, _grid)
+    assert T.track_notes(no_parts, T.UNASSIGNED) == [] and not T.split_on(no_parts)
 
 
 def _run_tab(tmp_path, q, name="tab", params=None):
@@ -350,6 +364,68 @@ def test_a_note_added_next_to_a_part_note_joins_that_part(tmp_path):
     assert r["applied"]
     assert any(n.get("added") and n.get("line") is None for n in Q.notes_of(s.state.quant, "guitar_all"))
     assert s.close()
+
+
+def test_an_added_note_follows_its_neighbours_part_after_a_rerun_renumbers_the_parts(tmp_path):
+    job, d = make_parts_job(tmp_path)
+    s = E.Session(job)
+    uid = next(u for k, u in s.map["pos"].items() if k.startswith("1:"))  # a note written in Gtr 2
+    r = s.command({"cmd": "add", "track": "guitar_all", "t_s": 3.0, "pitch": 64, "uid": uid})
+    assert r["applied"]
+    rec = [e for e in E.read_log(job) if e.get("op") == "add"][-1]
+    assert "near" in rec and "line" not in rec  # the neighbour's anchor, not its (re-numbered) part
+    assert s.close()
+    # a re-run swaps the part numbers: the neighbour (and its part) is now "1"
+    lines_path = d["parts"] / T.LINES_JSON
+    doc = atomic.read_json(lines_path)
+    for n in doc["notes"]:
+        n["line"] = {"1": "2", "2": "1"}[n["line"]]
+    atomic.write_json(lines_path, doc)
+    base = E.load_base(job)
+    st = E.build(base, E.active(E.read_log(job))).state
+    added = [n for n in Q.notes_of(st.quant, "guitar_all") if n.get("added")]
+    assert added and added[0]["line"] == "1"
+
+
+def test_an_old_add_record_does_not_make_a_phantom_part(tmp_path):
+    from test_tab_edits import make_job
+
+    job = make_job(tmp_path)  # one part
+    base = E.load_base(job)
+    rec = {"id": "e1", "op": "add", "track": "guitar_all", "gtick": 96, "dur": 12, "pitch": 64, "line": "2"}
+    st = E.build(base, [rec]).state
+    assert "gtr_2" not in st.tab["tracks"]  # the old record's part does not exist: the note is Unassigned
+    added = [n for n in Q.notes_of(st.quant, "guitar_all") if n.get("added")]
+    assert added and added[0].get("line") is None
+    assert any(n.get("added") for n in T.track_notes(st.quant, T.UNASSIGNED))
+
+
+def test_a_run_from_before_the_part_view_asks_for_a_rerun(tmp_path):
+    from test_tab_edits import make_job
+
+    job = make_job(tmp_path, guitar_parts=0)  # no parts stage behind its quantisation
+    with pytest.raises(E.EditError, match="bandscribe run"):
+        E.load_base(job)
+
+
+def test_the_removed_split_settings_are_ignored_with_a_warning(caplog):
+    from bandscribe.config import load_config
+
+    with caplog.at_level("WARNING"):
+        cfg = load_config(overrides=["router.split=false", "router.split_min_notes=10"])
+    assert not hasattr(cfg.router, "split") and "router.split" in caplog.text
+
+
+def test_remix_experiments_read_the_pinned_e6_run(tmp_path, monkeypatch):
+    from bandscribe import paths
+    from bandscribe.router import split_eval as SE
+
+    monkeypatch.setattr(paths, "RUNS", tmp_path)
+    (tmp_path / "20991231-000000_abc_exp-e6").mkdir()
+    assert SE.e6_run({}).name == "20991231-000000_abc_exp-e6"  # no pinned run here: the latest
+    (tmp_path / SE.E6_RUN).mkdir()
+    assert SE.e6_run({}).name == SE.E6_RUN  # the pinned one wins over a later E6 run
+    assert SE.e6_run({"e6_run": str(tmp_path / "x")}).name == "x"
 
 
 def test_an_empty_stem_is_silent_not_mixed():

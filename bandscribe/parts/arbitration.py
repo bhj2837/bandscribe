@@ -79,11 +79,16 @@ def seed_lines(k: int, evidence: str | None, notes: Sequence[Mapping[str, Any]],
         return two, reasons
     lead_set = set(lead)
     if k == 3:
-        if not lead:
-            return two, ["리드 층 음이 없어 두 파트까지만 나눕니다"]
-        for ln in two:
-            ln["seeds"] = [i for i in ln["seeds"] if i not in lead_set]
-        return [*two, {"key": "lead", "kind": "symbolic", "seeds": list(lead)}], reasons
+        for ln in two:  # a side made only of lead-layer notes is the lead itself: it keeps them (review 2026-10-11)
+            rest = [i for i in ln["seeds"] if i not in lead_set]
+            if rest:
+                ln["seeds"] = rest
+            else:
+                lead_set -= set(ln["seeds"])
+        third = [i for i in lead if i in lead_set]
+        if not third:
+            return two, ["두 파트 말고 따로 둘 리드 층 음이 없어 두 파트까지만 나눕니다"]
+        return [*two, {"key": "lead", "kind": "symbolic", "seeds": third}], reasons
     out = []
     for ln in two:
         r = [i for i in ln["seeds"] if feats[i]["chord"]]

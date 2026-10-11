@@ -324,6 +324,19 @@ class RouterCfg(_Section):
     solo_resid_db: float = -6.0  # N path: repetition residual (dB re the stem) at or above this
     solo_vocal_max: Prob = 0.5  # vocal veto: windows vocally active more than this are not solos
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_removed_split_keys(cls, data: Any) -> Any:
+        # M6b's split stage keys (README told users to write `split = false`); M7a's parts stage replaced it
+        if isinstance(data, Mapping):
+            gone = sorted(k for k in data if k in ("split", "split_p_ild_db", "split_min_share", "split_min_notes"))
+            if gone:
+                logging.getLogger(__name__).warning(
+                    "router.%s 설정은 M7a 에서 없어져 무시합니다. 기타 파트 수는 --parts 또는 [tab] guitar_parts, 세는 기준은 "
+                    "[parts] 입니다.", ", router.".join(gone))
+                data = {k: v for k, v in data.items() if k not in gone}
+        return data
+
     @field_validator("thresholds")
     @classmethod
     def _known_thresholds(cls, v: dict[str, float]) -> dict[str, float]:

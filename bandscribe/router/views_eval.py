@@ -81,7 +81,7 @@ def lead_minus_side(centre: Sequence[Mapping[str, Any]], side_notes: Sequence[Ma
     return out
 
 
-def _remixes(e6: Path, scenarios: Sequence[str], limit: int | None = None) -> list[dict[str, Any]]:
+def _remixes(e6: Path, scenarios: Sequence[str], limit: int | None = None, cfg: Any = None) -> list[dict[str, Any]]:
     """E6 remixes of these scenarios with plan, relations, the first EXCERPT_S s of the cached SW stem."""
     import soundfile as sf
 
@@ -98,14 +98,15 @@ def _remixes(e6: Path, scenarios: Sequence[str], limit: int | None = None) -> li
     from bandscribe.amt import experiments as AE
     from bandscribe.config import load_config
 
-    sep_rung = AE.sep_top_rung(load_config())
+    cfg = cfg if cfg is not None else load_config()
+    sep_rung = AE.sep_top_rung(cfg)
     out = []
     for song, sc in keys:
         rel = T.relations(tracks[song], root, rel_dir, code_version=E6_REL_VERSION)
         pl = T.plan(rel, sc, song_index=order.index(song))
         mix_wav = e6 / "work" / f"{song}_{sc}" / "mix.wav"
         mix, _ = sf.read(str(mix_wav), dtype="float32", always_2d=True)
-        stems, _ = X.separate_guitar([(X._pcm_sha(mix), mix_wav)], load_config(), force_rung=sep_rung,
+        stems, _ = X.separate_guitar([(X._pcm_sha(mix), mix_wav)], cfg, force_rung=sep_rung,
                                      cache_dir=X.cache_root())
         stem, sr = sf.read(str(next(iter(stems.values()))), dtype="float32", always_2d=True)
         out.append({"song": song, "scenario": sc, "pl": pl, "rel": rel, "track": tracks[song], "root": root,
@@ -125,12 +126,12 @@ def _mono_view(vid: str, x: np.ndarray, sr: int, d: Path, views: list[dict[str, 
     views.append({"id": vid, "wav": wav, "pcm_sha256": sha, "instruments": I.mask_guitar_only()})
 
 
-def _transcribe(views: list[dict[str, Any]], work: Path) -> tuple[dict[str, dict], str]:
+def _transcribe(views: list[dict[str, Any]], work: Path, cfg: Any = None) -> tuple[dict[str, dict], str]:
     from bandscribe.amt import experiments as AE
     from bandscribe.amt import stage as S
     from bandscribe.config import load_config
 
-    cfg = load_config()
+    cfg = cfg if cfg is not None else load_config()
     params = S.ms_params(cfg)
     top = AE.ms_rung(params)
     raws, info = S.transcribe_views_ms(views, params, cfg, work_dir=work / "ms" / "_worker", cache=AE._eval_cache(),
@@ -162,12 +163,12 @@ def _quantiles(v: Sequence[float]) -> dict[str, float] | None:
 def run_e6b(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
     out_dir = Path(out_dir)
     work = out_dir / "work"
-    e6 = Path(args["e6_run"]) if args.get("e6_run") else SE.latest_run("e6")
+    e6 = SE.e6_run(args)
     if e6 is None:
         from bandscribe.amt import experiments as AE
 
         raise AE.ExperimentDataMissing("E6b: E6 실행 결과가 없습니다. 먼저 bandscribe eval exp E6")
-    rms = _remixes(e6, ("A", "P"), int(args["limit"]) if args.get("limit") else None)
+    rms = _remixes(e6, ("A", "P"), int(args["limit"]) if args.get("limit") else None, cfg)
     views: list[dict[str, Any]] = []
     for r in rms:
         d = work / f"{r['song']}_{r['scenario']}"
@@ -175,7 +176,7 @@ def run_e6b(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         _mono_view(f"{r['song']}.{r['scenario']}.R", r["stem"][:, 1], r["sr"], d, views)
     if progress:
         progress(f"전사: 뷰 {len(views)}개 ({len(views) * EXCERPT_S / 60:.0f}분 오디오)")
-    raws, rung = _transcribe(views, work)
+    raws, rung = _transcribe(views, work, cfg)
     rows: list[dict] = []
     vals: dict[str, list[float]] = {"double": [], "different": []}
     detail = []
@@ -244,12 +245,12 @@ def run_e7(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], Non
 
     out_dir = Path(out_dir)
     work = out_dir / "work"
-    e6 = Path(args["e6_run"]) if args.get("e6_run") else SE.latest_run("e6")
+    e6 = SE.e6_run(args)
     if e6 is None:
         from bandscribe.amt import experiments as AE
 
         raise AE.ExperimentDataMissing("E7: E6 실행 결과가 없습니다. 먼저 bandscribe eval exp E6")
-    rms = _remixes(e6, ("A",), int(args["limit"]) if args.get("limit") else None)
+    rms = _remixes(e6, ("A",), int(args["limit"]) if args.get("limit") else None, cfg)
     # stereo excerpts for the CenterWide models (cached by pcm sha)
     from bandscribe import audio as AU
 
@@ -263,7 +264,7 @@ def run_e7(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], Non
     centre_info = {}
     centres: dict[str, dict[str, Path]] = {}
     for mid_ in ("cw_bs_v2", "cw_bs_v3beta"):
-        centres[mid_], centre_info[mid_] = C.extract(stereo_items, load_config(), mid_, X.cache_root() / "centre",
+        centres[mid_], centre_info[mid_] = C.extract(stereo_items, cfg, mid_, X.cache_root() / "centre",
                                                      progress=progress)
     import soundfile as sf
 
@@ -285,7 +286,7 @@ def run_e7(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], Non
             _mono_view(f"{base}.t{k}", y, T.SR, d, views)
     if progress:
         progress(f"전사: 뷰 {len(views)}개 ({len(views) * EXCERPT_S / 60:.0f}분 오디오, 참조는 캐시)")
-    raws, rung = _transcribe(views, work)
+    raws, rung = _transcribe(views, work, cfg)
     rows: list[dict] = []
     detail: dict[str, Any] = {}
     for r in rms:

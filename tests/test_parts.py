@@ -189,11 +189,20 @@ def test_forced_count_overrides_the_estimate():
     assert out["count"]["k"] == 1 and out["count"]["forced"] == 2 and out["count"]["chosen"] == 2
 
 
-def test_a_forced_part_that_gets_no_notes_is_dropped_with_a_reason():
-    notes, sigs = _p_song()  # the right side is the lead layer: a third (lead) part takes it whole
+def test_a_forced_third_part_never_empties_a_side():
+    notes, sigs = _p_song()  # the right side is the lead layer: it stays the right part, no third part is left
     out = D.diarize(notes, sigs, _wins(), k_force=3)
     assert out["count"]["forced"] == 3 and out["count"]["chosen"] == len(out["lines"]) == 2
-    assert any("음이 하나도 가지 않은 파트(R)" in r for r in out["count"]["reasons"])
+    assert {ln["key"] for ln in out["lines"]} == {"L", "R"}
+    assert any("따로 둘 리드 층 음이 없어" in r for r in out["count"]["reasons"])
+
+
+def test_a_forced_part_that_gets_no_notes_is_dropped_with_a_reason():
+    notes = [x for k in range(33) for x in _strum(k * 1.0, 40, d=0.9)]
+    notes.append(_n(5.5, 64, d=0.2))  # one note over a chord: the lead seed is 1 of 100, its share loses every note
+    out = D.diarize(notes, [{} for _ in notes], _wins(label="R0"), k_force=2)
+    assert out["count"]["chosen"] == len(out["lines"]) == 1
+    assert any("음이 하나도 가지 않은 파트(lead)" in r for r in out["count"]["reasons"])
 
 
 @pytest.mark.parametrize("pos, want", [(0.8, "L"), (-0.8, "R"), (0.1, "")])

@@ -128,6 +128,14 @@ names, `diarize.py` end to end, `stage.py` the `notesig` and `parts` stages, `ev
 - **`--parts` switch**: seisyun complex `--parts 3` rerun 26.5 s (parts 0.2, quant 0.7, tab 23.5 = song tuning 8.4
   + per-part tunings 13.4 + fretting 0.6, score 2.1) - far over the 2 s criterion; `--parts 3` there gives 2 parts
   (the spatial evidence wins every note; reason logged).
+- **Review** (independent agent, 2026-10-11; table in `docs/acceptance/M7a.md`): an added note's edit record stored
+  the part number of the moment, so a re-run that renumbered or recounted the parts moved it or made a one-note
+  phantom part track - records now keep the neighbour's anchor (`near`) and follow its current part; editing a run
+  from before M7a asks for a re-run; the removed `[router] split*` keys are ignored with a warning; guitar notes with
+  no part (added or moved by an edit) go to the Unassigned staff; `--parts 3` no longer empties a side that is all
+  lead layer (parts code version 3); the remix experiments read the pinned E6 run (`split_eval.E6_RUN`), fail on a
+  missing E6 mix and use the config they are given; E6b's explanation of its high "different" F1 corrected (those
+  windows have one take only; 72 % of the two-take windows fall under the veto).
 - **Not done in M7a** (see `docs/acceptance/M7a.md`): same-position parts (A, B), automatic counts over 2, unison
   (R3) and twin (R5) rules and their fixtures, R4/R6/R9 rules, calibrated posteriors, a fast part-count switch.
 

@@ -251,7 +251,7 @@ def _prepare(out_dir: Path, cfg: Any, args: Mapping[str, Any], progress: Callabl
     from bandscribe.router import tierb as T
 
     work = Path(out_dir) / "work"
-    e6 = Path(args["e6_run"]) if args.get("e6_run") else SE.latest_run("e6")
+    e6 = SE.e6_run(args)
     if e6 is None or not (e6 / "e6_windows.json").is_file():
         raise AE.ExperimentDataMissing("E25: E6 실행 결과(e6_windows.json)가 없습니다. 먼저 bandscribe eval exp E6")
     e6w = json.loads((e6 / "e6_windows.json").read_text(encoding="utf-8"))
@@ -287,9 +287,11 @@ def _prepare(out_dir: Path, cfg: Any, args: Mapping[str, Any], progress: Callabl
                 del rm
             else:
                 pl = T.plan(rel, sc, song_index=k)
-                mix_wav = e6 / "work" / f"{song}_{sc}" / "mix.wav"
-                if pl is None or not mix_wav.is_file():
+                if pl is None:
                     continue
+                mix_wav = e6 / "work" / f"{song}_{sc}" / "mix.wav"
+                if not mix_wav.is_file():  # E6 rendered every plan: a missing mix is a broken run, not a skip
+                    raise AE.ExperimentDataMissing(f"E25: E6 리믹스가 없습니다: {mix_wav}")
                 mix, _ = sf.read(str(mix_wav), dtype="float32", always_2d=True)
                 ws = [w for w in e6w if w["song"] == song and w["scenario"] == sc]
                 remixes.append({"song": song, "scenario": sc, "rel": rel, "plan": pl, "mix": mix_wav,

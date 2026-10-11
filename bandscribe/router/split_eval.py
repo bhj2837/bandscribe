@@ -47,8 +47,10 @@ log = logging.getLogger(__name__)
 
 EXCERPT_S = 32.0
 # the tierb code version E6's run planned its remixes with (relations read from that cache, review 2026-10-10 bumped
-# tierb to 2): plans of the same remixes must not change under it
+# tierb to 2): plans of the same remixes must not change under it; and that run itself, so a later E6 run (planned
+# with another tierb version) is not picked up by "the latest" (review 2026-10-11)
 E6_REL_VERSION = "1"
+E6_RUN = "20261010-180608_6bed725_exp-e6"
 ONSET_TOL_S = 0.05
 P_ARMS = ("majority", "window_pan", "note_sig|oracle", "note_sig|router")
 A_ARMS = ("majority", "merged", "note_sig|oracle", "note_sig|router")
@@ -57,6 +59,15 @@ A_ARMS = ("majority", "merged", "note_sig|oracle", "note_sig|router")
 def latest_run(exp: str = "e6") -> Path | None:
     runs = sorted(Path(paths.RUNS).glob(f"*_exp-{exp}"))
     return runs[-1] if runs else None
+
+
+def e6_run(args: Mapping[str, Any]) -> Path | None:
+    """The E6 run a remix experiment reads: ``args["e6_run"]``, else ``E6_RUN`` (whose remixes the relations of
+    ``E6_REL_VERSION`` planned), else the latest one (a fresh checkout without that run)."""
+    if args.get("e6_run"):
+        return Path(args["e6_run"])
+    pinned = Path(paths.RUNS) / E6_RUN
+    return pinned if pinned.is_dir() else latest_run("e6")
 
 
 def match(sys_notes: Sequence[Mapping[str, Any]], ref: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -209,7 +220,7 @@ def _prepare(out_dir: Path, cfg: Any, args: Mapping[str, Any], progress: Callabl
     from bandscribe.amt.reftx import write_mono_f32
 
     work = Path(out_dir) / "work"
-    e6 = Path(args["e6_run"]) if args.get("e6_run") else latest_run("e6")
+    e6 = e6_run(args)
     if e6 is None or not (e6 / "e6_windows.json").is_file():
         raise AE.ExperimentDataMissing("E22: E6 실행 결과(e6_windows.json)가 없습니다. 먼저 bandscribe eval exp E6")
     wins = json.loads((e6 / "e6_windows.json").read_text(encoding="utf-8"))

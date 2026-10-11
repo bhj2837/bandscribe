@@ -123,10 +123,10 @@ def run_parts(ctx: Any) -> None:
         log.info("parts: %s", r)
 
 
-# parts 2: a reason when a forced part gets no notes
+# parts 2: a reason when a forced part gets no notes; 3: a forced third part never empties a side (review)
 STAGES: dict[str, dict] = {
     "notesig": {"run": run_notesig, "code_version": "1", "params": notesig_params, "device": "cpu",
                 "models": lambda cfg: {}},
-    "parts": {"run": run_parts, "code_version": "2", "params": parts_params, "device": "cpu",
+    "parts": {"run": run_parts, "code_version": "3", "params": parts_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

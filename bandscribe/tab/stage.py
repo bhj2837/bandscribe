@@ -93,10 +93,10 @@ def quant_params(cfg: Any) -> dict[str, Any]:
 
 def quant_tracks(dep_dirs: Mapping[str, Path]) -> dict[str, list[dict[str, Any]]]:
     """{track id: notes} the quantiser reads: guitar classes of the guitar pass (notes stage, without the notes over
-    a silent stem; from the parts stage when there is one, M7a: the same notes with their ``line``; M6b's split
-    stage for an older run) and the bass stage's cleaned bass (M5; without a ``bass`` dep - a run from before M5 -
-    the gated pass-1 bass of the notes stage)."""
-    lines_dir = dep_dirs.get("parts") or dep_dirs.get("split")
+    a silent stem; from the parts stage when there is one, M7a: the same notes with their ``line``) and the bass
+    stage's cleaned bass (M5; without a ``bass`` dep - a run from before M5 - the gated pass-1 bass of the notes
+    stage)."""
+    lines_dir = dep_dirs.get("parts")
     if lines_dir is not None and (Path(lines_dir) / LINES_JSON).is_file():
         gtr = atomic.read_json(Path(lines_dir) / LINES_JSON).get("notes") or []
     else:
@@ -216,19 +216,27 @@ def slide_links(events: list[F.Event], notes: list[dict[str, Any]]) -> set[int]:
 
 
 def track_notes(q: Mapping[str, Any], tid: str) -> list[dict[str, Any]]:
-    """Notes of a track of ``q`` (quant.json or an edited quantisation): a derived track (``DERIVED``: a part, or the
-    Unassigned staff) is the merged guitar's notes on that line (a ``shared`` note is in every part), each a copy
-    carrying ``uid`` = ``guitar_all:<index>`` and ``src_k`` = that index."""
+    """Notes of a track of ``q`` (quant.json or an edited quantisation): a derived track (``DERIVED``) is the merged
+    guitar's notes of that part - a ``shared`` note is in every part the song has - or, for the Unassigned staff,
+    those in no part (``u``, or a note an edit added or moved to the guitar without one); each a copy carrying
+    ``uid`` = ``guitar_all:<index>`` and ``src_k`` = that index. A song without parts has no derived tracks."""
     if tid not in DERIVED:
         return Q.notes_of(q, tid)
+    g = Q.notes_of(q, GUITAR)
+    present = {n.get("line") for n in g} & set(PART_LINES)
+    if not present:
+        return []
     line = DERIVED[tid]
-    return [{**n, "uid": f"{GUITAR}:{k}", "src_k": k} for k, n in enumerate(Q.notes_of(q, GUITAR))
-            if n.get("line") == line or (n.get("shared") and tid != UNASSIGNED)]
+    if tid == UNASSIGNED:
+        keep = [n.get("line") not in PART_LINES and not n.get("shared") for n in g]
+    else:
+        keep = [n.get("line") == line or bool(n.get("shared") and line in present) for n in g]
+    return [{**n, "uid": f"{GUITAR}:{k}", "src_k": k} for k, (n, ok) in enumerate(zip(g, keep)) if ok]
 
 
 def split_on(q: Mapping[str, Any]) -> bool:
     """Whether the merged guitar's notes carry their parts (M7a)."""
-    return any(n.get("line") in DERIVED.values() for n in Q.notes_of(q, GUITAR))
+    return any(n.get("line") in PART_LINES for n in Q.notes_of(q, GUITAR))
 
 
 def _staff(t: Mapping[str, Any]) -> dict[str, Any]:
