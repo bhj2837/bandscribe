@@ -34,6 +34,7 @@ from bandscribe.router import tierb as T
 log = logging.getLogger(__name__)
 
 EXCERPT_S = SE.EXCERPT_S
+E6_REL_VERSION = SE.E6_REL_VERSION
 ONSET_TOL_S = 0.05
 MIN_NOTES = 4
 LEAD_SEMITONES = 1
@@ -100,7 +101,7 @@ def _remixes(e6: Path, scenarios: Sequence[str], limit: int | None = None) -> li
     sep_rung = AE.sep_top_rung(load_config())
     out = []
     for song, sc in keys:
-        rel = T.relations(tracks[song], root, rel_dir)
+        rel = T.relations(tracks[song], root, rel_dir, code_version=E6_REL_VERSION)
         pl = T.plan(rel, sc, song_index=order.index(song))
         mix_wav = e6 / "work" / f"{song}_{sc}" / "mix.wav"
         mix, _ = sf.read(str(mix_wav), dtype="float32", always_2d=True)

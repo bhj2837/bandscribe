@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import librosa
 import numpy as np
 import pytest
 from scipy import signal
 
+from bandscribe import atomic
 from bandscribe.eval import remix as R
 from bandscribe.router import route as RT
 from bandscribe.router import tierb as T
@@ -180,6 +182,18 @@ def test_takes_from_pairs_unions_same_pairs_in_file_order():
     pairs = [{"a": "p1", "b": "p2", "relation": "same"}, {"a": "p2", "b": "p3", "relation": "double"},
              {"a": "p3", "b": "p4", "relation": "same"}, {"a": "p1", "b": "p5", "relation": "different"}]
     assert T.takes_from_pairs(["p1", "p2", "p3", "p4", "p5"], pairs) == [["p1", "p2"], ["p3", "p4"], ["p5"]]
+
+
+def test_relations_of_an_older_code_version_are_read_from_its_cache_only(tmp_path, monkeypatch):
+    (tmp_path / "g1.wav").write_bytes(b"x" * 10)
+    part = SimpleNamespace(id="p1", audio="g1.wav")
+    monkeypatch.setattr(T, "guitar_parts", lambda track: [part])
+    track = SimpleNamespace(track_id="song")
+    assert T._rel_key(track, [part], tmp_path, "1") != T._rel_key(track, [part], tmp_path)
+    with pytest.raises(FileNotFoundError):
+        T.relations(track, tmp_path, tmp_path, code_version="1")  # never recomputed with the current code
+    atomic.write_json(tmp_path / f"song_{T._rel_key(track, [part], tmp_path, '1')}.json", {"takes": [], "v": "1"})
+    assert T.relations(track, tmp_path, tmp_path, code_version="1") == {"takes": [], "v": "1"}
 
 
 def _rel(n_s=200):

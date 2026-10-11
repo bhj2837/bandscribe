@@ -25,7 +25,7 @@ fixes).
 | M3 first tabs | ✅ quantisation, A4, tuning, Viterbi fretting (E12 → E12b), alphaTex/GP5/MIDI export, synced viewer; acceptance `docs/acceptance/M3.md`: **9 pass / 1 fail / 3 blocked** (tag `m3`) |
 | M4a editing | ✅ keyboard edits in `bandscribe view`, `edits.jsonl`, replay + re-export, re-applied after `run`; acceptance `docs/acceptance/M4a.md`: **4 pass / 1 blocked** (human baseline) (tag `m4a`) |
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
-| M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **5 pass / 3 fail / 2 blocked** (tag `m6`) |
+| M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`).
 
@@ -132,6 +132,12 @@ Tests: `tests/test_router.py` (42), `tests/test_split_tracks.py` (8).
   mapping (code version 2). The octave-overlap gap of the shared-bin rule is documented, not changed (the split was
   validated with it). Exports of the five songs byte-identical before/after; the parts now report the notes their tab
   drops as unplayable (seisyun complex 35 / 9, 青と夏 168 / 3, AZ 48 / 66).
+- **Follow-up 2026-10-11** (user: "전부 진행시켜"): pushed `m6`; fetched the CenterWide BS-RoFormer v2 / v3beta centre
+  models (`bandscribe/router/centre.py`, model card now CC BY-NC-SA 4.0, personal use; reserved 570-582 MB on the SW
+  worker). **E6b** (R1 self-agreement, real doubles' L/R channel transcriptions): veto 0.61, variation 0.61 / 0.80
+  (16 windows, provisional). **E7** (centre extractor + DESIGN's A rule "lead = centre notes the side view does not
+  play"): held, every centre view below the merged baseline (best CenterWide v3beta -13.8 [-29.9, +0.5] lead F1
+  points). Acceptance now 7 pass / 2 fail / 1 blocked.
 - **Not done in M6** (see `docs/acceptance/M6.md`): views S5 and the centre extractor (E7 needs the CenterWide
   download, the user's call), S7 fusion + Basic Pitch voting (E19), R1 self-agreement calibration (E6b), E8, E20
   (xlance download), the A split (held by E22b), unison (shared) notes in P (with the sign rule a unison goes to

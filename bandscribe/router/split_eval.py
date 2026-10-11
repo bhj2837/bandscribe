@@ -46,6 +46,9 @@ from bandscribe.router.thresholds import THRESHOLDS
 log = logging.getLogger(__name__)
 
 EXCERPT_S = 32.0
+# the tierb code version E6's run planned its remixes with (relations read from that cache, review 2026-10-10 bumped
+# tierb to 2): plans of the same remixes must not change under it
+E6_REL_VERSION = "1"
 ONSET_TOL_S = 0.05
 P_ARMS = ("majority", "window_pan", "note_sig|oracle", "note_sig|router")
 A_ARMS = ("majority", "merged", "note_sig|oracle", "note_sig|router")
@@ -222,7 +225,7 @@ def _prepare(out_dir: Path, cfg: Any, args: Mapping[str, Any], progress: Callabl
     gmask = I.mask_guitar_only()
     plans, views = {}, []
     for song, sc in remixes:
-        rel = T.relations(tracks[song], root, rel_dir)
+        rel = T.relations(tracks[song], root, rel_dir, code_version=E6_REL_VERSION)
         pl = T.plan(rel, sc, song_index=order.index(song))
         mix_wav = e6 / "work" / f"{song}_{sc}" / "mix.wav"
         mix, _ = sf.read(str(mix_wav), dtype="float32", always_2d=True)

@@ -166,21 +166,29 @@ def _activity_seconds(act: np.ndarray, n_s: int) -> np.ndarray:
     return out
 
 
-def _rel_key(track: Any, parts: Sequence[Any], root: Path) -> str:
+def _rel_key(track: Any, parts: Sequence[Any], root: Path, code_version: str = CODE_VERSION) -> str:
     sig = [(p.id, p.audio, (Path(root) / p.audio).stat().st_size) for p in parts]
-    blob = json.dumps({"code": CODE_VERSION, "track": track.track_id, "parts": sig,
+    blob = json.dumps({"code": code_version, "track": track.track_id, "parts": sig,
                        "consts": [SAME_TAKE_R, DOUBLE_R_MIN, DOUBLE_CHROMA, MIN_OVERLAP_S, ACT_DB, MAX_LAG_MS]},
                       sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
-def relations(track: Any, root: Path, cache_dir: Path | None = None) -> dict[str, Any]:
-    """Takes, doubles and different-part pairs of a Tier B track (module doc), cached as JSON under ``cache_dir``."""
+def relations(track: Any, root: Path, cache_dir: Path | None = None, *, code_version: str | None = None
+              ) -> dict[str, Any]:
+    """Takes, doubles and different-part pairs of a Tier B track (module doc), cached as JSON under ``cache_dir``.
+    ``code_version`` (an older one) reads the cache an earlier run wrote, so an experiment built on that run's
+    remixes plans them the same way; it is never recomputed with the current code (FileNotFoundError)."""
     import librosa
     import soundfile as sf
 
     parts = guitar_parts(track)
     cache = None
+    if code_version is not None and code_version != CODE_VERSION:
+        old = Path(cache_dir or ".") / f"{track.track_id}_{_rel_key(track, parts, root, code_version)}.json"
+        if not old.is_file():
+            raise FileNotFoundError(f"{track.track_id}: relations of tierb code {code_version} not cached ({old})")
+        return atomic.read_json(old)
     if cache_dir is not None:
         cache = Path(cache_dir) / f"{track.track_id}_{_rel_key(track, parts, root)}.json"
         if cache.is_file():
