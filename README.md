@@ -10,7 +10,8 @@
 > count-in), with a constant-Q piano roll, a part timeline and a review queue for low-confidence notes. Parts are told apart when they sit at different stereo positions, note by note from
 > each note's own inter-channel level difference (78 % of the notes to the right guitar on a real song's Guitar Pro
 > tabs); a single guitar stays one part (12/12 held-out remixes). Guitars at the same position (a wide double with a
-> centred part, two centred parts) still come out as one part; identity tracking and that split come in M7b–M8.
+> centred part, two centred parts) still come out as one part: M7b's identity tracker showed that the bottleneck there is
+> counting the parts, not tracking them (forced to two parts, some centred pairs already split).
 > Engineering highlights: a one-model-at-a-time GPU worker inside Windows Job Objects, a content-addressed stage
 > cache, pre-registered experiments judged with song-block bootstrap CIs (the fretting model was chosen that way:
 > 74.6 % string/fret agreement per note on GuitarSet vs 55.9 % for the open-source tuttut), and a sampled presence
@@ -24,7 +25,9 @@
 Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. 뷰어에서 원곡·스템·탭 신스를 같이 틀어
 비교하고(A/B), 느리게(음높이 그대로)·구간 반복으로 연습하며, 피아노롤과 검토 큐로 고칠 곳을 찾는다. 파트 수는 곡마다 센다: 기타가 **좌우에 따로**
 있으면 음마다 좌우 에너지 차로 파트를 가르고(M6–M7a), 기타가 한 대면 한 파트로 둔다. 같은 위치에 겹친 기타(넓은 더블 +
-가운데 파트, 가운데 둘)는 아직 한 파트로 나오고, 곡 전체 정체성 추적은 M7b 다.
+가운데 파트, 가운데 둘)는 아직 한 파트로 나온다. M7b 에서 정체성 추적기를 만들어 곡 전체로 재 보니, 병목은 추적이 아니라
+파트 수 세기였다(두 파트로 강제하면 이미 가르는 곡이 있다). 그래서 추적기는 기본값으로 끄고, 1절에서 고친 파트가 2절로 퍼지는
+편집(Shift+1–4)만 쓴다.
 
 - 설계서: [`docs/DESIGN.md`](docs/DESIGN.md) · 구현 명세: [`docs/M0_SPEC.md`](docs/M0_SPEC.md), [`docs/M1_M2_SPEC.md`](docs/M1_M2_SPEC.md)
 - 실험 등록부: [`docs/decisions.md`](docs/decisions.md) · 현재 상태와 측정 기록: [`docs/PROGRESS.md`](docs/PROGRESS.md)
@@ -82,6 +85,7 @@ Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어
 | Delete | 지우기 |
 | S (Shift+S) | 같은 음을 다른 줄에서(탭 트랙). 고른 자리는 고정되고, 이웃 음의 운지가 그에 맞춰 바뀐다 |
 | 1 / 2 | 기타 / 베이스 트랙으로 옮기기 |
+| Shift + 1–4 / 0 | 기타 음을 그 파트로 / 미배정으로(M7b: 반복 구간의 같은 음도 따라감) |
 | A | 재생 위치에 음 넣기(고른 음 높이, 16분음표) |
 | [ / ] | 이 마디의 첫 박을 한 박 앞 / 뒤로(뒤 마디도 함께) |
 | D | 지금이 마디 첫 박(재생 중에는 모았다가 멈추면 적용) |
@@ -100,8 +104,8 @@ Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어
 - `bandscribe gt ...`: Guitar Pro 정답 가져오기(반복·다른 엔딩 펼침), 참조 렌더, DTW 정렬, 다운비트 탭 보정.
 - `bandscribe data ...`: 평가용 데이터셋(Cambridge-MT, EGDB, GuitarSet, IDMT-SMT-Bass, FiloBass, MedleyDB) 받기·검증·로더.
 
-**아직 없는 것:** 같은 위치에 겹친 기타 나누기(넓은 더블 + 가운데 파트, 가운데 둘, 좁은 믹스: M7b–M8), 곡 전체 정체성
-추적(M7b), 3 파트 이상 자동 세기(지금은 `--parts` 로만), 뷰어에서 파트 바꾸기·파트 수 전환(M7c; 지금은 파트 트랙의 음을 고르면
+**아직 없는 것:** 같은 위치에 겹친 기타 나누기(넓은 더블 + 가운데 파트, 가운데 둘, 좁은 믹스: 파트 수 세기부터, M8), 음 단위
+파트 평활과 사후확률 보정(M10), 3 파트 이상 자동 세기(지금은 `--parts` 로만), 뷰어에서 파트 바꾸기·파트 수 전환(M7c; 지금은 파트 트랙의 음을 고르면
 합친 기타의 같은 음이 골라지고 고친 결과는 파트에도 반영되며, 새로 넣은 음은 옆에 고른 음의 파트로 간다), 파트 띠에서 경계 끌기(M7c),
 화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
 
@@ -122,7 +126,7 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 | **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리**(좌우 다른 파트) | **완료, 알려진 한계 있음** (기준 10개 중 통과 7 · 미달 2 · 보류 1; [인수 문서](docs/acceptance/M6.md)) |
 | **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | **완료, 알려진 한계 있음** (기준 7개 중 통과 3 · 미달 4; [인수 문서](docs/acceptance/M7a.md)) |
 | **M4b** | A/B 믹서(원곡·스템·탭 신스 동기 재생), 감속·구간 반복·카운트인, CQT 피아노롤, 파트 띠, 검토 큐 | **완료** (기준 3개 모두 통과, 태그 `m4b`; [인수 문서](docs/acceptance/M4b.md)) |
-| **M7b** | 정체성 추적: 트랙렛, 재식별, HMM 평활 | 계획 (핵심) |
+| **M7b** | 정체성 추적(창 단위 재식별·평활·반복 구간), 반복 링크와 1절 → 2절로 퍼지는 파트 편집, 곡 전체 평가 | **완료, 알려진 한계 있음** (기준 5개 중 통과 3 · 미달 1 · 해당 없음 1; 추적기는 바꾸는 음이 없어 기본값 끔; [인수 문서](docs/acceptance/M7b.md)) |
 | M7c | Role/Player 뷰(연주자 수에 맞춘 트랙 배치) | 계획 |
 | M8 | 좁은 믹스(모노·같은 위치) 경로, 반복 차감 | 계획 |
 | M9 | 주법, 코드 차트, GP7 백킹 | 계획 |

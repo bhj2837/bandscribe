@@ -68,10 +68,14 @@ def bar_windows(grid: Mapping[str, Any], sections: list[Mapping[str, Any]], dur:
     out = []
     for s in sections or [{"id": "S1", "start_bar": bars[0]["bar"] if bars else 0, "end_bar": 10**9}]:
         inside = [b for b in bars if int(s["start_bar"]) <= int(b["bar"]) < int(s["end_bar"])]
-        for k in range(0, len(inside), WINDOW_BARS):
-            grp = inside[k:k + WINDOW_BARS]
+        groups = [inside[k:k + WINDOW_BARS] for k in range(0, len(inside), WINDOW_BARS)]
+        if len(groups) > 1 and len(groups[-1]) == 1:  # as the router: a one-bar leftover joins the window before
+            last = groups.pop()
+            groups[-1] = groups[-1] + last
+        for grp in groups:
             out.append({"start_s": float(grp[0]["start_s"]), "end_s": min(dur, float(grp[-1]["end_s"])),
-                        "section": str(s["id"]), "start_bar": int(grp[0]["bar"])})
+                        "section": str(s["id"]), "start_bar": int(grp[0]["bar"]),
+                        "end_bar": int(grp[-1]["bar"]) + 1})
     return out
 
 

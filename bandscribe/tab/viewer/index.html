@@ -181,7 +181,8 @@ const fmt1 = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${(
 const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const pitchName = (p) => `${NAMES[p % 12]}${Math.floor(p / 12) - 1}`;
 const TRACK_KO = { guitar_all: "기타", bass: "베이스", bass_raw: "베이스" };
-const OP_KO = { pitch: "음높이", delete: "지우기", assign: "트랙 옮기기", pin: "줄 고정", barline: "마디선", add: "음 넣기" };
+const OP_KO = { pitch: "음높이", delete: "지우기", assign: "트랙 옮기기", pin: "줄 고정", barline: "마디선", add: "음 넣기",
+                part: "파트" };
 
 // The recording is the time axis: the engine (WebAudio) plays the recordings and the tab synth in step, and alphaTab
 // follows it through the score's \sync points (EnabledExternalMedia).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from bandscribe.parts import idmetrics as IM
 from bandscribe.parts import track as TR
@@ -110,3 +111,109 @@ def test_a_part_edit_in_verse_1_reaches_verse_2(tmp_path):
         assert line_of[i] == "2" and line_of[j] == "u"
     finally:
         s2.close()
+
+
+def _line_by_i(s):
+    return {int(n["i"]): n["line"] for n in Q.notes_of(s.state.quant, "guitar_all")
+            if n.get("from_track", "guitar_all") == "guitar_all" and not n.get("added")}
+
+
+def _uid_of(s, i):
+    return next(u for u, n in s.map["notes"].items() if n["track"] == "guitar_all"
+                and (lambda q: q.get("i") == i and q.get("from_track", "guitar_all") == "guitar_all")(
+                    Q.notes_of(s.state.quant, "guitar_all")[int(u.split(":")[1])]))
+
+
+def _pair(tmp_path):
+    job0, _ = make_parts_job(tmp_path / "a")
+    g0 = Q.notes_of(E.apply(E.load_base(job0), []).quant, "guitar_all")
+    return next((a["i"], b["i"]) for a in g0 for b in g0
+                if a["i"] < b["i"] and a["pitch"] == b["pitch"] and a["line"] == b["line"] == "1")
+
+
+def test_a_bass_note_moved_to_the_guitar_is_not_a_repeat_target(tmp_path):
+    """Review 2026-10-17: a note assigned in from the bass keeps the bass list's index; the spread must not take it
+    for the guitar note with that index."""
+    i, j = _pair(tmp_path)
+    job, _d = make_parts_job(tmp_path / "b", rep={i: [j], j: [i]})
+    s = E.Session(job)
+    try:
+        bass = Q.notes_of(s.state.quant, "bass")
+        b_uid = next(u for u, n in s.map["notes"].items() if n["track"] == "bass"
+                     and Q.notes_of(s.state.quant, "bass")[int(u.split(":")[1])]["i"] == j) \
+            if any(n["i"] == j for n in bass) else None
+        if b_uid is None:  # the fixture's bass is shorter: any bass note, its index made j
+            pytest.skip("no bass note with that index")
+        s.command({"cmd": "assign", "uid": b_uid, "track": "guitar_all"})
+        s.command({"cmd": "part", "uid": _uid_of(s, i), "to": "2"})
+        assert _line_by_i(s)[j] == "2"  # the real guitar repeat followed
+        moved = [n for n in Q.notes_of(s.state.quant, "guitar_all") if n.get("from_track") == "bass"]
+        assert moved and moved[0].get("line") != "2"
+    finally:
+        s.close()
+
+
+def test_a_part_edit_keeps_the_repeats_pin_and_fails_softly_on_a_missing_part(tmp_path):
+    i, j = _pair(tmp_path)
+    job, _d = make_parts_job(tmp_path / "b", rep={i: [j], j: [i]})
+    E.append(job, {"op": "pin", "note": E.anchor("guitar_all", next(
+        n for n in Q.notes_of(E.apply(E.load_base(job), []).quant, "guitar_all") if n["i"] == j)),
+        "string": 2, "fret": 5})
+    s = E.Session(job)
+    try:
+        s.command({"cmd": "part", "uid": _uid_of(s, i), "to": "2"})
+        tj = next(n for n in Q.notes_of(s.state.quant, "guitar_all") if n["i"] == j)
+        assert tj["line"] == "2" and tj.get("pin") == [2, 5]  # spread, the user's pin kept
+    finally:
+        s.close()
+    # a log that names a part this run does not have (fewer parts after a re-run): reported, not a phantom track
+    E.append(job, {"op": "part", "note": E.anchor("guitar_all", next(
+        n for n in Q.notes_of(E.apply(E.load_base(job), []).quant, "guitar_all") if n["i"] == i)), "to": "3"})
+    s = E.Session(job)
+    try:
+        assert any(u.get("op") == "part" for u in s.state.report["unmatched"])
+        assert "gtr_3" not in s.state.tab["tracks"] or not s.state.tab["tracks"]["gtr_3"].get("notes")
+        assert [x["why"] for x in s.info()["not_applied"] if x["op"] == "part"] == ["unmatched"]
+    finally:
+        s.close()
+
+
+def test_repeat_pairs_pull_a_window_to_its_repeat():
+    """ICM over repeat pairs (w_rep): with the chain links switched off, a window v0 relabelled follows the window
+    the repeat map pairs it with - and stays as v0 left it without the repeat term."""
+    notes, feats, sigs, wins, post, line0, _truth = _scene(swap_window=3, p_right=0.55, n_win=4)
+    for k, w in enumerate(wins):
+        w["start_bar"], w["end_bar"] = 4 * k, 4 * k + 4
+    repeat = {"bars": [{"bar": b, "matches": [{"bar": b + 8, "score": 0.9}]} for b in range(4, 8)]
+              + [{"bar": b, "matches": [{"bar": b - 8, "score": 0.9}]} for b in range(12, 16)]}
+    alone = TR.track(notes, feats, sigs, wins, post, line0, repeat=repeat, params={"w_link": 0.0, "w_rep": 0.0})
+    assert alone["pairs"] == [(1, 3)] and alone["changed"] == 0
+    out = TR.track(notes, feats, sigs, wins, post, line0, repeat=repeat, params={"w_link": 0.0, "w_rep": 5.0})
+    # the repeat term only asks the pair to agree (v0 labelled them the other way round): one of the two turns
+    assert out["perms"][1] != out["perms"][3] and out["changed"] == 16
+    linked = TR.track(notes, feats, sigs, wins, post, line0, repeat=repeat, params={"w_rep": 5.0})
+    assert linked["perms"][:3] == [[1, 2]] * 3 and linked["perms"][3] == [2, 1]  # neighbours anchor window 1
+
+
+def test_the_parts_stage_runs_the_tracker_when_asked():
+    from bandscribe.parts import stage as PS
+
+    notes, _feats, sigs, wins, _post, _line0, _truth = _scene(p_right=0.55)
+    sigs = [{"ild_db": 8.0 if n["pitch"] >= 60 else -8.0} for n in notes]  # two sides: v0 finds two parts
+    for w in wins:
+        w["label"] = "R3"
+    bars = [{"bar": k, "start_s": 4.0 * k, "end_s": 4.0 * k + 4.0} for k in range(5)]
+    for p in ({"k": 2, "count": {}, "tau": 0.4, "track": False}, {"k": 2, "count": {}, "tau": 0.4, "track": True}):
+        body = PS.parts_song(notes, sigs, wins, bars, p, repeat=None)
+        assert len(body["notes"]) == len(notes) and all("rep" in n for n in body["notes"])
+        assert ("track" in body["count"]) == p["track"]
+
+
+def test_beat_time_matches_beat_to_time_at_the_edges():
+    from bandscribe.schema.grid import TempoMap
+
+    from test_tab_quantize import beat_times, grid_doc
+
+    tm = TempoMap.from_dict(grid_doc(beat_times(12, warp=True)))
+    for b in (-3.5, -0.0, 0.0, 0.25, 5.5, 10.999, 11.0, 11.5, 40.0):
+        assert tm.beat_time(b) == float(tm.beat_to_time(b))

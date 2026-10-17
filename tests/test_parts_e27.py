@@ -54,3 +54,11 @@ def test_decide_follows_the_registered_rules():
 
 def test_grid_is_conservative_first():
     assert E27.GRID[0] == {"p_floor": 0.0, "w_link": 1.0, "boundary": 0.5, "w_rep": 0.0} and len(E27.GRID) == 24
+
+
+def test_bar_windows_merge_a_one_bar_leftover_like_the_router():
+    grid = {"bars": [{"bar": b, "start_s": 2.0 * b, "end_s": 2.0 * b + 2.0} for b in range(10)]}
+    w = ET.bar_windows(grid, [{"id": "S1", "start_bar": 0, "end_bar": 5}, {"id": "S2", "start_bar": 5, "end_bar": 10}],
+                       20.0)
+    # S1 = 5 bars: 4 + a 1-bar leftover -> one window of 5; S2 = 5 bars likewise
+    assert [(x["section"], x["start_bar"], x["end_bar"]) for x in w] == [("S1", 0, 5), ("S2", 5, 10)]

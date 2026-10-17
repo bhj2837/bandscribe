@@ -436,20 +436,29 @@ def apply_note_edit(notes: dict[str, list[dict[str, Any]]], e: Mapping[str, Any]
         to = str(e["to"])
         notes[tid].pop(k)
         n.pop("pin", None)
+        n.setdefault("from_track", tid)  # its "i" indexes that track's list (repeat links follow guitar indices)
         n["instrument"] = _instrument_of(to, notes.get(to) or [])
         notes.setdefault(to, []).append(n)
     elif op == "pin":
         n["pin"] = [int(e["string"]), int(e["fret"])]
     elif op == "part":
-        _set_part(n, str(e["to"]))
-        report.setdefault("_part", []).append((n, str(e["to"])))
+        to = str(e["to"])
+        present = {x.get("line") for x in notes.get("guitar_all") or []} & set(T.PART_LINES)
+        if tid != "guitar_all" or (to != UNASSIGNED_LINE and to not in present):
+            # a re-run with fewer parts (or a hand-edited log): never a part track the Part view does not name
+            report["unmatched"].append({"id": e.get("id"), "op": op, "note": dict(e["note"]),
+                                        "why": f"part {to} is not in this run"})
+            return
+        _set_part(n, to)
+        report.setdefault("_part", []).append((n, to))
     report["applied"] += 1
 
 
-def _set_part(n: dict[str, Any], to: str) -> None:
+def _set_part(n: dict[str, Any], to: str, keep_pin: bool = False) -> None:
     n["line"] = to
     n["shared"] = False
-    n.pop("pin", None)  # a pinned position belongs to the part track it was chosen on
+    if not keep_pin:
+        n.pop("pin", None)  # a pinned position belongs to the part track it was chosen on
 
 
 def propagate_parts(notes: Mapping[str, list[dict[str, Any]]], report: dict[str, Any]) -> None:
@@ -460,13 +469,14 @@ def propagate_parts(notes: Mapping[str, list[dict[str, Any]]], report: dict[str,
     if not done:
         return
     explicit = {id(n) for n, _to in done}
-    by_i = {int(n["i"]): n for n in notes.get("guitar_all") or [] if n.get("i") is not None and not n.get("added")}
+    by_i = {int(n["i"]): n for n in notes.get("guitar_all") or []
+            if n.get("i") is not None and not n.get("added") and n.get("from_track", "guitar_all") == "guitar_all"}
     for n, to in done:
         for r in n.get("rep") or []:
             t = by_i.get(int(r))
             if t is None or id(t) in explicit or t.get("line") == to:
                 continue
-            _set_part(t, to)
+            _set_part(t, to, keep_pin=True)  # a pin the user set on the repeat stays
             report["propagated"] += 1
 
 

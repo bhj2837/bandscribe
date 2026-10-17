@@ -153,6 +153,9 @@ def track(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]]
         bd = float(p["boundary"]) if wins[a].get("section") != wins[b].get("section") else 1.0
         prev_links[b] = (a, [(x, y, s * bd) for x, y, s in links(lay[a], lay[b], float(p["link_max"]))])
 
+    def fixed(pi: tuple[int, ...]) -> int:  # ties: the permutation that moves the fewest Lines
+        return sum(1 for i, x in enumerate(pi) if i == x)
+
     def trans(lk: Sequence[tuple[int, int, float]], pa: tuple[int, ...], pb: tuple[int, ...]) -> float:
         return float(p["w_link"]) * sum(s for x, y, s in lk if pa[x] != pb[y])
 
@@ -165,11 +168,11 @@ def track(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]]
             _wa, lk = prev_links[wb]
             new, bk = {}, {}
             for pb in perms:
-                best = max(perms, key=lambda pa: (score[pa] - trans(lk, pa, pb), pa == tuple(range(k))))
+                best = max(perms, key=lambda pa: (score[pa] - trans(lk, pa, pb), fixed(pa)))
                 new[pb] = score[best] - trans(lk, best, pb) + emit(wb, pb)
                 bk[pb] = best
             score, back = new, back + [bk]
-        last = max(perms, key=lambda pi: (score[pi], pi == tuple(range(k))))
+        last = max(perms, key=lambda pi: (score[pi], fixed(pi)))
         path = [last]
         for bk in reversed(back):
             path.append(bk[path[-1]])
@@ -195,7 +198,7 @@ def track(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]]
                     elif b == wi:
                         s -= float(p["w_rep"]) * sum(st for x, y, st in lk if choice[a][x] != pi[y])
                 return s
-            choice[wi] = max(perms, key=lambda pi: (total(pi), pi == choice[wi]))
+            choice[wi] = max(perms, key=lambda pi: (total(pi), pi == choice[wi], fixed(pi)))
     changed = 0
     for i, (w, l) in enumerate(zip(of, line0)):
         if w is None or not l or w not in choice:

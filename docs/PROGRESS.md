@@ -1,6 +1,10 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-17 (**M4b done**: the viewer as a practice tool - the recordings and a tab synth per score
+Last updated: 2026-10-17 (**M7b done with a known gap**: an identity tracker (off by default: on whole-song
+Tier B remixes its dev choice changed no note - M7a's errors are single notes, not swapped windows), repeat links and a `part`
+edit that spreads from verse 1 to verse 2, whole-song evaluation data - see "M7b" below and
+`docs/acceptance/M7b.md`; before it the `--parts` switch 26.5 -> 4.0 s (a `tuning` stage). Earlier the same day:
+**M4b done**: the viewer as a practice tool - the recordings and a tab synth per score
 track played in step (A/B, mixer, 50-100 % slowdown at the same pitch, loop, count-in), a CQT piano roll, the part
 band and a review queue - see "M4b" below and `docs/acceptance/M4b.md`; 怪獣の花唄's forced one part removed.
 2026-10-11: **M7a done with known gaps**: the Part view - the guitar part count per song, each note's
@@ -33,9 +37,45 @@ fixes).
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
 | M4b A/B mixer + review tools | ✅ WebAudio engine in `bandscribe view` (recordings + per-track tab synth via alphaTab audio export, A/B hold key, mixer, sound position, 50-100 % slowdown with an own pitch shifter, loop, count-in), CQT piano roll with unkept candidates, part band, review queue; E26 (edit anchors after upstream changes) 0.94; acceptance `docs/acceptance/M4b.md`: **3 pass** |
+| M7b identity tracking | ✅ `parts/track.py` (window layers, links, Viterbi over relabellings, repeat-map window pairs; off by default), repeat links `rep` + `part` edit (Shift+1-4/0, spreads to repeats), whole-song Tier B data (`parts/eval_track.py`, 24 remixes), E27 rejected (no note changed); acceptance `docs/acceptance/M7b.md`: **3 pass / 1 fail / 1 n/a** |
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
-All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`).
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## M7b (2026-10-17): identity tracking
+
+Code: `bandscribe/parts/track.py` (tracker, `repeat_pairs`, `repeat_links`), `bandscribe/parts/idmetrics.py`
+(identity switches, block DER), `bandscribe/parts/eval_track.py` (whole-song E27 data), `bandscribe/parts/eval_e27.py`
+(E27), `diarize(..., tracking=, repeat=)`, the `parts` stage (deps + `sections`; notes get `rep`; code 4),
+`[parts] track` (false), the `part` edit in `bandscribe/tab/edits.py` and the viewer (Shift+1-4, Shift+0). Tests:
+`tests/test_parts_track.py`, `tests/test_parts_e27.py`.
+
+- **Tracker** (DESIGN 4.6, simplified): in each router window the notes v0 gave a Line form a layer with a signature
+  (median pitch, chord / lead shares, density, R3 ILD, classes); layers of neighbouring windows are linked by a
+  Hungarian match on signature distance; a Viterbi pass picks each window's relabelling of the Lines (emission = v0's
+  log posteriors, transition = links that end in different Lines, cheaper at section boundaries); windows the repeat
+  map pairs are pulled together (ICM). Off by default.
+- **Repeat links and the `part` edit**: the parts stage maps each guitar note onto the repeat map's best matching bar
+  (same place in the bar, same pitch, 60 ms) - seisyun complex 1,204 of 4,759 notes linked; a `part` edit sets a
+  note's part (or Unassigned) and, on replay, the linked notes follow unless an edit of their own set them.
+- **E27** (`20261017-160506_91ed416_exp-e27`, registered first; amended before scoring: repeat pairing by matched
+  bars, a posterior floor in the grid): 9 Cambridge-MT songs x P/A1/B2 over the whole song = 24 remixes, separated,
+  beat-tracked and transcribed in 1 h 52 min of GPU, one song at a time. The dev choice (`w_link` 1) changed no
+  note anywhere (settings with `w_link` >= 2 relabelled 19 notes of jetb P, switches unchanged); test median identity
+  switches v0 0 = tracker 0 -> FAIL (rule 1), macro difference 0.0 -> pass
+  (rule 2); `[parts] track` stays off. Why: v0 counts one part on all 15 A1/B2 remixes (and jokers P), so nothing can
+  switch; on the P remixes it does split, the switches are many (dev 27/20/18/10/4, test 23/2/0) but they are single
+  notes whose ILD reads the wrong way inside R3 windows (posteriors ~1.0), not windows swapped as a whole.
+  Diagnostic: with the true part count forced, v0 already splits centred parts on some songs (zeno A1 0.97, B2 1.00,
+  signejakobsen A1 0.65; mistrusted / moosmusic A1 get two parts but no split) - the part count is the bottleneck for
+  A and B, not identity.
+- **Review** (independent agent; table in `docs/acceptance/M7b.md`): no blockers. Fixed: a bass note assigned to the
+  guitar could take a repeat link meant for the guitar note with its index (`from_track`), part edits replayed onto a
+  part the run no longer has (now unmatched), the spread dropped a repeat's pin, E27's windows lacked `end_bar` and the
+  router's one-bar merge (no effect on the verdict), doc claims about the tracker's changes and the forced count.
+- **Tier A**: seisyun complex with the tracker on: 0 notes changed, 11 repeat window pairs, 77.6 % as before.
+- **Not done**: note-level smoothing, calibrated posteriors (M10), edits feeding back into the stages, cannot-link
+  edits, the MERT solo classifier (E9, optional).
 
 ## M4b (2026-10-17): A/B mixer and review tools
 
@@ -193,7 +233,9 @@ names, `diarize.py` end to end, `stage.py` the `notesig` and `parts` stages, `ev
   part's own tuning is searched among the song's best 5 only, with the bass held (`tuning.rank_guitar`); fretting
   works out each pitch tuple's candidates once per call; the score stage converts note times with a plain-float
   `TempoMap.beat_time` (same values). seisyun complex `--parts 4` (a new count): parts 0.2 + quant 0.8 + tab 1.5 +
-  score 1.5 = 4.0 s (was 26.5 s); a count run before is all cache. The five Tier A songs keep their tunings and parts.
+  score 1.5 = 4.0 s (was 26.5 s); a count run before is all cache. The five Tier A songs keep their tunings and parts
+  (the per-part search is narrower than before - the song's best 5, 7-string candidates from the song - so "same
+  result" holds on these songs, not by construction; none of them has a part with its own tuning).
   Still over 2 s: the viewer switch (M7c) re-frets the changed parts with the stored tuning.
 
 ## M6 (2026-10-10): stereo router and the first automatic part split
@@ -691,8 +733,10 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After M4b (2026-10-17):** by DESIGN's order the next milestone is M7b (identity tracking), then M7c (Role /
-  Player, K switch and Line reassignment in the viewer). Open M7a items: a `--parts` switch under 2 s (the tuning stage is done, 4.0 s now;
+- **After M7b (2026-10-17):** by DESIGN's order the next milestone is M7c (Role / Player views, K switch and
+  Line reassignment in the viewer - the `part` edit is its first piece). The evidence from E25/E27 points at two
+  levers before more tracking: the part count without stereo evidence (forced K=2 already splits some centred
+  parts) and note-level smoothing / calibrated posteriors (M10). Open M7a items: a `--parts` switch under 2 s (the tuning stage is done, 4.0 s now;
   the viewer switch in M7c re-frets with the stored tuning like M4a edits), same-position parts (E25: the
   symbolic-only split beat v0 on some A1/B2 songs but splits single guitars too - a gated symbolic evidence would
   need its own experiment), calibrated part posteriors (M10).

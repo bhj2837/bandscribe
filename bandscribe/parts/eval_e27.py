@@ -108,9 +108,13 @@ def decide(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "macro_diff_points": {"mean": mean, "ci_low": lo, "ci_high": hi}, "rule2_macro": rule2,
             "scenarios": scen, "regressing_scenarios": regress,
             "verdict": "PASS" if rule1 and rule2 else "FAIL",
-            "der_by_song": {s: {a: round(stx.mean(r[a]["block_der"] for r in rows if r["song"] == s
-                                                  and r[a]["block_der"] is not None), 4)
+            "der_by_song": {s: {a: _mean_or_none([r[a]["block_der"] for r in rows if r["song"] == s])
                                 for a in ("v0", "track")} for s in sorted({r["song"] for r in rows})}}
+
+
+def _mean_or_none(xs: Sequence[float | None]) -> float | None:
+    v = [x for x in xs if x is not None]
+    return round(stx.mean(v), 4) if v else None
 
 
 def run_e27(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
