@@ -255,8 +255,9 @@ def test_a_part_gets_its_own_tuning_only_when_its_notes_clearly_want_one(monkeyp
 # --------------------------------------------------------------------------------------- edits
 
 
-def make_parts_job(root):
-    """A finished run whose quant read the guitar from a parts stage (two parts)."""
+def make_parts_job(root, rep=None):
+    """A finished run whose quant read the guitar from a parts stage (two parts); ``rep`` = {note index: repeat
+    links} (M7b)."""
     job = root / "f-test"
     st = job / "stages"
     keys = dict(KEYS)
@@ -265,12 +266,14 @@ def make_parts_job(root):
     g = _raw(song(E_STD, n_bars=6), 0.5, "distorted_electric_guitar")
     for k, n in enumerate(g):
         n["line"], n["shared"], n["p"] = ("1" if (k // 3) % 2 == 0 else "2"), False, 0.9
+        if rep is not None:
+            n["rep"] = list(rep.get(k, []))
     b = _raw(bass_line((28, 33, 38, 43), n=40), 0.5, "electric_bass")
     grid = grid_doc(times)
     sections = [{"id": "S1", "label": "A", "start_bar": 1, "end_bar": 14, "start_s": times[0],
                  "end_s": times[-1] + 0.5}]
     atomic.write_json(d["notes"] / "guitar_all.json", {"notes": [{k: v for k, v in n.items() if k not in
-                                                                  ("line", "shared", "p")} for n in g]})
+                                                                  ("line", "shared", "p", "rep")} for n in g]})
     atomic.write_json(d["notes"] / "bass_raw.json", {"notes": b})
     atomic.write_json(d["parts"] / T.LINES_JSON, {"format": T.PARTS_FORMAT, **PARTS_META, "notes": g})
     atomic.write_json(d["grid"] / "grid.json", grid)

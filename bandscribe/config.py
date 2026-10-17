@@ -360,6 +360,7 @@ class PartsCfg(_Section):
     use_class: bool = False  # two MuScriptor guitar classes sounding together are two streams (E25: split 1 guitar)
     use_symbolic: bool = False  # chord notes and a line over them are two streams (E25: never fired)
     tau: Prob = 0.4  # best Line posterior under this -> Unassigned (DESIGN 4.2: 0.4 to start)
+    track: bool = False  # M7b: re-decide whole windows by stream continuity and repeats (E27 decides the default)
 
 
 class EvalCfg(_Section):

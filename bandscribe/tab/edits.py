@@ -3,7 +3,10 @@
 What an edit changes, and what is recomputed from it (never a GPU stage; the tuning stays the run's):
 - ``barline`` (a bar line moves, every later one with it): the grid's bars -> quantisation, fretting, score;
 - ``delete`` / ``pitch`` / ``assign`` (to the other track) / ``add`` (notes): the quantised notes -> fretting, score;
-- ``pin`` (string/fret): fretting keeps the note there and fingers its neighbours around it.
+- ``pin`` (string/fret): fretting keeps the note there and fingers its neighbours around it;
+- ``part`` (M7b: a guitar note's part, or Unassigned): the note and, through the parts stage's repeat links
+  (``rep``), the same note in the repeated bars - unless an edit of their own set those (DESIGN 4.10: "1절의 수정이
+  2절에도 퍼진다").
 
 Notes are anchored by (track, the transcription's own onset, pitch): neither quantisation nor a bar-line edit
 moves a raw onset. A note an edit added is anchored by that edit's id; a bar line by the times of its beats.
@@ -50,10 +53,11 @@ VERSION = 1
 TRACKS = ("guitar_all", "bass")
 # track ids an older log may name: the bass was "bass_raw" until M5 (2026-10-08)
 OLD_TRACK_IDS = {"bass_raw": "bass"}
-NOTE_OPS = ("delete", "pitch", "assign", "add", "pin")
+NOTE_OPS = ("delete", "pitch", "assign", "add", "pin", "part")
 GRID_OPS = ("barline",)
 # what the page sends (Session.command): relative commands become the absolute edits above
-COMMANDS = ("delete", "pitch", "string", "assign", "add", "barline", "tap", "undo", "redo")
+COMMANDS = ("delete", "pitch", "string", "assign", "add", "barline", "tap", "undo", "redo", "part")
+UNASSIGNED_LINE = "u"  # the parts stage's line of an Unassigned guitar note
 MATCH_TOL_S = 0.03
 EXACT_TOL_S = 1e-4
 BEAT_TOL = 0.3  # a bar-line anchor matches a beat within this share of a beat
@@ -436,7 +440,34 @@ def apply_note_edit(notes: dict[str, list[dict[str, Any]]], e: Mapping[str, Any]
         notes.setdefault(to, []).append(n)
     elif op == "pin":
         n["pin"] = [int(e["string"]), int(e["fret"])]
+    elif op == "part":
+        _set_part(n, str(e["to"]))
+        report.setdefault("_part", []).append((n, str(e["to"])))
     report["applied"] += 1
+
+
+def _set_part(n: dict[str, Any], to: str) -> None:
+    n["line"] = to
+    n["shared"] = False
+    n.pop("pin", None)  # a pinned position belongs to the part track it was chosen on
+
+
+def propagate_parts(notes: Mapping[str, list[dict[str, Any]]], report: dict[str, Any]) -> None:
+    """The ``part`` edits (log order) reach the notes their note repeats (``rep``) that no edit of their own set;
+    ``report["propagated"]`` counts them."""
+    done = report.pop("_part", [])
+    report["propagated"] = 0
+    if not done:
+        return
+    explicit = {id(n) for n, _to in done}
+    by_i = {int(n["i"]): n for n in notes.get("guitar_all") or [] if n.get("i") is not None and not n.get("added")}
+    for n, to in done:
+        for r in n.get("rep") or []:
+            t = by_i.get(int(r))
+            if t is None or id(t) in explicit or t.get("line") == to:
+                continue
+            _set_part(t, to)
+            report["propagated"] += 1
 
 
 # --------------------------------------------------------------------------------------------- replay
@@ -497,6 +528,7 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
     for e in edits:
         if e["op"] in NOTE_OPS:
             apply_note_edit(notes, e, tm, report)
+    propagate_parts(notes, report)
     for tid in TRACKS:
         ns = sorted(notes.get(tid) or [], key=lambda n: (int(n["gtick"]), int(n["pitch"]), float(n["onset_s"])))
         tr = quant["tracks"].setdefault(tid, {"notes": [], "stats": {}})
@@ -1004,6 +1036,16 @@ class Session:
             if not 0 <= to <= 127:
                 return None, "더 옮길 수 없습니다"
             return {"op": "pitch", "note": a, "to": to}, ""
+        if c == "part":
+            if tid != "guitar_all":
+                return None, "파트는 기타 음에만 있습니다"
+            to = str(cmd.get("to"))
+            present = {x.get("line") for x in Q.notes_of(st.quant, tid)} & set(T.PART_LINES)
+            if to != UNASSIGNED_LINE and to not in present:
+                return None, f"{to}번 파트가 없습니다(있는 파트: {', '.join(sorted(present)) or '없음'})"
+            if str(n.get("line")) == to:
+                return None, "이미 그 파트입니다"
+            return {"op": "part", "note": a, "to": to}, ""
         if c == "assign":
             to = str(cmd["track"])
             if to not in TRACKS:

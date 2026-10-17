@@ -30,7 +30,7 @@ EXPECTED.update({  # M5 bass: F0 tracks (GPU worker) and the clean-up of the gat
 EXPECTED.update({  # M6 router; M7a note signatures and the Part view (quant reads the guitar notes with their line)
     "router": {"sep", "grid", "sections", "vocal", "resid1"},
     "notesig": {"notes", "sep"},
-    "parts": {"notes", "notesig", "router", "grid"},
+    "parts": {"notes", "notesig", "router", "grid", "sections"},  # M7b: the repeat map
 })
 EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},

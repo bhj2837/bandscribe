@@ -118,6 +118,7 @@
     <tr><td>Delete</td><td>지우기</td></tr>
     <tr><td>S / Shift+S</td><td>다른 줄에서 치기 (탭 트랙)</td></tr>
     <tr><td>1 / 2</td><td>기타 / 베이스 트랙으로 옮기기</td></tr>
+    <tr><td>Shift + 1–4 / 0</td><td>기타 음을 그 파트로 / 미배정으로 (반복 구간의 같은 음도 따라감)</td></tr>
     <tr><td>A</td><td>재생 위치에 음 넣기 (고른 음 높이, 16분음표)</td></tr>
     <tr><td>[ / ]</td><td>이 마디 첫 박을 한 박 앞 / 뒤로 (뒤 마디도 함께)</td></tr>
     <tr><td>D</td><td>여기가 마디 첫 박 (재생 중엔 모았다가 멈추면 적용)</td></tr>
@@ -670,6 +671,11 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.altKey) return;
   const n = selectedNote();
+  const digit = /^Digit([0-4])$/.exec(e.code);
+  if (e.shiftKey && digit) {  // M7b: the note's part (Shift+0 = Unassigned); the repeated bars follow
+    if (n) { e.preventDefault(); send({ cmd: "part", uid: selected, to: digit[1] === "0" ? "u" : digit[1] }); }
+    return;
+  }
   switch (e.key) {
     case "Escape": toggleHelp(false); select(null); break;
     case "?": toggleHelp(); break;

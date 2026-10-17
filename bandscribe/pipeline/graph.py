@@ -52,7 +52,7 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     # note's stereo signature, then the part count and each note's part (Part view v0); quant reads them from parts
     ("router", ("sep", "grid", "sections", "vocal", "resid1"), "bandscribe.router.stage"),
     ("notesig", ("notes", "sep"), "bandscribe.parts.stage"),
-    ("parts", ("notes", "notesig", "router", "grid"), "bandscribe.parts.stage"),
+    ("parts", ("notes", "notesig", "router", "grid", "sections"), "bandscribe.parts.stage"),  # M7b: repeat map
     # M3 (CPU only): A4 reference, quantisation, tuning + string/fret; the bass comes from the bass stage (M5)
     ("a4", ("stems",), "bandscribe.tab.stage"),
     # the song's tuning on the merged guitar and the bass: not on the parts, so --parts reuses it (2026-10-17)

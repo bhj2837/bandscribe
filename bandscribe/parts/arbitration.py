@@ -154,7 +154,7 @@ def assign(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]
            sigs: Sequence[Mapping[str, Any]], labels: Sequence[str | None], k: int, evidence: str | None, *,
            weights: Mapping[str, float] | None = None, tau: float = TAU, amber: float = AMBER) -> dict[str, Any]:
     """Lines and per-note decisions (module doc) -> {lines (profiles), line (index or None per note), p, amber,
-    reasons}."""
+    reasons, post (notes x Lines posterior matrix; the M7b tracker re-decides on it)}."""
     lines, reasons = seed_lines(k, evidence, notes, feats, sigs, labels)
     post, prof = posteriors(lines, notes, feats, sigs, labels, weights)
     line: list[int | None] = []
@@ -168,4 +168,5 @@ def assign(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]
         p = float(post[i, j])
         line.append(j if p >= tau else None)
         pmax.append(round(p, 4))
-    return {"lines": prof, "line": line, "p": pmax, "amber": [p < amber for p in pmax], "reasons": reasons}
+    return {"lines": prof, "line": line, "p": pmax, "amber": [p < amber for p in pmax], "reasons": reasons,
+            "post": post}

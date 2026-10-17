@@ -183,6 +183,7 @@ side_db = 3.0                  # P windows: a note counts on a side at |ILD| >= 
 use_class = false              # two guitar classes sounding together are two streams (E25: split one guitar)
 use_symbolic = false           # chord notes and a line over them are two streams (E25: never fired)
 tau = 0.4                      # best part posterior under this -> Unassigned
+track = false                  # M7b identity tracking (windows by stream continuity and repeats; E27 decides)
 
 [eval]
 tpb = 48

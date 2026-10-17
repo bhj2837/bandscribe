@@ -6,9 +6,11 @@
   redo it.
 - ``parts`` (CPU, well under a second): ``guitar_lines.json`` - the notes stage's guitar notes, each with its Line
   (``line`` = "1".."4" in Part view order, "u" = Unassigned), the Line's posterior ``p`` and the ``amber`` flag
-  (DESIGN 4.2: 0.4-0.6), and the Part view itself: the part count (estimate, two hypotheses, forced, reasons) and
-  the Lines with their names (``bandscribe.parts.diarize``). Windows and their labels come from the ``router``
-  stage, bars from ``grid``. ``tab.guitar_parts`` = N (``run --parts N``) forces N Lines. ``quant`` reads the guitar
+  (DESIGN 4.2: 0.4-0.6), ``rep`` (M7b: the notes it repeats in the repeat map's matched bars, which an edit of
+  its part follows), and the Part view itself: the part count (estimate, two hypotheses, forced, reasons) and
+  the Lines with their names (``bandscribe.parts.diarize``; with ``[parts] track`` the M7b tracker re-decides
+  whole windows first). Windows and their labels come from the ``router`` stage, bars from ``grid``, the repeat
+  map from ``sections``. ``tab.guitar_parts`` = N (``run --parts N``) forces N Lines. ``quant`` reads the guitar
   notes from here; ``tab`` / ``score`` write one fretted track per Line next to the merged reference staff and an
   Unassigned staff.
 """
@@ -67,7 +69,7 @@ def parts_params(cfg: Any) -> dict[str, Any]:
             "count": {"n_min": int(p.n_min), "min_windows": int(p.min_windows), "min_sections": int(p.min_sections),
                       "side_db": float(p.side_db), "use_class": bool(p.use_class),
                       "use_symbolic": bool(p.use_symbolic)},
-            "tau": float(p.tau)}
+            "tau": float(p.tau), "track": bool(p.track)}
 
 
 def bar_index(notes: list[dict[str, Any]], bars: list[dict[str, Any]]) -> list[int]:
@@ -83,19 +85,23 @@ def bar_index(notes: list[dict[str, Any]], bars: list[dict[str, Any]]) -> list[i
 
 
 def parts_song(notes: list[dict[str, Any]], sigs: list[dict[str, Any]], windows: list[dict[str, Any]],
-               bars: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any]:
+               bars: list[dict[str, Any]], params: dict[str, Any], repeat: dict[str, Any] | None = None
+               ) -> dict[str, Any]:
     """The ``guitar_lines.json`` body (module doc)."""
     from bandscribe.parts import diarize as DZ
+    from bandscribe.parts import track as TR
 
     if len(sigs) != len(notes):
         raise PartsStageError(f"음표별 스테레오 서명 수({len(sigs)})가 기타 음 수({len(notes)})와 다릅니다(버그)")
     k = int(params.get("k") or 0)
     d = DZ.diarize(notes, sigs, windows, bar_of=bar_index(notes, bars), params=params.get("count"),
-                   k_force=k or None, tau=float(params.get("tau", 0.4)))
+                   k_force=k or None, tau=float(params.get("tau", 0.4)),
+                   tracking={} if params.get("track") else None, repeat=repeat)
+    rep = TR.repeat_links(notes, bars, repeat)
     out_notes = []
-    for n, s, nl in zip(notes, sigs, d["note"]):
+    for n, s, nl, rp in zip(notes, sigs, d["note"], rep):
         out_notes.append({**n, "line": UNASSIGNED if nl["line"] is None else str(nl["line"]), "p": nl["p"],
-                          "amber": bool(nl["amber"]), "shared": False, "ild_db": s.get("ild_db")})
+                          "amber": bool(nl["amber"]), "shared": False, "ild_db": s.get("ild_db"), "rep": rp})
     lines = [{k_: ln[k_] for k_ in ("number", "name", "short", "role", "cls", "position", "notes", "bars", "key",
                                     "kind")} for ln in d["lines"]]
     return {"count": d["count"], "lines": lines, "windows": d["windows"], "notes": out_notes,
@@ -109,8 +115,10 @@ def run_parts(ctx: Any) -> None:
     sigs = list(atomic.read_json(dep["notesig"] / NOTESIG_FILE).get("sigs") or [])
     windows = list(atomic.read_json(dep["router"] / "router.json").get("windows") or [])
     bars = list(atomic.read_json(dep["grid"] / "grid.json").get("bars") or [])
+    rpath = dep["sections"] / "repeat_map.json" if "sections" in dep else None
+    repeat = atomic.read_json(rpath) if rpath is not None and rpath.is_file() else None
     params = dict(ctx.params)
-    body = parts_song(notes, sigs, windows, bars, params)
+    body = parts_song(notes, sigs, windows, bars, params, repeat)
     doc = {"format": LINES_FORMAT, "params": params, **{k: v for k, v in gdoc.items() if k not in ("notes", "format")},
            **body}
     atomic.write_json(Path(ctx.out_dir) / LINES_FILE, doc)
@@ -123,10 +131,11 @@ def run_parts(ctx: Any) -> None:
         log.info("parts: %s", r)
 
 
-# parts 2: a reason when a forced part gets no notes; 3: a forced third part never empties a side (review)
+# parts 2: a reason when a forced part gets no notes; 3: a forced third part never empties a side (review);
+# 4: M7b - each note's repeat links (``rep``), the optional tracker
 STAGES: dict[str, dict] = {
     "notesig": {"run": run_notesig, "code_version": "1", "params": notesig_params, "device": "cpu",
                 "models": lambda cfg: {}},
-    "parts": {"run": run_parts, "code_version": "3", "params": parts_params, "device": "cpu",
+    "parts": {"run": run_parts, "code_version": "4", "params": parts_params, "device": "cpu",
               "models": lambda cfg: {}},
 }
