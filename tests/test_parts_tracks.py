@@ -442,3 +442,26 @@ def test_an_empty_stem_is_silent_not_mixed():
     bars = [{"bar": i, "start_s": 2.0 * i, "end_s": 2.0 * i + 2} for i in range(8)]
     doc = RT.route_song(x, R.SR, bars, None)
     assert {w["label"] for w in doc["windows"]} == {"silent"}
+
+
+def test_the_tuning_stage_matches_the_tab_stages_own_choice(tmp_path):
+    """The tuning stage (2026-10-17) quantises the merged guitar and the bass without the parts and picks the same
+    tunings the tab stage picks on the quant result; its params leave the part count out (--parts reuses it)."""
+    from types import SimpleNamespace
+
+    from test_tab_edits import KEYS, make_job
+
+    job = make_job(tmp_path)
+    st = job / "stages"
+    d = {s: st / s / KEYS[s][:12] for s in ("notes", "grid", "sections", "tab")}
+    out = tmp_path / "tuning_out"
+    p = T.tuning_params(None)
+    assert "guitar_parts" not in p and p["quant"] == T.quant_params(None)
+    T.run_tuning(SimpleNamespace(dep_dirs={k: d[k] for k in ("notes", "grid", "sections")}, params=p, out_dir=out))
+    got = json.loads((out / T.TUNING_JSON).read_text(encoding="utf-8"))
+    tab = json.loads((d["tab"] / "tab.json").read_text(encoding="utf-8"))["tuning"]
+    assert got["format"] == T.TUNING_FORMAT
+    for inst in ("guitar", "bass"):
+        assert got["tuning"][inst]["label"] == tab[inst]["label"]
+        assert got["tuning"][inst]["cost"] == tab[inst]["cost"]
+    assert T.tuning_params({"tab.guitar_parts": 3}) == p
