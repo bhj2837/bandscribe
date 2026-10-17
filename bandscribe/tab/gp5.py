@@ -53,6 +53,8 @@ def build(score: WScore) -> gp.Song:
                 tup = gp.Tuplet(enters=be.tuplet[0], times=be.tuplet[1]) if be.tuplet else gp.Tuplet(enters=1, times=1)
                 beat = gp.Beat(voice, duration=gp.Duration(value=be.value, isDotted=be.dots == 1, tuplet=tup),
                                status=gp.BeatStatus.normal if be.notes else gp.BeatStatus.rest)
+                if getattr(be, "text", None):
+                    beat.text = str(be.text)  # M7c markers (PyGuitarPro 0.11: a plain string)
                 for n in be.notes:
                     fx = set(getattr(n, "fx", ()) or ())
                     kind = gp.NoteType.tie if n.tie else (gp.NoteType.dead if "x" in fx else gp.NoteType.normal)

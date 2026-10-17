@@ -41,6 +41,7 @@ class WBeat:
     dots: int = 0
     tuplet: tuple[int, int] | None = None
     notes: list[WNote] = field(default_factory=list)  # empty = rest
+    text: str | None = None  # text above the beat (M7c Player-view markers)
 
 
 @dataclass

@@ -25,7 +25,7 @@ Stage functions read only their dep dirs, the job input and ``ctx.params`` (M1_M
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -408,7 +408,10 @@ def track_name(q: Mapping[str, Any], tid: str) -> tuple[str, str]:
 
 
 def score_params(cfg: Any) -> dict[str, Any]:
-    return {"tempo_change_ratio": 0.04, "title": str(_cfg_get(cfg, "hints.title", "") or "").strip()}
+    return {"tempo_change_ratio": 0.04, "title": str(_cfg_get(cfg, "hints.title", "") or "").strip(),
+            "views": {"players": int(_cfg_get(cfg, "views.players", 2)),
+                      "idle_policy": str(_cfg_get(cfg, "views.idle_policy", "rest")),
+                      "unison_policy": str(_cfg_get(cfg, "views.unison_policy", "duplicate"))}}
 
 
 def _job_meta(ctx: Any) -> dict[str, Any]:
@@ -473,13 +476,82 @@ def _events(notes: list[dict[str, Any]], fretted: bool, tid: str = "") -> list[t
     return out
 
 
+VIEW_DEFAULTS = {"players": 2, "idle_policy": "rest", "unison_policy": "duplicate"}
+
+
+def view_layout(quant: Mapping[str, Any], tab: Mapping[str, Any], sections: Sequence[Mapping[str, Any]],
+                view: str, settings: Mapping[str, Any] | None = None, p: Mapping[str, Any] | None = None
+                ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The tracks of a Role or Player view (M7c, ``bandscribe.parts.views``) and the view's doc (assignment,
+    markers, violations): each guitar track is fretted as one player's part - with a part's own tuning when every
+    part in it has that one, else the song's - and the Bass follows. Each entry: {tid, name, short, notes (the
+    quantised notes, ``uid`` = the merged guitar's note), track (fretting), fretted, markers ([(bar, text)])}."""
+    from bandscribe.parts import views as V
+
+    st = {**VIEW_DEFAULTS, **(settings or {})}
+    pp = dict(p or tab_params(None))
+    g = Q.notes_of(quant, GUITAR)
+    tun = tab.get("tuning") or {}
+    if view == "role":
+        doc: dict[str, Any] = {"tracks": V.role_view(g, sections)}
+    elif view == "player":
+        pos = {str(ln.get("number")): str(ln.get("position") or "")
+               for ln in (quant.get("parts") or {}).get("lines") or []}
+        doc = V.player_view(g, sections, int(st["players"]), idle_policy=str(st["idle_policy"]),
+                            unison_policy=str(st["unison_policy"]), positions=pos)
+    else:
+        raise ValueError(f"unknown view {view!r}")
+    marks: dict[str, list[tuple[int, str]]] = {}
+    for m in doc.get("markers") or []:
+        marks.setdefault(str(m["track"]), []).append((int(m["bar"]), str(m["text"])))
+    out = []
+    for t in doc["tracks"]:
+        if not t["notes"] or not tun.get("guitar"):
+            continue
+        notes = sorted(({**g[k], "uid": f"{GUITAR}:{k}", "src_k": k} for k in t["notes"]),
+                       key=lambda n: (int(n["gtick"]), int(n["pitch"])))
+        parts_in = sorted({str(g[k].get("line")) for k in t["notes"]})
+        owns = [(tun.get("lines") or {}).get(f"gtr_{ln}") for ln in parts_in]
+        same = bool(owns) and all(o is not None and o.get("label") == owns[0].get("label") for o in owns)
+        own = owns[0] if same else tun["guitar"]
+        if t["id"] == "player_extra":  # several parts at once: no one hand plays it - a staff, no note dropped
+            out.append({"tid": t["id"], "name": t["name"], "short": t["name"], "notes": notes,
+                        "track": _staff(tun["guitar"]), "fretted": False, "markers": marks.get(t["name"], [])})
+            continue
+        out.append({"tid": t["id"], "name": t["name"], "short": t["name"], "notes": notes,
+                    "track": _fret_track(notes, own, pp["weights"], pp["model"]), "fretted": True,
+                    "markers": marks.get(t["name"], [])})
+    un = track_notes(quant, UNASSIGNED)  # the notes in no part: a staff, as in the Part view
+    if un and tun.get("guitar"):
+        out.append({"tid": UNASSIGNED, "name": TRACK_NAMES[UNASSIGNED][0], "short": TRACK_NAMES[UNASSIGNED][1],
+                    "notes": un, "track": _staff(tun["guitar"]), "fretted": False, "markers": []})
+    btr = (tab.get("tracks") or {}).get(BASS)
+    bn = Q.notes_of(quant, BASS)
+    if bn and btr:
+        out.append({"tid": BASS, "name": "Bass", "short": "Bass", "notes": bn, "track": btr,
+                    "fretted": bool(btr.get("fretted")), "markers": []})
+    return out, doc
+
+
 def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: dict[str, Any],
-                sections: list[dict[str, Any]], params: dict[str, Any]) -> tuple[ATX.WScore, list[str]]:
-    """The written score of a job (shared bars, spelled tracks) and spelling problems (empty = consistent)."""
+                sections: list[dict[str, Any]], params: dict[str, Any],
+                layout: Sequence[Mapping[str, Any]] | None = None) -> tuple[ATX.WScore, list[str]]:
+    """The written score of a job (shared bars, spelled tracks) and spelling problems (empty = consistent).
+    ``layout`` (M7c, ``view_layout``) writes those tracks instead of the Part view's."""
     tm = TempoMap.from_dict(grid)
     family_of = {int(b): str(f) for b, f in ((quant.get("beat_families") or {}).get("*") or [])}
     tracks_src = []
-    for tid in TRACK_ORDER:
+    names: dict[str, tuple[str, str]] = {}
+    markers: dict[str, list[tuple[int, str]]] = {}
+    classes_of: dict[str, list[Any]] = {}
+    if layout is not None:
+        for e in layout:
+            tr, fretted = e["track"], bool(e["fretted"])
+            tracks_src.append((e["tid"], tr, fretted, tr["notes"] if fretted else list(e["notes"])))
+            names[e["tid"]] = (e["name"], e["short"])
+            markers[e["tid"]] = list(e.get("markers") or [])
+            classes_of[e["tid"]] = [n.get("instrument") for n in e["notes"]]
+    for tid in TRACK_ORDER if layout is None else ():
         tr = (tab.get("tracks") or {}).get(tid)
         qn = track_notes(quant, tid)
         if not qn or (tid in DERIVED and not tr):  # a part is written once the tab stage made it (M7a)
@@ -499,14 +571,22 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
         spelled = N.spell_track(_events(notes, fretted, tid), bars, family_of)
         for b, beats in zip(bars, spelled):
             problems += N.check_bar(b, beats)
+        if markers.get(tid):  # M7c: a view's text markers on the first beat of their bar
+            at = {b.bar: i for i, b in enumerate(bars)}
+            for bar_no, text in markers[tid]:
+                i = at.get(int(bar_no))
+                if i is not None and spelled[i]:
+                    first = spelled[i][0]
+                    first.text = text if not first.text else f"{first.text}; {text}"
         if tid == BASS:
             instrument = "electricbassfinger"
         else:
-            classes = [n.get("instrument") for n in track_notes(quant, tid)]
+            classes = ([n.get("instrument") for n in track_notes(quant, tid)] if layout is None
+                       else classes_of.get(tid, []))
             # most frequent class; ties by name, so the output does not depend on string hashing (review)
             top = sorted(set(classes), key=lambda c: (-classes.count(c), str(c)))[0] if classes else None
             instrument = GUITAR_INSTRUMENT.get(str(top), "electricguitarclean")
-        name, short = track_name(quant, tid)
+        name, short = names.get(tid) or track_name(quant, tid)
         score.tracks.append(ATX.WTrack(name=name, short=short, instrument=instrument, fretted=fretted,
                                        tuning=(tr or {}).get("tuning") if fretted else None,
                                        capo=int((tr or {}).get("capo") or 0) if fretted else 0, beats=spelled,
@@ -515,11 +595,20 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
 
 
 def score_doc(song_key: str, meta: dict[str, Any], title: str, quant: dict[str, Any], tab: dict[str, Any],
-              grid: dict[str, Any]) -> Any:
-    """``score.json`` (schema v0) of a job's score."""
-    from bandscribe.schema.score import Confidence, Line, Note, Score, SongMeta
+              grid: dict[str, Any], sections: Sequence[Mapping[str, Any]] | None = None) -> Any:
+    """``score.json`` (schema v0) of a job's score; with ``sections`` each part gets its role per section (M7c)."""
+    from bandscribe.parts import views as V
+    from bandscribe.schema.score import Confidence, Line, Note, RoleSegment, Score, SongMeta
 
     tm = TempoMap.from_dict(grid)
+    seg_of: dict[str, list[Any]] = {}
+    if sections:
+        span = {int(s["start_bar"]): (float(s["start_s"]), float(s["end_s"])) for s in sections
+                if s.get("start_s") is not None and s.get("end_s") is not None}
+        for r in V.section_roles(Q.notes_of(quant, GUITAR), sections):
+            if r["start_bar"] in span and span[r["start_bar"]][1] > span[r["start_bar"]][0]:
+                a, b = span[r["start_bar"]]
+                seg_of.setdefault(f"gtr_{r['line']}", []).append(RoleSegment(start_s=a, end_s=b, role=r["role"]))
     lines = []
     for tid in TRACK_ORDER:
         qn = track_notes(quant, tid)
@@ -549,7 +638,8 @@ def score_doc(song_key: str, meta: dict[str, Any], title: str, quant: dict[str, 
                 else "reference")
         lines.append(Line(id=tid, name=track_name(quant, tid)[0], kind=kind,
                           tuning=tr.get("tuning") if fretted else None,
-                          capo=int(tr.get("capo") or 0) if fretted else None, notes=notes))
+                          capo=int(tr.get("capo") or 0) if fretted else None, notes=notes,
+                          role_segments=seg_of.get(tid, [])))
     src = meta.get("source") or {}
     return Score(song=SongMeta(song_key=str(song_key), title=title,
                                duration_s=float(meta.get("duration_s") or grid.get("duration_s") or 0.0),
@@ -561,7 +651,9 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
                 tab: dict[str, Any], grid: dict[str, Any], sections: list[dict[str, Any]],
                 params: dict[str, Any]) -> ATX.WScore:
     """Every file of the written score under ``out``: ``tab/score.alphatex``, ``tab/score.gp5``, ``tab/<track>.txt``,
-    ``midi/<track>_quantized.mid`` and ``score.json`` (the ``score`` stage, and M4a's re-export of an edited score)."""
+    ``midi/<track>_quantized.mid`` and ``score.json`` (the ``score`` stage, and M4a's re-export of an edited score);
+    with parts (M7c) also the Role and Player views, ``tab/views/{role,player}.{alphatex,gp5}`` and
+    ``tab/views/views.json`` (each view's tracks, the Player view's assignment, markers and violations)."""
     from bandscribe.amt import midi
     from bandscribe.schema.score import save_score
 
@@ -584,8 +676,36 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
                   "pitch": int(n["pitch"])} for n in qn]
         midi.write_performance_midi(out / "midi" / f"{tid}_quantized.mid",
                                     [(track_name(quant, tid)[0], 33 if tid == BASS else 27, notes)], grid)
-    save_score(out / "score.json", score_doc(song_key, meta, title, quant, tab, grid))
+    save_score(out / "score.json", score_doc(song_key, meta, title, quant, tab, grid, sections))
+    write_views(out, title=title, quant=quant, tab=tab, grid=grid, sections=sections, params=params)
     return score
+
+
+def write_views(out: Path, *, title: str, quant: dict[str, Any], tab: dict[str, Any], grid: dict[str, Any],
+                sections: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any] | None:
+    """The Role and Player views of a song with guitar parts (M7c; module doc of ``bandscribe.parts.views``)."""
+    if not split_on(quant) or not sections:
+        return None
+    settings = {**VIEW_DEFAULTS, **(params.get("views") or {})}
+    doc: dict[str, Any] = {"format": "bandscribe.views/1", "settings": settings}
+    for view in ("role", "player"):
+        try:  # best effort: a view's problem never fails the Part view's score or an edit's export (review)
+            lay, vd = view_layout(quant, tab, sections, view, settings)
+            if not lay:
+                continue
+            score, problems = build_score(title, quant, tab, grid, sections, params, layout=lay)
+            if problems:
+                raise TabStageError(f"리듬 표기 오류 {len(problems)}건(버그): {problems[:3]}")
+            atomic.write_text(out / "tab" / "views" / f"{view}.alphatex", ATX.write(score))
+            GP5.write(score, out / "tab" / "views" / f"{view}.gp5")
+        except Exception as e:  # noqa: BLE001 - logged; the view is left out
+            log.warning("%s 보기를 쓰지 못했습니다: %s", view, e)
+            doc.setdefault("errors", {})[view] = str(e)
+            continue
+        doc[view] = {"tracks": [{"id": e["tid"], "name": e["name"], "notes": len(e["notes"])} for e in lay],
+                     **({k: vd[k] for k in ("assign", "markers", "violations", "copies")} if view == "player" else {})}
+    atomic.write_json(out / "tab" / "views" / "views.json", doc)
+    return doc
 
 
 def run_score(ctx: Any) -> None:
@@ -599,7 +719,7 @@ def run_score(ctx: Any) -> None:
 
 # quant 4 / tab 7 / score 5: M7a Part view (guitar notes and Line names from the parts stage; K part tracks with
 # their own tunings, the Unassigned staff). tab 8: the song tuning from the tuning stage, a part's own tuning among
-# the song's best few (2026-10-17, the --parts switch)
+# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff)
 STAGES: dict[str, dict] = {
     "tuning": {"run": run_tuning, "code_version": "1", "params": tuning_params, "device": "cpu",
                "models": lambda cfg: {}},
@@ -607,6 +727,6 @@ STAGES: dict[str, dict] = {
     "quant": {"run": run_quant, "code_version": "4", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
     "tab": {"run": run_tab, "code_version": "8", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
-    "score": {"run": run_score, "code_version": "5", "params": score_params, "device": "cpu",
+    "score": {"run": run_score, "code_version": "7", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

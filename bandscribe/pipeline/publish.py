@@ -60,6 +60,10 @@ EXPORT_MAP: tuple[tuple[str, str, str, bool, bool], ...] = (
     *((f"midi/gtr_{x}_quantized.mid", "score", f"midi/gtr_{x}_quantized.mid", False, False) for x in "1234"),
     ("midi/unassigned_quantized.mid", "score", "midi/unassigned_quantized.mid", False, False),
     ("score.json", "score", "score.json", False, False),
+    # M7c (optional: a song with guitar parts): the Role and Player views
+    *((f"tab/views/{v}.{ext}", "score", f"tab/views/{v}.{ext}", False, False) for v in ("role", "player")
+      for ext in ("alphatex", "gp5")),
+    ("tab/views/views.json", "score", "tab/views/views.json", False, False),
 )
 
 _RENAME_RETRIES = 8

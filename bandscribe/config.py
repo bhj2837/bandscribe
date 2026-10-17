@@ -371,6 +371,13 @@ class PartsCfg(_Section):
     track: bool = False
 
 
+class ViewsCfg(_Section):
+    # M7c (DESIGN 4.9): the Role and Player views written next to the Part view (tab/views/)
+    players: int = Field(2, ge=1, le=4)  # guitarists of the Player view
+    idle_policy: Literal["rest", "double"] = "rest"  # an idle player rests, or doubles the main rhythm part
+    unison_policy: Literal["duplicate", "primary_only"] = "duplicate"  # unison notes to every player, or one
+
+
 class EvalCfg(_Section):
     tpb: int = Field(48, ge=1)
     onset_tol_s: float = Field(0.05, gt=0.0)
@@ -417,6 +424,7 @@ class Config(BaseModel):
     bass: BassCfg = Field(default_factory=BassCfg)
     router: RouterCfg = Field(default_factory=RouterCfg)
     parts: PartsCfg = Field(default_factory=PartsCfg)
+    views: ViewsCfg = Field(default_factory=ViewsCfg)
     eval: EvalCfg = Field(default_factory=EvalCfg)
     datasets: DatasetsCfg = Field(default_factory=DatasetsCfg)
     # Unknown top-level sections, kept verbatim (see module docstring).

@@ -190,6 +190,11 @@ width_n_min = 6                # notes of each kind in a window
 tau = 0.4                      # best part posterior under this -> Unassigned
 track = false                  # M7b identity tracking (windows by stream continuity and repeats; E27 decides)
 
+[views]                        # M7c: the Role and Player views next to the Part view (export tab/views/)
+players = 2                    # guitarists of the Player view (1-4)
+idle_policy = "rest"           # an idle player: "rest", or "double" the section's main rhythm part
+unison_policy = "duplicate"    # unison notes: "duplicate" to every player, or "primary_only" (one, a marker on the others)
+
 [eval]
 tpb = 48
 onset_tol_s = 0.05

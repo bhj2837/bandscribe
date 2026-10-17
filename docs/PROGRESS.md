@@ -1,6 +1,9 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-17 (**same-position part count (E28)**: a "width" evidence - a centred, coherent part
+Last updated: 2026-10-17 (**M7c done**: Role and Player views (exported to `tab/views/` and switchable in the
+viewer, with N / idle / unison settings), part count switch and section reassignment in the viewer (a switch takes
+about 1 s - M7a's k7 met through the viewer), see "M7c" below and `docs/acceptance/M7c.md`. Before it the
+**same-position part count (E28)**: a "width" evidence - a centred, coherent part
 next to a wide double in R2 windows - counts and splits DESIGN's scenario A; held (off by default: one of three test
 songs did not change, so the CI lower bound is 0), opt-in per song with `[parts] use_width = true`; see "Same-position
 part count" below. Before it: **M7b done with a known gap**: an identity tracker (off by default: on whole-song
@@ -40,10 +43,34 @@ fixes).
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
 | M4b A/B mixer + review tools | ✅ WebAudio engine in `bandscribe view` (recordings + per-track tab synth via alphaTab audio export, A/B hold key, mixer, sound position, 50-100 % slowdown with an own pitch shifter, loop, count-in), CQT piano roll with unkept candidates, part band, review queue; E26 (edit anchors after upstream changes) 0.94; acceptance `docs/acceptance/M4b.md`: **3 pass** |
+| M7c Role / Player views + part UI | ✅ `parts/views.py` (section roles, Role view, Player view: per-section DP, no two simultaneous parts per player, `Gtr extra (overdub)`, idle / unison policies, markers), `tab/views/` export + `score.json` roles, viewer: view switch, part count switch (`parts_k`, ~1 s), Ctrl+Shift+1-4/0 to the end of the section (`part_span`); acceptance `docs/acceptance/M7c.md`: **4 pass** |
 | M7b identity tracking | ✅ `parts/track.py` (window layers, links, Viterbi over relabellings, repeat-map window pairs; off by default), repeat links `rep` + `part` edit (Shift+1-4/0, spreads to repeats), whole-song Tier B data (`parts/eval_track.py`, 24 remixes), E27 rejected (no note changed); acceptance `docs/acceptance/M7b.md`: **3 pass / 1 fail / 1 n/a** |
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## M7c (2026-10-17): Role and Player views, part UI
+
+Code: `bandscribe/parts/views.py` (`section_roles`, `role_view`, `player_view`, `violations`), `tab/stage.py`
+(`view_layout`, `build_score(layout=)`, `write_views`, score code 6, `score_params["views"]`), `[views]` config
+(players 2, idle_policy rest, unison_policy duplicate), beat text in alphaTex / GP5, `tab/edits.py` (`parts_k`,
+`part_span`, `Session.view`), viewer `/api/view` and the header controls. Tests: `tests/test_parts_views.py`,
+`tests/test_parts_m7c.py`.
+
+- **Views**: Role (per section: Rhythm, Rhythm 2, ..., Lead, Lead 2, ...) and Player (N guitarists; per-section
+  dynamic programming: parts sounding in one bar never share a player, moving a part / role group / register /
+  side cost, the least important part to `Gtr extra (overdub)`; `rest` or `double`; unison `duplicate` or
+  `primary_only`; markers as beat text). Exported next to the Part view (`tab/views/`), and the edits re-write them.
+  Every part note is in a view (a section's few notes and a pickup before the first section included).
+- **Checks**: 0 violations on Tier A (5 songs x N 1-3 x rest/double) and the 8 two-part whole-song Tier B remixes;
+  seisyun complex section roles vs the same rule on the user's GP guitars 22/26 (84.6 %).
+- **Viewer**: 보기 (part / role / player, with 인원 / 쉴 때 / 유니즌), 파트 수 (auto / 1-4: an edit that runs the parts
+  stage again from the run's own inputs and re-frets only the parts - one switch 0.89-1.06 s on seisyun complex),
+  Ctrl+Shift+1-4/0 = this part from the selected note to the end of its section. The tab synth now renders only while
+  it is heard (A/B or "with the recording"): alphaTab drew the next score only after a running audio export, which
+  made switches take 20 s.
+- **Pitfall found**: `bandscribe run <job> --until <stage before score>` publishes an export without the score
+  (export = what the last run reached). Run without `--until` to get it back.
 
 ## Same-position part count (2026-10-17, after M7b): width evidence, E28
 
@@ -757,8 +784,8 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After M7b (2026-10-17):** by DESIGN's order the next milestone is M7c (Role / Player views, K switch and
-  Line reassignment in the viewer - the `part` edit is its first piece). Same-position count: the width evidence
+- **After M7c (2026-10-17):** by DESIGN's order the next milestone is M8 (narrow mixes: the B route, repetition
+  subtraction, safety net; optional voters). Same-position count: the width evidence
   (E28) is held for want of test songs - a new experiment with more A-type songs could adopt it; B (two centred
   parts) still has no evidence. Note-level smoothing / calibrated posteriors are M10. Open M7a items: a `--parts` switch under 2 s (the tuning stage is done, 4.0 s now;
   the viewer switch in M7c re-frets with the stored tuning like M4a edits), same-position parts (E25: the

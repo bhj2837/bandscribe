@@ -97,6 +97,20 @@
   <button id="abBtn" class="tog" aria-pressed="false" title="A/B: 탭 신스가 나오고 B 를 누르고 있는 동안 원곡 (B)">A/B 비교</button>
   <button id="sideBtn" aria-pressed="true" title="믹서·검토 큐 보이기">믹서</button>
   <button id="lowerBtn" aria-pressed="true" title="피아노롤·파트 띠 보이기">피아노롤</button>
+  <label title="파트: 파트마다 트랙 / 역할: 리듬·리드로 묶음 / 연주자: 기타리스트 N명에게 나눔">보기
+    <select id="viewSel"><option value="part">파트</option><option value="role">역할</option>
+      <option value="player">연주자</option></select></label>
+  <span id="playerOpts" hidden>
+    <label>인원 <select id="nSel"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+    <label title="연주할 파트가 없는 연주자">쉴 때 <select id="idleSel"><option value="rest">쉼</option>
+      <option value="double">리듬 복제</option></select></label>
+    <label title="두 파트가 같이 치는 음">유니즌 <select id="uniSel"><option value="duplicate">모두에게</option>
+      <option value="primary_only">한쪽만</option></select></label>
+  </span>
+  <label title="파트 수를 바꾸면 파트 나누기를 다시 하고 운지만 새로 합니다(편집으로 기록)">파트 수
+    <select id="kSel"><option value="0">자동</option><option>1</option><option>2</option><option>3</option>
+      <option>4</option></select></label>
+  <span id="viewInfo" class="time"></span>
   <span id="tracks"></span>
   <div class="info">{{INFO}}</div>
   <div id="edit">
@@ -119,6 +133,7 @@
     <tr><td>S / Shift+S</td><td>다른 줄에서 치기 (탭 트랙)</td></tr>
     <tr><td>1 / 2</td><td>기타 / 베이스 트랙으로 옮기기</td></tr>
     <tr><td>Shift + 1–4 / 0</td><td>기타 음을 그 파트로 / 미배정으로 (반복 구간의 같은 음도 따라감)</td></tr>
+    <tr><td>Ctrl + Shift + 1–4 / 0</td><td>이 음부터 구간 끝까지, 이 음의 파트를 그 파트로 / 미배정으로</td></tr>
     <tr><td>A</td><td>재생 위치에 음 넣기 (고른 음 높이, 16분음표)</td></tr>
     <tr><td>[ / ]</td><td>이 마디 첫 박을 한 박 앞 / 뒤로 (뒤 마디도 함께)</td></tr>
     <tr><td>D</td><td>여기가 마디 첫 박 (재생 중엔 모았다가 멈추면 적용)</td></tr>
@@ -182,7 +197,7 @@ const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const pitchName = (p) => `${NAMES[p % 12]}${Math.floor(p / 12) - 1}`;
 const TRACK_KO = { guitar_all: "기타", bass: "베이스", bass_raw: "베이스" };
 const OP_KO = { pitch: "음높이", delete: "지우기", assign: "트랙 옮기기", pin: "줄 고정", barline: "마디선", add: "음 넣기",
-                part: "파트" };
+                part: "파트", part_span: "구간 끝까지 파트", parts_k: "파트 수" };
 
 // The recording is the time axis: the engine (WebAudio) plays the recordings and the tab synth in step, and alphaTab
 // follows it through the score's \sync points (EnabledExternalMedia).
@@ -317,6 +332,20 @@ function showLoop() {
   loopBtn.setAttribute("aria-pressed", String(!!engine.loop));
 }
 loopBtn.addEventListener("click", loopStep);
+function setView(v) {
+  view = v;
+  $("playerOpts").hidden = view !== "player";
+  load(false).catch((e) => flash(String(e)));
+}
+// after a header select the keys go to the score again: an arrow key must not re-split the parts (review)
+const toScore = () => viewport.focus({ preventScroll: true });
+$("viewSel").addEventListener("change", (e) => { toScore(); setView(e.target.value); });
+for (const id of ["nSel", "idleSel", "uniSel"]) $(id).addEventListener("change", () => { toScore(); setView(view); });
+$("kSel").addEventListener("change", async (e) => {
+  toScore();
+  const d = await send({ cmd: "parts_k", k: Number(e.target.value) });
+  if (!d || !d.applied) $("kSel").value = String(doc.parts_k || 0);  // not switched: show what is in effect
+});
 $("sideBtn").addEventListener("click", (e) => { const s = $("side"); s.hidden = !s.hidden; e.target.setAttribute("aria-pressed", String(!s.hidden)); });
 $("lowerBtn").addEventListener("click", (e) => { const s = $("lower"); s.hidden = !s.hidden; e.target.setAttribute("aria-pressed", String(!s.hidden)); if (!s.hidden) { lower._fit(); lower.drawBand(); lower.draw(audio.currentTime); } });
 
@@ -364,6 +393,7 @@ function synthSources(score) {
   drawMixer();
 }
 function ensureSynth() { synthWanted = true; renderSynth(); }
+const synthHeard = () => engine.ab || engine.synthWithRec;
 async function renderSynth() {
   if (!synthWanted || !api.score) return;
   if (synthBusy) { synthAgain = true; return; }
@@ -431,15 +461,26 @@ api.renderFinished.on(() => {
   afterRender = null;
   if (f) f();
   drawSelection();
-  ensureSynth();  // the tab synth is rendered in the background after every new score (only changed tracks)
+  // the tab synth follows a new score only while it is heard (A/B or "with the recording"): alphaTab draws the next
+  // score only after an audio export it is running, so rendering it for every view switch made switching slow
+  if (synthHeard()) ensureSynth();
 });
 api.error.on((e) => { status.textContent = "악보를 열지 못했습니다: " + (e && e.message ? e.message : e); });
 
 // resolves when alphaTab has drawn the new score (or after 20 s), so no click lands on the old drawing
+let view = "part";
+const viewUrl = () => view === "part" ? "/api/score" :
+  `/api/view?kind=${view}&players=${$("nSel").value}&idle=${$("idleSel").value}&unison=${$("uniSel").value}`;
+let loadSeq = 0, pendingDraw = null;
 async function load(keepScroll) {
-  const r = await fetch("/api/score", { cache: "no-store" });
-  if (!r.ok) throw new Error(`/api/score: HTTP ${r.status}`);
-  const d = await r.json();
+  const seq = ++loadSeq;  // a newer load (a view switch during an edit, say) supersedes this one
+  const r = await fetch(viewUrl(), { cache: "no-store" });
+  const d = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (seq !== loadSeq) return;
+  if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+  $("kSel").value = String(d.parts_k || 0);
+  $("viewInfo").textContent = view === "player" && d.doc ?
+    `한 사람 동시 파트 ${d.doc.violations}건` + (d.doc.markers && d.doc.markers.length ? ` · 표시 ${d.doc.markers.length}개` : "") : "";
   doc = d;
   showCounts(d);
   const tl = (d.map && d.map.timeline) || {};
@@ -448,9 +489,12 @@ async function load(keepScroll) {
   lower.setDoc(d.map, engine.duration);
   drawQueue();
   const top = viewport.scrollTop;
+  if (pendingDraw) pendingDraw();  // the older load stops waiting for its drawing
   await new Promise((resolve) => {
-    const timer = setTimeout(resolve, 20000);
-    afterRender = () => { clearTimeout(timer); if (keepScroll) { viewport.scrollTop = top; tick(); } resolve(); };
+    const done = () => { clearTimeout(timer); if (pendingDraw === done) pendingDraw = null; resolve(); };
+    const timer = setTimeout(done, 20000);
+    pendingDraw = done;
+    afterRender = () => { if (keepScroll) { viewport.scrollTop = top; tick(); } done(); };
     api.tex(d.tex, shown ? shown : "all");
     showSelection();
   });
@@ -664,6 +708,12 @@ document.addEventListener("keydown", (e) => {
   if (t && t.tagName === "INPUT" && /^(Arrow|Delete$|Backspace$|Home$|End$|Page)/.test(e.key)) return;
   const onPage = t === document.body || t === viewport || (t && t.tagName === "INPUT");
   if (e.code === "Space" && (onPage || (t && t.tagName === "BUTTON"))) { e.preventDefault(); api.playPause(); return; }
+  const spanDigit = /^Digit([0-4])$/.exec(e.code);
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && spanDigit) {  // M7c: from this note to the end of its section
+    const sn = selectedNote();
+    if (sn) { e.preventDefault(); send({ cmd: "part_span", uid: selected, to: spanDigit[1] === "0" ? "u" : spanDigit[1] }); }
+    return;
+  }
   if (e.ctrlKey || e.metaKey) {
     const k = e.key.toLowerCase();
     if (k === "z") { e.preventDefault(); send({ cmd: e.shiftKey ? "redo" : "undo" }); }

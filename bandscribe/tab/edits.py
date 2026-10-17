@@ -6,7 +6,13 @@ What an edit changes, and what is recomputed from it (never a GPU stage; the tun
 - ``pin`` (string/fret): fretting keeps the note there and fingers its neighbours around it;
 - ``part`` (M7b: a guitar note's part, or Unassigned): the note and, through the parts stage's repeat links
   (``rep``), the same note in the repeated bars - unless an edit of their own set those (DESIGN 4.10: "1절의 수정이
-  2절에도 퍼진다").
+  2절에도 퍼진다");
+- ``part_span`` (M7c, "여기부터 구간 끝까지"): every note of one part from a time to a time (the selected note to the
+  end of its section) to another part;
+- ``parts_k`` (M7c, the part count switch): the parts stage's assignment again with K forced (0 = the run's own),
+  from the run's own stage inputs (notes, signatures, router windows, grid, repeat map); the parts are fretted again
+  with the song's tuning (their own tunings belonged to the run's parts). The last one in effect wins; note and
+  part edits apply after it.
 
 Notes are anchored by (track, the transcription's own onset, pitch): neither quantisation nor a bar-line edit
 moves a raw onset. A note an edit added is anchored by that edit's id; a bar line by the times of its beats.
@@ -53,10 +59,12 @@ VERSION = 1
 TRACKS = ("guitar_all", "bass")
 # track ids an older log may name: the bass was "bass_raw" until M5 (2026-10-08)
 OLD_TRACK_IDS = {"bass_raw": "bass"}
-NOTE_OPS = ("delete", "pitch", "assign", "add", "pin", "part")
+NOTE_OPS = ("delete", "pitch", "assign", "add", "pin", "part", "part_span")
+PARTS_OPS = ("parts_k",)
 GRID_OPS = ("barline",)
 # what the page sends (Session.command): relative commands become the absolute edits above
-COMMANDS = ("delete", "pitch", "string", "assign", "add", "barline", "tap", "undo", "redo", "part")
+COMMANDS = ("delete", "pitch", "string", "assign", "add", "barline", "tap", "undo", "redo", "part", "part_span",
+            "parts_k")
 UNASSIGNED_LINE = "u"  # the parts stage's line of an Unassigned guitar note
 MATCH_TOL_S = 0.03
 EXACT_TOL_S = 1e-4
@@ -94,6 +102,8 @@ class Base:
     score_params: dict[str, Any]
     keys: dict[str, str] = field(default_factory=dict)  # stage -> key12
     parts: dict[str, Any] | None = None  # the parts stage's count and Line names (M7a), kept on re-quantisation
+    parts_dir: Path | None = None  # the parts stage dir (M7c: its inputs for a part count switch)
+    k_cache: dict[int, dict[str, Any]] = field(default_factory=dict)  # K -> the parts stage's result with K forced
 
 
 def _manifest(d: Path) -> dict[str, Any]:
@@ -145,7 +155,7 @@ def load_base(job_dir: Path) -> Base:
                 sections=sections, raw=raw, quant_params=dict(qm.get("params") or {}), tab=tab,
                 tab_params=dict(tm.get("params") or {}), score_params=score_params,
                 keys={"score": key12, "tab": dep["tab"], "quant": dep["quant"], "grid": dep["grid"],
-                      "notes": str(qm["deps"]["notes"])[:12]}, parts=parts)
+                      "notes": str(qm["deps"]["notes"])[:12]}, parts=parts, parts_dir=raw_dirs["parts"])
 
 
 # ---------------------------------------------------------------------------------------------- the log
@@ -407,9 +417,79 @@ def _instrument_of(tid: str, ns: Sequence[Mapping[str, Any]]) -> str:
     return sorted(set(cls), key=lambda c: (-cls.count(c), c))[0] if cls else "distorted_electric_guitar"
 
 
+def parts_with_k(base: Base, k: int) -> dict[str, Any]:
+    """The parts stage's ``guitar_lines.json`` body with ``k`` parts forced, from the run's own stage inputs (cached
+    on ``base``)."""
+    from bandscribe.parts import stage as PS
+
+    if k in base.k_cache:
+        return base.k_cache[k]
+    d = base.parts_dir
+    if d is None:
+        raise EditError("이 실행에는 파트 단계가 없어 파트 수를 바꿀 수 없습니다")
+    m = _manifest(d)
+    dep = {name: d.parent.parent / name / str(key)[:12] for name, key in (m.get("deps") or {}).items()}
+    notes = list(atomic.read_json(dep["notes"] / "guitar_all.json").get("notes") or [])
+    sigs = list(atomic.read_json(dep["notesig"] / PS.NOTESIG_FILE).get("sigs") or [])
+    windows = list(atomic.read_json(dep["router"] / "router.json").get("windows") or [])
+    bars = list(atomic.read_json(dep["grid"] / "grid.json").get("bars") or [])
+    rp = dep["sections"] / "repeat_map.json" if "sections" in dep else None
+    repeat = atomic.read_json(rp) if rp is not None and rp.is_file() else None
+    params = {**dict(m.get("params") or {}), "k": int(k)}
+    body = PS.parts_song(notes, sigs, windows, bars, params, repeat)
+    base.k_cache[k] = body
+    return body
+
+
+def apply_parts_k(quant: dict[str, Any], body: Mapping[str, Any]) -> None:
+    """The guitar notes of ``quant`` take their part (``line``, ``p``, ``amber``) from a parts stage body (by the
+    note's index ``i`` into the parts stage's list), and ``quant["parts"]`` its count and Lines."""
+    src = body["notes"]
+    for n in Q.notes_of(quant, "guitar_all"):
+        if n.get("added") or n.get("from_track", "guitar_all") != "guitar_all" or n.get("i") is None:
+            continue
+        i = int(n["i"])
+        if 0 <= i < len(src):
+            for key in ("line", "p", "amber"):
+                n[key] = src[i].get(key)
+            n["shared"] = False
+    quant["parts"] = {"count": body.get("count"), "lines": body.get("lines") or []}
+
+
+def apply_span(notes: dict[str, list[dict[str, Any]]], e: Mapping[str, Any], report: dict[str, Any]) -> None:
+    """``part_span``: the notes of part ``from`` starting in [t0, t1) go to part ``to`` (module doc)."""
+    frm, to = str(e["from"]), str(e["to"])
+    g = notes.get("guitar_all") or []
+    present = {x.get("line") for x in g} & set(T.PART_LINES)
+    if int(e.get("k") or 0) != int(report.get("_k") or 0):
+        report["unmatched"].append({"id": e.get("id"), "op": "part_span", "why": "made with another part count",
+                                    "note": {"track": "guitar_all", "onset_s": e.get("t0"), "pitch": None}})
+        return
+    if to != UNASSIGNED_LINE and to not in present:
+        report["unmatched"].append({"id": e.get("id"), "op": "part_span", "why": f"part {to} is not in this run",
+                                    "note": {"track": "guitar_all", "onset_s": e.get("t0"), "pitch": None}})
+        return
+    t0, t1 = float(e["t0"]) - EXACT_TOL_S, float(e["t1"])
+    moved = 0
+    explicit = report.setdefault("_explicit", set())
+    for n in g:
+        if str(n.get("line")) == frm and t0 <= float(n["onset_s"]) < t1:
+            _set_part(n, to)
+            explicit.add(id(n))
+            moved += 1
+    if not moved:
+        report["unmatched"].append({"id": e.get("id"), "op": "part_span", "why": "no note of that part there",
+                                    "note": {"track": "guitar_all", "onset_s": e.get("t0"), "pitch": None}})
+        return
+    report["applied"] += 1
+
+
 def apply_note_edit(notes: dict[str, list[dict[str, Any]]], e: Mapping[str, Any], tm: TempoMap,
                     report: dict[str, Any]) -> None:
     op = e["op"]
+    if op == "part_span":
+        apply_span(notes, e, report)
+        return
     if op == "add":
         tid = str(e["track"])
         new = _added_note(e, tm, _instrument_of(tid, notes.get(tid) or []))
@@ -441,16 +521,22 @@ def apply_note_edit(notes: dict[str, list[dict[str, Any]]], e: Mapping[str, Any]
         notes.setdefault(to, []).append(n)
     elif op == "pin":
         n["pin"] = [int(e["string"]), int(e["fret"])]
+    elif op == "part_span":  # (handled before the anchor lookup; see apply_span)
+        pass
     elif op == "part":
         to = str(e["to"])
         present = {x.get("line") for x in notes.get("guitar_all") or []} & set(T.PART_LINES)
+        if int(e.get("k") or 0) != int(report.get("_k") or 0):  # its part numbers meant another split
+            report["unmatched"].append({"id": e.get("id"), "op": op, "note": dict(e["note"]),
+                                        "why": "made with another part count"})
+            return
         if tid != "guitar_all" or (to != UNASSIGNED_LINE and to not in present):
             # a re-run with fewer parts (or a hand-edited log): never a part track the Part view does not name
             report["unmatched"].append({"id": e.get("id"), "op": op, "note": dict(e["note"]),
                                         "why": f"part {to} is not in this run"})
             return
         _set_part(n, to)
-        report.setdefault("_part", []).append((n, to))
+        spread_part(notes, n, to, report)
     report["applied"] += 1
 
 
@@ -461,23 +547,34 @@ def _set_part(n: dict[str, Any], to: str, keep_pin: bool = False) -> None:
         n.pop("pin", None)  # a pinned position belongs to the part track it was chosen on
 
 
-def propagate_parts(notes: Mapping[str, list[dict[str, Any]]], report: dict[str, Any]) -> None:
-    """The ``part`` edits (log order) reach the notes their note repeats (``rep``) that no edit of their own set;
-    ``report["propagated"]`` counts them."""
-    done = report.pop("_part", [])
+def protect_part_targets(notes: Mapping[str, list[dict[str, Any]]], edits: Sequence[Mapping[str, Any]],
+                         report: dict[str, Any]) -> None:
+    """Before the replay: the notes an explicit ``part`` edit sets, wherever it stands in the log - no spread
+    overrides them (spans add the notes they move as they apply)."""
+    ex = report.setdefault("_explicit", set())
+    for e in edits:
+        if e["op"] == "part" and isinstance(e.get("note"), Mapping):
+            hit = find(notes, e["note"])
+            if hit is not None:
+                ex.add(id(notes[hit[0]][hit[1]]))
     report["propagated"] = 0
-    if not done:
+
+
+def spread_part(notes: Mapping[str, list[dict[str, Any]]], n: Mapping[str, Any], to: str,
+                report: dict[str, Any]) -> None:
+    """A ``part`` edit reaches the notes its note repeats (``rep``), at once (log order: a later edit or span sees
+    it), except notes an edit of their own sets or a span moved; a pin the user set on a repeat stays."""
+    if not n.get("rep"):
         return
-    explicit = {id(n) for n, _to in done}
-    by_i = {int(n["i"]): n for n in notes.get("guitar_all") or []
-            if n.get("i") is not None and not n.get("added") and n.get("from_track", "guitar_all") == "guitar_all"}
-    for n, to in done:
-        for r in n.get("rep") or []:
-            t = by_i.get(int(r))
-            if t is None or id(t) in explicit or t.get("line") == to:
-                continue
-            _set_part(t, to, keep_pin=True)  # a pin the user set on the repeat stays
-            report["propagated"] += 1
+    ex = report.setdefault("_explicit", set())
+    by_i = {int(x["i"]): x for x in notes.get("guitar_all") or []
+            if x.get("i") is not None and not x.get("added") and x.get("from_track", "guitar_all") == "guitar_all"}
+    for r in n.get("rep") or []:
+        t = by_i.get(int(r))
+        if t is None or id(t) in ex or t.get("line") == to:
+            continue
+        _set_part(t, to, keep_pin=True)
+        report["propagated"] = report.get("propagated", 0) + 1
 
 
 # --------------------------------------------------------------------------------------------- replay
@@ -533,12 +630,20 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
     quant = {**quant0, "tracks": {tid: {**tr, "notes": [dict(n) for n in tr.get("notes") or []],
                                         "stats": dict(tr.get("stats") or {})}
                                   for tid, tr in (quant0.get("tracks") or {}).items()}}
+    kk = [e for e in edits if e["op"] in PARTS_OPS]
+    k_force = int(kk[-1]["k"]) if kk else 0
+    if k_force:  # M7c: the part count switch
+        apply_parts_k(quant, parts_with_k(base, k_force))
+        report["applied"] += 1
+    report["_k"] = k_force
     tm = TempoMap.from_dict(grid)
     notes = {tid: Q.notes_of(quant, tid) for tid in TRACKS}
+    protect_part_targets(notes, [e for e in edits if int(e.get("k") or 0) == k_force], report)
     for e in edits:
         if e["op"] in NOTE_OPS:
             apply_note_edit(notes, e, tm, report)
-    propagate_parts(notes, report)
+    report.pop("_k", None)
+    report.pop("_explicit", None)
     for tid in TRACKS:
         ns = sorted(notes.get(tid) or [], key=lambda n: (int(n["gtick"]), int(n["pitch"]), float(n["onset_s"])))
         tr = quant["tracks"].setdefault(tid, {"notes": [], "stats": {}})
@@ -549,7 +654,8 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
     for tid, inst in ((T.BASS, "bass"), ("guitar_all", "guitar")):
         sub = {"tracks": {tid: quant["tracks"][tid]}}
         sub["parts"] = quant.get("parts")
-        lines = tun.get("lines") if inst == "guitar" else None  # the parts' own tunings (M7a)
+        # the parts' own tunings (M7a) - not after a part count switch: they belonged to the run's parts
+        lines = tun.get("lines") if inst == "guitar" and not k_force else None
         key = _digest([tid, quant["tracks"][tid]["notes"], tun.get(inst), lines, base.tab_params])
         if cache is not None and tid in cache.frets and cache.frets[tid][0] == key:
             got = cache.frets[tid][1]
@@ -560,6 +666,8 @@ def apply(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache | None =
                 cache.frets[tid] = (key, got)
         tracks.update(got or {})
     tab = {**{k: v for k, v in base.tab.items() if k != "tracks"}, "tracks": tracks}
+    if k_force:  # the run's per-part tunings belonged to its parts (review 2026-10-17)
+        tab["tuning"] = {**(tab.get("tuning") or {}), "lines": {}}
     return State(grid=grid, sections=sections, quant=quant, tab=tab, report=report, n_active=len(edits))
 
 
@@ -703,9 +811,12 @@ def build_tolerant(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache
 
 # ----------------------------------------------------------------------------------------------- export
 
-SCORE_FILES = ("tab/score.gp5", "tab/score.alphatex", "score.json", "tab/tab.json",
+SCORE_FILES = ("tab/score.gp5", *(f"tab/views/{v}.gp5" for v in ("role", "player")), "tab/score.alphatex",
+               "score.json", "tab/tab.json",
                *(f"tab/{t}.txt" for t in (*TRACKS, *T.DERIVED)),
-               *(f"midi/{t}_quantized.mid" for t in (*TRACKS, *T.DERIVED)))
+               *(f"midi/{t}_quantized.mid" for t in (*TRACKS, *T.DERIVED)),
+               # M7c: the Role and Player views follow the edits
+               *(f"tab/views/{v}.alphatex" for v in ("role", "player")), "tab/views/views.json")
 
 
 def export(base: Base, state: State, h: str) -> dict[str, Any]:
@@ -945,7 +1056,8 @@ class Session:
         st = self.state
         return {"version": self.version, "hash": self.hash, "edits": st.n_active, "undo": len(undo), "redo": len(redo),
                 "unmatched": len(st.report["unmatched"]), "skipped": len(self.skipped),
-                "export_error": self.export_error, "not_applied": self.not_applied()}
+                "export_error": self.export_error, "not_applied": self.not_applied(),
+                "parts_k": self._k_now()}
 
     def not_applied(self) -> list[dict[str, Any]]:
         """The edits of the log that are not in the score (M4b review queue): ``why`` = ``unmatched`` (its note or
@@ -962,6 +1074,26 @@ class Session:
                         "t_s": None if t is None else round(float(t), 4), "pitch": note.get("pitch"),
                         "track": note.get("track") or e.get("track")})
         return out
+
+    def _k_now(self) -> int:
+        """The part count switch in effect (0 = the run's own split)."""
+        return next((int(e["k"]) for e in reversed(active(self.entries)) if e["op"] in PARTS_OPS), 0)
+
+    def view(self, kind: str, settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """A Role or Player view (M7c) of the edited score: {tex, map, doc (assignment, markers, violations),
+        settings}; its notes are the merged guitar's, so selecting and editing them works as in the Part view."""
+        with self.lock:
+            st = self.state
+            lay, doc = T.view_layout(st.quant, st.tab, st.sections, kind, settings)
+            if not lay:
+                raise EditError("이 악보에는 파트가 없어 이 보기를 만들 수 없습니다")
+            score, problems = T.build_score(self.base.title, st.quant, st.tab, st.grid, st.sections,
+                                            self.base.score_params, layout=lay)
+            if problems:
+                raise EditError(f"보기의 리듬 표기에 문제가 있습니다(버그): {problems[:3]}")
+            m = note_map(score, st)
+            return {**self.info(), "tex": ATX.write(score), "map": m, "view": kind,
+                    "doc": {k: doc.get(k) for k in ("assign", "markers", "violations", "copies") if k in doc}}
 
     def snapshot(self) -> dict[str, Any]:
         """What the page loads: the alphaTex, the note map and the version info, consistent with each other."""
@@ -1011,6 +1143,19 @@ class Session:
                 if t_ == tid and k_.isdigit() and int(k_) < len(ns) and ns[int(k_)].get("line") in T.PART_LINES:
                     rec["near"] = anchor(t_, ns[int(k_)])
             return rec, ""
+        if c == "parts_k":
+            k = int(cmd.get("k") or 0)
+            if not 0 <= k <= 4:
+                raise EditError("파트 수는 0(자동)–4 입니다")
+            run_k = int(((self.base.parts or {}).get("count") or {}).get("chosen") or 0)
+            if k == run_k:  # the run's own split is "auto": no switch, its per-part tunings stay
+                k = 0
+            cur = [e for e in active(self.entries) if e["op"] in PARTS_OPS]
+            if (int(cur[-1]["k"]) if cur else 0) == k:
+                return None, "이미 그 파트 수입니다"
+            if self.base.parts_dir is None:
+                return None, "이 실행에는 파트 단계가 없어 파트 수를 바꿀 수 없습니다"
+            return {"op": "parts_k", "k": k}, ""
         if c in ("barline", "tap"):
             starts = bar_starts(st.grid)
             times = [float(b["t_s"]) for b in st.grid["beats"]]
@@ -1046,6 +1191,21 @@ class Session:
             if not 0 <= to <= 127:
                 return None, "더 옮길 수 없습니다"
             return {"op": "pitch", "note": a, "to": to}, ""
+        if c == "part_span":
+            if tid != "guitar_all":
+                return None, "파트는 기타 음에만 있습니다"
+            frm, to = str(n.get("line")), str(cmd.get("to"))
+            present = {x.get("line") for x in Q.notes_of(st.quant, tid)} & set(T.PART_LINES)
+            if to != UNASSIGNED_LINE and to not in present:
+                return None, f"{to}번 파트가 없습니다(있는 파트: {', '.join(sorted(present)) or '없음'})"
+            if frm == to:
+                return None, "이미 그 파트입니다"
+            # its section: the one it is in, or before the first the first, between two the one before (as the views)
+            secs = sorted(st.sections, key=lambda s: int(s["start_bar"]))
+            sec = next((s for s in reversed(secs) if int(s["start_bar"]) <= int(n["bar"])), secs[0] if secs else None)
+            t1 = float(sec["end_s"]) if sec is not None and sec.get("end_s") is not None else float("inf")
+            return {"op": "part_span", "from": frm, "to": to, "t0": round(float(n["onset_s"]), 4),
+                    "t1": round(t1, 4) if t1 != float("inf") else 1e9, "k": self._k_now()}, ""
         if c == "part":
             if tid != "guitar_all":
                 return None, "파트는 기타 음에만 있습니다"
@@ -1055,7 +1215,7 @@ class Session:
                 return None, f"{to}번 파트가 없습니다(있는 파트: {', '.join(sorted(present)) or '없음'})"
             if str(n.get("line")) == to:
                 return None, "이미 그 파트입니다"
-            return {"op": "part", "note": a, "to": to}, ""
+            return {"op": "part", "note": a, "to": to, "k": self._k_now()}, ""
         if c == "assign":
             to = str(cmd["track"])
             if to not in TRACKS:
@@ -1109,7 +1269,7 @@ class Session:
         op = rec["op"]
         if op in ("undo", "redo"):
             tgt = next((e for e in self.entries if e.get("id") == rec.get("target")), None)
-            if tgt is None or tgt["op"] not in NOTE_OPS:
+            if tgt is None or tgt["op"] not in NOTE_OPS or "note" not in tgt and tgt["op"] != "add":
                 return None
             if op == "undo":
                 if tgt["op"] == "add":
@@ -1117,8 +1277,10 @@ class Session:
                 hit = find({tid: Q.notes_of(self.state.quant, tid) for tid in TRACKS}, tgt["note"])
                 return f"{hit[0]}:{hit[1]}" if hit else None
             rec, op = tgt, tgt["op"]
-        if op in ("barline", "delete"):
+        if op in ("barline", "delete") or op in PARTS_OPS:
             return None
+        if op == "part_span":  # the clicked note stays selected
+            return str(cmd.get("uid")) if cmd.get("uid") and str(cmd.get("uid")) in (self.map or {}).get("notes", {})                 else None
         if op == "add":
             a = {"track": rec["track"], "added": rec["id"]}
         else:

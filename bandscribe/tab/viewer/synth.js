@@ -18,13 +18,15 @@ async function font() {
   return soundFont;
 }
 
-// what a track plays, from the page's note map: written time, length and pitch of each of its notes
+// what a track plays, from the page's note map: written time, length and pitch of each note written in it (every
+// written place - a note copied into a second player's track counts there too)
 export function signature(map, trackIndex) {
   const rows = [];
-  for (const [uid, at] of Object.entries(map.at || {})) {
-    if (at[0] !== trackIndex) continue;
+  const pre = `${trackIndex}:`;
+  for (const [key, uid] of Object.entries(map.pos || {})) {
+    if (!key.startsWith(pre)) continue;
     const n = map.notes[uid];
-    if (n) rows.push(`${n.t}|${n.d}|${n.pitch}`);
+    if (n) rows.push(`${key}|${n.t}|${n.d}|${n.pitch}`);
   }
   rows.sort();
   const bars = (map.timeline && map.timeline.bars) || [];

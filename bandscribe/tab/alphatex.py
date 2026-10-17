@@ -70,6 +70,8 @@ def _beat(be: WBeat, fretted: bool) -> str:
         props.append("d" if be.dots == 1 else "dd")
     if be.tuplet:
         props.append(f"tu ({be.tuplet[0]} {be.tuplet[1]})")
+    if getattr(be, "text", None):
+        props.append(f"txt {_q(be.text)}")
     return f"{body}.{be.value}" + ("{" + " ".join(props) + "}" if props else "")
 
 

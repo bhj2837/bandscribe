@@ -13,7 +13,9 @@ A threaded HTTP server bound to 127.0.0.1 only (DESIGN 7.2) serves one job:
 - ``/api/media``         M4b: the mixer's recordings, the router windows, the CQT sources (``viewer_media``),
 - ``/media/<id>``        M4b: one recording (original, stem, practice mix; with HTTP Range),
 - ``/api/cqt/<id>``      M4b: the constant-Q image of one recording (raw uint8, its header in ``X-Cqt``),
-- ``/api/candidates``    M4b: the transcribers' notes the run did not keep (outlined in the roll).
+- ``/api/candidates``    M4b: the transcribers' notes the run did not keep (outlined in the roll),
+- ``/api/view?kind=role|player&players=N&idle=rest|double&unison=duplicate|primary_only``   M7c: a Role or Player
+                         view of the (edited) score - alphaTex, note map and the Player view's assignment.
 With an edit session ``/score.alphatex`` is the edited score; every edit lands in the job's ``edits.jsonl`` and
 the score files of ``export/`` follow it. Every request must carry this server's own Host (DNS rebinding).
 Nothing else of the disk is reachable (paths are resolved and must stay inside their root). Workers and fonts
@@ -257,6 +259,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._cqt(route[len("/api/cqt/"):])
         if route == "/api/candidates":
             return self._json({"notes": self.ctx.candidates()})
+        if route == "/api/view":
+            return self._view(urlsplit(self.path).query)
         self.send_error(404)
 
     def _media_doc(self) -> dict[str, Any]:
@@ -266,6 +270,25 @@ class _Handler(BaseHTTPRequestHandler):
         srcs = [{k: v for k, v in m["sources"][i].items() if k != "file"} for i in m["order"]]
         return {"sources": srcs, "router": VM.router_windows(m["dirs"]),
                 "cqt_default": next((i for i in ("stem_guitar", "mix") if i in m["sources"]), None)}
+
+    def _view(self, query: str) -> None:
+        from urllib.parse import parse_qs
+
+        from bandscribe.tab import edits as E
+
+        s = self.ctx.session
+        if s is None:
+            return self._json({"error": f"이 악보는 편집 세션이 없어 보기를 바꿀 수 없습니다: {self.ctx.readonly}"}, 409)
+        q = {k: v[-1] for k, v in parse_qs(query).items()}
+        kind = q.get("kind", "player")
+        if kind not in ("role", "player"):
+            return self._json({"error": "보기는 role 또는 player 입니다"}, 400)
+        try:
+            settings = {"players": max(1, min(4, int(q.get("players", 2)))), "idle_policy": q.get("idle", "rest"),
+                        "unison_policy": q.get("unison", "duplicate")}
+            return self._json({"readonly": "", **s.view(kind, settings)})
+        except (ValueError, E.EditError) as e:
+            return self._json({"error": str(e)}, 400)
 
     def _cqt(self, sid: str) -> None:
         from bandscribe.tab import viewer_media as VM

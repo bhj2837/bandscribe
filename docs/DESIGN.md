@@ -1988,3 +1988,15 @@ beats: beat_this_final | beat_this_small | madmom_dbn            arranger: viter
 | 기본값 | — | **끔**. E28: 기타 1대 15/15·퇴행 없음은 통과, A1 은 파트 수 0/6 → 3/6·macro +17.0 점이나 test 곡 3개 중 1곡이 그대로라 CI 하한 0 → 보류 | 사전 등록 규칙. 곡마다 켤 수 있다 |
 | B (가운데 둘) | 4.5 의 B: 반복 차감·안전망 (M8) | 근거 없음 — 두 파트 다 가운데·일관이라 스테레오로 가를 수 없고, 한 손으로 못 잡는 화음 수는 기타 1대(N1)에서도 10 % 나와 쓰지 않았다 | |
 | 대조군 | — | `D1`(A 의 더블만): 곡 전체, 기타 1대 `R2` | 폭 근거의 오검출을 재려면 R2 에서 기타 1대인 곡이 필요하다 |
+
+## 2026-10-17 M7c 구현에서 정한 것과 설계와 달라진 것
+
+| 항목 | 설계 | 구현 | 이유 |
+|---|---|---|---|
+| 역할 라벨 (4.8) | 구간별 {Rhythm, Riff, Lead, Fill, Arpeggio, Tacet}, 코드 비율·음역·밀도·벤딩·반복·솔로 게이트 | `parts/views.section_roles`: 4음 미만 Tacet, 코드 음 40 % 이상 Rhythm, 홑음 70 % 이상이고 절반 넘게 다음 음까지 울리면 Arpeggio, 리드 층 30 % 이상 또는 홑음이 많고 높으면(중앙값 E4 이상) 구간 마디의 절반 이상이면 Lead·아니면 Fill, 나머지 Riff. `score.json` 파트마다 `role_segments` | 벤딩·반복·솔로 게이트는 아직 없다(M9) |
+| Role 뷰 (4.9) | Rhythm / Lead / Lead 2 | 구간마다 리듬 성격(Rhythm·Riff·Arpeggio, 몇 음뿐인 Tacet 도)은 Rhythm, Rhythm 2, …, 리드 성격(Lead·Fill)은 Lead, Lead 2, … (음이 많은 파트부터). 유니즌 음은 그 구간에 치는 역할 트랙 모두에 | 리듬 둘이 같이 치는 곡(seisyun complex)을 한 트랙에 넣을 수 없다 |
+| Player 뷰 (4.9) | 구간별 최소 비용 할당, 동시 Line 은 한 트랙에 못 넣음, 옮김은 구간 경계에서만·벌점, 비용 = 역할 전환·음역 점프·팬 점프, 우선순위 리드·고유 > 덮이지 않는 리듬 > 더블·shared | 구간을 단계로 하는 동적 계획법. 동시 = 같은 마디에 두 파트의 음이 있음. 비용: 다른 연주자로 옮김 1.0, 한 연주자의 역할 군(리듬↔리드) 바뀜 0.3, 음역(중앙값) 옥타브당 0.3, 좌↔우 0.3, extra 로 보냄 10 × 우선순위(리드·리프 3, 리듬 2, 음 절반 넘게 유니즌 1) | 구간 안에서 옮기는 것은 없다(구간 경계에서만) |
+| idle / unison / extra / 마커 | idle_policy rest·double, unison_policy duplicate·primary_only, `Gtr extra (overdub)`, 텍스트 마커 | 그대로. 마커는 비트 텍스트(alphaTex `txt`, GP5 beat text): "plays Gtr 3 (Lead)", "rest", "doubles Gtr 1 (Rhythm)", "unison with Player 1", "Gtr 2 Rhythm (no free player)" | |
+| 내보내기 | — | `score` 단계가 Part 뷰와 함께 `tab/views/{role,player}.{alphatex,gp5}` 와 `views.json`(배정·마커·위반 수)을 쓴다(`[views]` players·idle_policy·unison_policy, 파트가 있는 곡만). 미배정 음은 보기에서도 오선보로. 편집하면 보기도 따라 다시 쓴다 | |
+| 파트 수 전환 (UI) | K 가설 전환, 배치만 재계산 | 편집 `parts_k`: 그 실행의 파트 단계 입력(음, 서명, 라우터 창, 격자, 반복 지도)으로 K 를 강제해 파트를 다시 나누고, 파트만 곡 튜닝으로 다시 운지(파트별 튜닝은 원래 파트의 것이라 버림). 마지막 것이 이기고 음·파트 편집은 그 뒤에 | 파이프라인을 거치지 않아 1 s 안팎(M7a k7) |
+| Line 재배정 (4.10) | 음표·선택 영역·마디 범위·"여기부터 구간 끝까지", 숫자키 1–4·0 | 음 하나 Shift+1–4/0(M7b `part`), 이 음부터 구간 끝까지 Ctrl+Shift+1–4/0(`part_span`: 그 파트의 음을 시각 범위로). 파트·구간 편집은 그때의 파트 수를 적어 다른 파트 수에서는 적용하지 않는다. 반복 퍼짐은 편집 순서대로 바로 하고, 명시 편집 대상·구간이 옮긴 음은 덮지 않는다. extra 트랙은 오선보 | 숫자 1·2 는 M4a 의 기타/베이스 트랙 옮기기라 Shift 를 붙였다. 선택 영역·마디 범위 끌기, 파트 띠 경계 끌기, Line 병합·분할 버튼, 사용자 파트 이름 매칭은 하지 않았다 |
