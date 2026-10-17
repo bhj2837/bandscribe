@@ -1,4 +1,5 @@
-"""Tab experiments of the registry (docs/decisions.md): ``E12`` fretting vs tuttut on GuitarSet.
+"""Tab experiments of the registry (docs/decisions.md): ``E12`` fretting vs tuttut on GuitarSet; ``E26`` edit
+anchors re-applied after upstream changes (``bandscribe.tab.reapply_eval``).
 
 E12 rows (metrics.csv): ``system`` = arm (``tuttut`` or ``dp_s<shift>_h<height>``), ``item`` = GuitarSet track,
 ``group`` = composition (style + progression + tempo + key, e.g. ``BN2-131-B``; the bootstrap block),
@@ -183,4 +184,10 @@ def run_e12b(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
     return rows
 
 
-EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {"E12": run_e12, "E12b": run_e12b}
+def run_e26(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
+    from bandscribe.tab.reapply_eval import run_e26 as run
+
+    return run(out_dir, cfg, args, **kw)
+
+
+EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {"E12": run_e12, "E12b": run_e12b, "E26": run_e26}

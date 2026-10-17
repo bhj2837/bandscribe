@@ -17,7 +17,7 @@ from rich.table import Table
 log = logging.getLogger(__name__)
 
 SetOpt = Annotated[list[str] | None, typer.Option("--set", "-s", metavar="KEY=VALUE", help="설정 덮어쓰기(여러 번 가능)")]
-EXP_IDS = ("E1", "E2", "E3", "E3b", "E3c", "E6", "E6b", "E7", "E12", "E12b", "E13", "E22", "E22b", "E23", "E25", "E24-sep", "E24-amt", "latency", "gate-m2",
+EXP_IDS = ("E1", "E2", "E3", "E3b", "E3c", "E6", "E6b", "E7", "E12", "E12b", "E13", "E22", "E22b", "E23", "E25", "E26", "E24-sep", "E24-amt", "latency", "gate-m2",
            "stereo-preservation")
 
 
