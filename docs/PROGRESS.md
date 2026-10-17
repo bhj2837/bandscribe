@@ -1,6 +1,9 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-17 (**M7b done with a known gap**: an identity tracker (off by default: on whole-song
+Last updated: 2026-10-17 (**same-position part count (E28)**: a "width" evidence - a centred, coherent part
+next to a wide double in R2 windows - counts and splits DESIGN's scenario A; held (off by default: one of three test
+songs did not change, so the CI lower bound is 0), opt-in per song with `[parts] use_width = true`; see "Same-position
+part count" below. Before it: **M7b done with a known gap**: an identity tracker (off by default: on whole-song
 Tier B remixes its dev choice changed no note - M7a's errors are single notes, not swapped windows), repeat links and a `part`
 edit that spreads from verse 1 to verse 2, whole-song evaluation data - see "M7b" below and
 `docs/acceptance/M7b.md`; before it the `--parts` switch 26.5 -> 4.0 s (a `tuning` stage). Earlier the same day:
@@ -41,6 +44,27 @@ fixes).
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## Same-position part count (2026-10-17, after M7b): width evidence, E28
+
+Code: `reid.width_split` and the `width` kind (R2 windows: notes with `ms_db >= width_ms_hi` and `coh >=
+width_coh_hi` are centred, `ms_db <= width_ms_lo` wide; two streams with `width_n_min` of each), `arbitration`
+(Lines seeded from centred / wide notes, a width term 6 x tanh((ms - 4 dB) / 3 dB) x the Line's mean width - only
+when the width evidence made the Lines), `[parts] use_width` + thresholds (default off), `tierb` variant `D1` (A's
+double alone: the one-guitar R2 control), `parts/eval_e28.py`. Tests: `tests/test_parts_width.py`.
+
+- **Why**: E25/E27 - M7a counted every A1 / B2 remix as one part; forced to two it already split some. On dev the
+  centred part of A1 is coherent and mid-heavy (coh 0.72-0.999, ms 6.6-33 dB), the double incoherent and wide
+  (coh 0.27-0.56, ms -1-0 dB); an ADT (R1) looks wide too, so the evidence reads R2 windows only. B2 (both parts
+  centred) has no stereo cue at all and stays one part.
+- **E28** (`20261017-170948_0d5774a_exp-e28`, registered before the D1 data and any test scoring; D1 filled in 22 min
+  of GPU): dev choice ms_hi 6, coh 0.9, ms_lo 0, n_min 6. Test: one guitar (ADT, N1 32 s, D1 whole song) 15/15 still
+  one part; A1 counted right 0/6 -> 3/6, macro +17.0 [0.0, 26.6] points (zeno whole song 0.50 -> 0.99, signejakobsen
+  32 s 0.50 -> 0.99, whole song 0.55; rememberdecember unchanged - its centre part never shows in an R2 window) -> the
+  CI lower bound is 0, not above it -> rule 2 fails -> held, default off. No regression on P / B2; no new one-guitar
+  false positive in 28 remixes. Tier A: unchanged (all five split on left/right already).
+- **Use it**: per song, `bandscribe run <song> --set parts.use_width=true` or `[parts] use_width = true` in the job's
+  `hints.toml` - worth it when a song has a wide rhythm double and a centred second guitar.
 
 ## M7b (2026-10-17): identity tracking
 
@@ -734,9 +758,9 @@ mask the backing used:
 ## Priority for the next session
 
 - **After M7b (2026-10-17):** by DESIGN's order the next milestone is M7c (Role / Player views, K switch and
-  Line reassignment in the viewer - the `part` edit is its first piece). The evidence from E25/E27 points at two
-  levers before more tracking: the part count without stereo evidence (forced K=2 already splits some centred
-  parts) and note-level smoothing / calibrated posteriors (M10). Open M7a items: a `--parts` switch under 2 s (the tuning stage is done, 4.0 s now;
+  Line reassignment in the viewer - the `part` edit is its first piece). Same-position count: the width evidence
+  (E28) is held for want of test songs - a new experiment with more A-type songs could adopt it; B (two centred
+  parts) still has no evidence. Note-level smoothing / calibrated posteriors are M10. Open M7a items: a `--parts` switch under 2 s (the tuning stage is done, 4.0 s now;
   the viewer switch in M7c re-frets with the stored tuning like M4a edits), same-position parts (E25: the
   symbolic-only split beat v0 on some A1/B2 songs but splits single guitars too - a gated symbolic evidence would
   need its own experiment), calibrated part posteriors (M10).
