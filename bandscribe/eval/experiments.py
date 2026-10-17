@@ -42,7 +42,7 @@ AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt"
 TAB_IDS = frozenset({"E12", "E12b", "E26"})
 BASS_IDS = frozenset({"E13"})
 ROUTER_IDS = frozenset({"E6", "E6b", "E7", "E22", "E22b"})
-PARTS_IDS = frozenset({"E25", "E27", "E28", "E29"})
+PARTS_IDS = frozenset({"E25", "E27", "E28", "E29", "E30"})
 ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS | TAB_IDS | BASS_IDS | ROUTER_IDS | PARTS_IDS))
 
 STATE_PRE = "사전 등록"
