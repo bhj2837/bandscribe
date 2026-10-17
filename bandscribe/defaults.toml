@@ -182,6 +182,11 @@ min_sections = 2               # ... spread over this many sections (all of them
 side_db = 3.0                  # P windows: a note counts on a side at |ILD| >= this
 use_class = false              # two guitar classes sounding together are two streams (E25: split one guitar)
 use_symbolic = false           # chord notes and a line over them are two streams (E25: never fired)
+use_width = false              # E28: a centred part next to a wide double (R2 windows) is a second stream
+width_ms_hi = 6.0              # clearly centred: mid/side >= this (dB) and coherence >= width_coh_hi
+width_coh_hi = 0.9
+width_ms_lo = 2.0              # clearly wide (the double): mid/side <= this (dB)
+width_n_min = 6                # notes of each kind in a window
 tau = 0.4                      # best part posterior under this -> Unassigned
 track = false                  # M7b identity tracking (windows by stream continuity and repeats; E27 decides)
 

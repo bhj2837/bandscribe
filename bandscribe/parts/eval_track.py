@@ -79,8 +79,10 @@ def bar_windows(grid: Mapping[str, Any], sections: list[Mapping[str, Any]], dur:
     return out
 
 
-def prepare_song(song: str, cfg: Any, *, e6: Path, progress: Callable[[str], None] | None = None) -> dict | None:
-    """Fill the caches of one song and write its items (module doc); returns the doc (None: no two-Line remix)."""
+def prepare_song(song: str, cfg: Any, *, e6: Path, progress: Callable[[str], None] | None = None,
+                 scenarios: tuple[str, ...] = SCENARIOS, out_name: str | None = None) -> dict | None:
+    """Fill the caches of one song and write its items (module doc) to ``out_name`` (default ``<song>.json``);
+    returns the doc (None: no remix). ``scenarios``: E27's P / A1 / B2, or E28's one-guitar control ``D1``."""
     import numpy as np
     import soundfile as sf
 
@@ -107,7 +109,7 @@ def prepare_song(song: str, cfg: Any, *, e6: Path, progress: Callable[[str], Non
     thr = RS.router_params(cfg)["thresholds"]
     work = cache_dir() / "work" / song
     plans = []
-    for sc in SCENARIOS:
+    for sc in scenarios:
         pl = (T.variant_plan(rel, sc, song_index=k, excerpt_s=full, eval_s=full) if sc in T.VARIANTS
               else T.plan(rel, sc, song_index=k, excerpt_s=full))
         if pl is not None:
@@ -189,7 +191,7 @@ def prepare_song(song: str, cfg: Any, *, e6: Path, progress: Callable[[str], Non
     doc = {"format": FORMAT, "song": song, "items": items, "sep": sep_info,
            "rung": f"{AE.sep_top_rung(cfg)}|{info_ms.get('rung_label') or AE.ms_rung(params)}",
            "views": len(views), "fresh_views": info_ms.get("fresh_views") or [], "audio_min": len(views) * full / 60}
-    atomic.write_json(cache_dir() / f"{song}.json", doc)
+    atomic.write_json(cache_dir() / (out_name or f"{song}.json"), doc)
     return doc
 
 
@@ -198,9 +200,13 @@ def two_line_songs(e6: Path) -> list[str]:
     return sorted(json.loads((Path(e6) / "relations.json").read_text(encoding="utf-8")))
 
 
-def load_items(songs: list[str] | None = None) -> list[dict[str, Any]]:
+def load_items(songs: list[str] | None = None, pattern: str = "*.json") -> list[dict[str, Any]]:
+    """The cached items (``pattern``: E27's ``<song>.json`` files match ``*.json`` only without a ``.d1``
+    suffix; E28's controls are ``<song>.d1.json``)."""
     out = []
-    for f in sorted(cache_dir().glob("*.json")):
+    for f in sorted(cache_dir().glob(pattern)):
+        if pattern == "*.json" and f.name.endswith(".d1.json"):
+            continue
         doc = atomic.read_json(f)
         if doc.get("format") != FORMAT or (songs and doc["song"] not in songs):
             continue

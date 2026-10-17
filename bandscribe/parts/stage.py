@@ -68,7 +68,9 @@ def parts_params(cfg: Any) -> dict[str, Any]:
     return {"k": int(c.tab.guitar_parts),
             "count": {"n_min": int(p.n_min), "min_windows": int(p.min_windows), "min_sections": int(p.min_sections),
                       "side_db": float(p.side_db), "use_class": bool(p.use_class),
-                      "use_symbolic": bool(p.use_symbolic)},
+                      "use_symbolic": bool(p.use_symbolic), "use_width": bool(p.use_width),
+                      "width_ms_hi": float(p.width_ms_hi), "width_coh_hi": float(p.width_coh_hi),
+                      "width_ms_lo": float(p.width_ms_lo), "width_n_min": int(p.width_n_min)},
             "tau": float(p.tau), "track": bool(p.track)}
 
 

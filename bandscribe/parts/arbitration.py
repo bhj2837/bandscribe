@@ -30,7 +30,9 @@ from typing import Any
 
 import numpy as np
 
-DEFAULT_WEIGHTS: dict[str, float] = {"pan": 6.0, "ild_scale_db": 1.0, "role": 1.0, "cls": 1.0, "prior": 1.0}
+DEFAULT_WEIGHTS: dict[str, float] = {"pan": 6.0, "ild_scale_db": 1.0, "role": 1.0, "cls": 1.0, "prior": 1.0,
+                                     # E28: centred vs wide in R2 windows, only when the width evidence made the Lines
+                                     "width": 6.0, "width_mid_db": 4.0, "width_scale_db": 3.0}
 TAU = 0.4
 AMBER = 0.6
 
@@ -50,8 +52,10 @@ def _classes(notes: Sequence[Mapping[str, Any]]) -> list[str]:
 
 def seed_lines(k: int, evidence: str | None, notes: Sequence[Mapping[str, Any]],
                feats: Sequence[Mapping[str, Any]], sigs: Sequence[Mapping[str, Any]],
-               labels: Sequence[str | None]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Seeded Lines for ``k`` parts (module doc) -> ([{key, kind, seeds}], reasons when fewer than ``k`` came out)."""
+               labels: Sequence[str | None], count_params: Mapping[str, Any] | None = None
+               ) -> tuple[list[dict[str, Any]], list[str]]:
+    """Seeded Lines for ``k`` parts (module doc) -> ([{key, kind, seeds}], reasons when fewer than ``k`` came out).
+    ``width`` (E28): the centred and the wide notes of the R2 windows (``reid.width_split`` with ``count_params``)."""
     n = len(notes)
     if k <= 1 or n == 0:
         return ([{"key": "all", "kind": "all", "seeds": list(range(n))}] if n else []), []
@@ -61,7 +65,11 @@ def seed_lines(k: int, evidence: str | None, notes: Sequence[Mapping[str, Any]],
     by_cls = {c: [i for i in range(n) if str(notes[i].get("instrument")) == c] for c in cls[:2]}
     chord = [i for i in range(n) if feats[i]["chord"]]
     lead = [i for i in range(n) if feats[i]["lead"]]
+    from bandscribe.parts import reid as RE
+
+    cen, wide = RE.width_split([i for i in range(n) if labels[i] == "R2"], sigs, count_params or {})
     pairs = {
+        "width": ([("centre", "width", cen), ("wide", "width", wide)] if cen and wide else None),
         "spatial": ([("L", "spatial", left), ("R", "spatial", right)] if left and right else None),
         "class": ([(c, "class", by_cls[c]) for c in cls[:2]] if len(cls) >= 2 else None),
         "symbolic": ([("rhythm", "symbolic", chord), ("lead", "symbolic", lead)] if chord and lead else None),
@@ -71,11 +79,12 @@ def seed_lines(k: int, evidence: str | None, notes: Sequence[Mapping[str, Any]],
     primary = next((kd for kd in order if kd and pairs.get(kd)), None)
     reasons: list[str] = []
     if primary is None:
-        return [{"key": "all", "kind": "all", "seeds": list(range(n))}], ["파트를 가를 근거(좌우·음색·코드/리드 층)가 없습니다"]
+        return [{"key": "all", "kind": "all", "seeds": list(range(n))}], ["파트를 가를 근거(좌우·음색·코드/리드 층·폭)가 없습니다"]
     two = [{"key": key, "kind": kind, "seeds": list(s)} for key, kind, s in pairs[primary]]
-    if k == 2 or primary == "symbolic":
+    if k == 2 or primary in ("symbolic", "width"):
         if k > 2:
-            reasons.append("좌우·음색 근거가 없어 코드/리드 두 파트까지만 나눕니다")
+            reasons.append("좌우·음색 근거가 없어 코드/리드 두 파트까지만 나눕니다" if primary == "symbolic" else
+                           "가운데·넓은 더블 두 파트까지만 나눕니다")
         return two, reasons
     lead_set = set(lead)
     if k == 3:
@@ -101,6 +110,12 @@ def seed_lines(k: int, evidence: str | None, notes: Sequence[Mapping[str, Any]],
     return (out if len(out) >= 2 else two), reasons
 
 
+def _width(sig: Mapping[str, Any] | None, label: str | None, mid: float, scale: float) -> float:
+    """+1 centred .. -1 wide, from the note's mid/side ratio, in R2 windows only (E28)."""
+    v = (sig or {}).get("ms_db")
+    return math.tanh((float(v) - mid) / scale) if (label == "R2" and v is not None and math.isfinite(float(v))) else 0.0
+
+
 def _pan(sig: Mapping[str, Any] | None, label: str | None, scale: float) -> float:
     v = _ild(sig)
     return math.tanh(v / scale) if (label == "R3" and v is not None) else 0.0
@@ -117,6 +132,9 @@ def posteriors(lines: Sequence[Mapping[str, Any]], notes: Sequence[Mapping[str, 
         return np.zeros((n, k)), []
     scale = float(w["ild_scale_db"])
     pan = np.array([_pan(sigs[i], labels[i], scale) for i in range(n)])
+    use_width = any(ln.get("kind") == "width" for ln in lines)
+    wid = np.array([_width(sigs[i], labels[i], float(w["width_mid_db"]), float(w["width_scale_db"]))
+                    for i in range(n)]) if use_width else np.zeros(n)
     r = np.array([float(f["r"]) for f in feats])
     cls_all = _classes(notes)
     ci = {c: j for j, c in enumerate(cls_all)}
@@ -128,15 +146,17 @@ def posteriors(lines: Sequence[Mapping[str, Any]], notes: Sequence[Mapping[str, 
         s = np.array(ln["seeds"], dtype=int)
         in_p = [i for i in ln["seeds"] if labels[i] == "R3" and _ild(sigs[i]) is not None]
         position = float(np.mean(pan[in_p])) if in_p else 0.0
+        in_w = [i for i in ln["seeds"] if labels[i] == "R2"] if use_width else []
+        width = float(np.mean(wid[in_w])) if in_w else 0.0
         role = float(np.mean(r[s])) if s.size else 0.0
         counts = np.bincount(cls[s], minlength=len(cls_all)) if s.size else np.zeros(len(cls_all))
         pc = (counts + 1.0) / (counts.sum() + len(cls_all))
         share = max(len(ln["seeds"]), 1) / total
         prof.append({"key": ln["key"], "kind": ln["kind"], "seeds": int(s.size), "position": round(position, 4),
                      "role": round(role, 4), "classes": {c: round(float(pc[ci[c]]), 4) for c in cls_all},
-                     "share": round(share, 4)})
+                     "share": round(share, 4), **({"width": round(width, 4)} if use_width else {})})
         score[:, j] = (w["pan"] * pan * position + w["role"] * r * role + w["cls"] * np.log(pc[cls])
-                       + w["prior"] * math.log(share))
+                       + w["prior"] * math.log(share) + w["width"] * wid * width)
     groups: dict[tuple[int, int], list[int]] = {}
     for i, f in enumerate(feats):
         if labels[i] != "R3" and not f["peel"] and f["size"] > 1:
@@ -152,10 +172,11 @@ def posteriors(lines: Sequence[Mapping[str, Any]], notes: Sequence[Mapping[str, 
 
 def assign(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]],
            sigs: Sequence[Mapping[str, Any]], labels: Sequence[str | None], k: int, evidence: str | None, *,
-           weights: Mapping[str, float] | None = None, tau: float = TAU, amber: float = AMBER) -> dict[str, Any]:
+           weights: Mapping[str, float] | None = None, tau: float = TAU, amber: float = AMBER,
+           count_params: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Lines and per-note decisions (module doc) -> {lines (profiles), line (index or None per note), p, amber,
     reasons, post (notes x Lines posterior matrix; the M7b tracker re-decides on it)}."""
-    lines, reasons = seed_lines(k, evidence, notes, feats, sigs, labels)
+    lines, reasons = seed_lines(k, evidence, notes, feats, sigs, labels, count_params)
     post, prof = posteriors(lines, notes, feats, sigs, labels, weights)
     line: list[int | None] = []
     pmax: list[float] = []

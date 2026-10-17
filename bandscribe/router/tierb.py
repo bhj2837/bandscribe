@@ -40,6 +40,8 @@ starts as the scenario they vary, so the takes' reference transcriptions are sha
   first ``eval_s`` seconds (ties -> lower index), the rest muted: DESIGN's "넓은 리듬 더블 + 가운데 파트 하나".
 - ``B2``: ``P``'s two takes, both at the centre -> ``R0``.
 - ``N1``: ``ADT``'s take alone at the centre (no delayed copy) -> ``R0``: one guitar, mono.
+- ``D1`` (2026-10-17, the same-position part count): ``A``'s double alone, hard left / hard right, every other take
+  muted -> ``R2`` with one Line (R1: a double is one part) - the one-guitar control for evidence read in R2 windows.
 """
 
 from __future__ import annotations
@@ -76,7 +78,7 @@ P_PAN = 0.7
 ADT_DELAY_MS = 15.0
 MASTER_LUFS = -8.0
 SCENARIOS = ("B", "A", "P", "ADT")
-VARIANTS = ("A1", "B2", "N1")
+VARIANTS = ("A1", "B2", "N1", "D1")
 
 
 # ------------------------------------------------------------------------------------------- relations
@@ -314,7 +316,7 @@ def variant_plan(rel: Mapping[str, Any], scenario: str, song_index: int = 0, exc
                  eval_s: float | None = None) -> Plan | None:
     """The plan of a variant (module doc) or None when its base scenario has none (``A1``: also when no other take
     plays in the first ``eval_s`` seconds)."""
-    base = {"A1": "A", "B2": "P", "N1": "ADT"}.get(scenario)
+    base = {"A1": "A", "B2": "P", "N1": "ADT", "D1": "A"}.get(scenario)
     if base is None:
         raise ValueError(f"unknown variant {scenario!r}")
     pl = plan(rel, base, song_index=song_index, excerpt_s=excerpt_s)
@@ -325,6 +327,8 @@ def variant_plan(rel: Mapping[str, Any], scenario: str, song_index: int = 0, exc
     if scenario == "N1":
         return Plan("N1", pl.start_s, {k: 0.0 for k in pl.pans}, {"single": list(pl.roles["adt"])})
     i, j = pl.roles["double"]
+    if scenario == "D1":
+        return Plan("D1", pl.start_s, {i: -1.0, j: 1.0}, {"double": [i, j]})
     span = float(eval_s if eval_s is not None else excerpt_s)
     act = {k: sum(1 for s in rel["takes"][k]["active_s"] if pl.start_s <= s < pl.start_s + span)
            for k in pl.roles["centre"]}

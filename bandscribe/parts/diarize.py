@@ -32,7 +32,7 @@ def diarize(notes: Sequence[Mapping[str, Any]], sigs: Sequence[Mapping[str, Any]
     wins = sorted(windows, key=lambda w: float(w["start_s"]))
     of = R.window_index(notes, wins)
     labels = [wins[j].get("label") if j is not None else None for j in of]
-    res = A.assign(notes, feats, sigs, labels, k, est["evidence"], weights=weights, tau=tau)
+    res = A.assign(notes, feats, sigs, labels, k, est["evidence"], weights=weights, tau=tau, count_params=params)
     tracked = None
     if tracking is not None and res["post"].shape[1] >= 2:
         line0 = [None if j is None else j + 1 for j in res["line"]]

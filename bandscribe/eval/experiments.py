@@ -9,7 +9,7 @@
 3. calls ``EXPERIMENTS[id](out_dir, cfg, args) -> list[dict]`` (metrics.csv rows with ``rung`` filled) from
    ``bandscribe.sep.experiments`` (``stereo-preservation``), ``bandscribe.tab.experiments`` (``E12``, ``E12b``, ``E26``) or
    ``bandscribe.bass.experiments`` (``E13``), ``bandscribe.router.experiments`` (``E6``, ``E6b``, ``E7``, ``E22``, ``E22b``),
-   ``bandscribe.parts.experiments`` (``E25``, ``E27``) or ``bandscribe.amt.experiments`` (all others);
+   ``bandscribe.parts.experiments`` (``E25``, ``E27``, ``E28``) or ``bandscribe.amt.experiments`` (all others);
 4. computes the decision with ``bandscribe.eval.stats`` against the pre-registration, writes the run dir and appends a
    result line to the entry. The final ``결정:`` status is set by a person (``--record``), not silently.
 
@@ -42,7 +42,7 @@ AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E23", "E24-sep", "E24-amt"
 TAB_IDS = frozenset({"E12", "E12b", "E26"})
 BASS_IDS = frozenset({"E13"})
 ROUTER_IDS = frozenset({"E6", "E6b", "E7", "E22", "E22b"})
-PARTS_IDS = frozenset({"E25", "E27"})
+PARTS_IDS = frozenset({"E25", "E27", "E28"})
 ALL_IDS = tuple(sorted(SEP_IDS | AMT_IDS | TAB_IDS | BASS_IDS | ROUTER_IDS | PARTS_IDS))
 
 STATE_PRE = "사전 등록"

@@ -359,6 +359,12 @@ class PartsCfg(_Section):
     side_db: float = Field(3.0, ge=0.0)  # P windows: a note counts on a side at |ILD| >= this
     use_class: bool = False  # two MuScriptor guitar classes sounding together are two streams (E25: split 1 guitar)
     use_symbolic: bool = False  # chord notes and a line over them are two streams (E25: never fired)
+    # E28: a centred part next to a wide double (R2 windows) is a second stream; E28 decides use_width and the values
+    use_width: bool = False
+    width_ms_hi: float = 6.0  # clearly centred: mid/side >= this (dB) ...
+    width_coh_hi: Prob = 0.9  # ... and coherence >= this
+    width_ms_lo: float = 2.0  # clearly wide (the double): mid/side <= this (dB)
+    width_n_min: int = Field(6, ge=1)  # notes of each in a window
     tau: Prob = 0.4  # best Line posterior under this -> Unassigned (DESIGN 4.2: 0.4 to start)
     # M7b: re-decide whole windows by stream continuity and repeats, with track.DEFAULT_PARAMS. E27 rejected it
     # (it changed no note at its dev choice), so it is off and no tuned values are wired in.

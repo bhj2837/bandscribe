@@ -9,10 +9,13 @@ counted on its own and the window taking the largest:
 - ``class``: two MuScriptor guitar classes with ``n_min`` notes each, half of the second one's notes in
   ``cooccur_s`` cells that hold the first one too (the two sound together, not one after the other);
 - ``symbolic``: ``n_min`` chord notes and ``n_min`` lead-layer notes (``bandscribe.parts.layers``);
+- ``width`` (2026-10-17, E28: DESIGN 4.5's A, a wide double with a part at the centre): in a window the router
+  labels ``R2``, notes clearly centred (``ms_db >= width_ms_hi`` and ``coh >= width_coh_hi``: one coherent source in
+  the middle) and notes clearly wide (``ms_db <= width_ms_lo``: the double's two takes), ``width_n_min`` of each;
 - otherwise one stream when the window has ``n_min`` notes, else none.
 
 A double (router ``R2``) and an ADT (``R1``) are one part by R1 / R2 of the output contract and add no spatial
-stream. The count of a song (``k_low``) is 2 only when two streams hold in ``min_windows`` windows that span
+stream; the width evidence reads only R2 windows and needs a centred part next to the double. The count of a song (``k_low``) is 2 only when two streams hold in ``min_windows`` windows that span
 ``min_sections`` sections (all of them when the song has fewer; DESIGN: "3개 이상의 창과 2개 이상의 구간"), else 1
 when there is any guitar note. v0 counts at most two parts by itself; more come only from the user's ``--parts``.
 The two hypotheses shown with it get a logistic of the support margin (not a calibrated probability).
@@ -33,8 +36,13 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "use_class": True,
     "use_symbolic": True,
     "cooccur_s": 1.0,
+    "use_width": False,
+    "width_ms_hi": 6.0,
+    "width_coh_hi": 0.9,
+    "width_ms_lo": 2.0,
+    "width_n_min": 6,
 }
-KINDS = ("spatial", "class", "symbolic")
+KINDS = ("spatial", "class", "symbolic", "width")
 
 
 def _ild(sig: Mapping[str, Any] | None) -> float | None:
@@ -47,7 +55,7 @@ def window_streams(idx: Sequence[int], notes: Sequence[Mapping[str, Any]], feats
     """Streams of one window (module doc) -> {notes, spatial, class, symbolic, c}."""
     p = {**DEFAULT_PARAMS, **params}
     nmin = int(p["n_min"])
-    out: dict[str, Any] = {"notes": len(idx), "spatial": 0, "class": 0, "symbolic": 0, "c": 0}
+    out: dict[str, Any] = {"notes": len(idx), "spatial": 0, "class": 0, "symbolic": 0, "width": 0, "c": 0}
     if len(idx) < nmin:
         return out
     out["c"] = 1
@@ -75,8 +83,27 @@ def window_streams(idx: Sequence[int], notes: Sequence[Mapping[str, Any]], feats
         n_lead = sum(1 for i in idx if feats[i]["lead"])
         n_chord = sum(1 for i in idx if feats[i]["chord"])
         out["symbolic"] = 2 if min(n_lead, n_chord) >= nmin else 1
-    out["c"] = max(1, out["spatial"], out["class"], out["symbolic"])
+    if p["use_width"] and label == "R2":
+        cen, wide = width_split(idx, sigs, p)
+        out["width"] = 2 if min(len(cen), len(wide)) >= int(p["width_n_min"]) else 1
+    out["c"] = max(1, out["spatial"], out["class"], out["symbolic"], out["width"])
     return out
+
+
+def width_split(idx: Sequence[int], sigs: Sequence[Mapping[str, Any]], params: Mapping[str, Any]
+                ) -> tuple[list[int], list[int]]:
+    """(clearly centred, clearly wide) notes of ``idx`` by their mid/side ratio and coherence (module doc)."""
+    p = {**DEFAULT_PARAMS, **params}
+    cen, wide = [], []
+    for i in idx:
+        ms, coh = (sigs[i] or {}).get("ms_db"), (sigs[i] or {}).get("coh")
+        if ms is None or not math.isfinite(float(ms)):
+            continue
+        if float(ms) >= float(p["width_ms_hi"]) and coh is not None and float(coh) >= float(p["width_coh_hi"]):
+            cen.append(i)
+        elif float(ms) <= float(p["width_ms_lo"]):
+            wide.append(i)
+    return cen, wide
 
 
 def window_index(notes: Sequence[Mapping[str, Any]], windows: Sequence[Mapping[str, Any]]) -> list[int | None]:
