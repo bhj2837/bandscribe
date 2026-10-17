@@ -188,6 +188,13 @@ names, `diarize.py` end to end, `stage.py` the `notesig` and `parts` stages, `ev
   windows have one take only; 72 % of the two-take windows fall under the veto).
 - **Not done in M7a** (see `docs/acceptance/M7a.md`): same-position parts (A, B), automatic counts over 2, unison
   (R3) and twin (R5) rules and their fixtures, R4/R6/R9 rules, calibrated posteriors, a fast part-count switch.
+- **Follow-up 2026-10-17 (the `--parts` switch):** a `tuning` stage (deps notes, bass, grid, sections; it quantises
+  the merged guitar and the bass without the parts) holds the song's tuning, so another part count reuses it; a
+  part's own tuning is searched among the song's best 5 only, with the bass held (`tuning.rank_guitar`); fretting
+  works out each pitch tuple's candidates once per call; the score stage converts note times with a plain-float
+  `TempoMap.beat_time` (same values). seisyun complex `--parts 4` (a new count): parts 0.2 + quant 0.8 + tab 1.5 +
+  score 1.5 = 4.0 s (was 26.5 s); a count run before is all cache. The five Tier A songs keep their tunings and parts.
+  Still over 2 s: the viewer switch (M7c) re-frets the changed parts with the stored tuning.
 
 ## M6 (2026-10-10): stereo router and the first automatic part split
 
@@ -685,7 +692,7 @@ mask the backing used:
 ## Priority for the next session
 
 - **After M4b (2026-10-17):** by DESIGN's order the next milestone is M7b (identity tracking), then M7c (Role /
-  Player, K switch and Line reassignment in the viewer). Open M7a items: a fast `--parts` switch (a tuning stage that does not depend on the parts;
+  Player, K switch and Line reassignment in the viewer). Open M7a items: a `--parts` switch under 2 s (the tuning stage is done, 4.0 s now;
   the viewer switch in M7c re-frets with the stored tuning like M4a edits), same-position parts (E25: the
   symbolic-only split beat v0 on some A1/B2 songs but splits single guitars too - a gated symbolic evidence would
   need its own experiment), calibrated part posteriors (M10).

@@ -223,23 +223,30 @@ def test_quant_reads_the_guitar_and_the_part_names_from_the_parts_stage(tmp_path
 
 def test_a_part_gets_its_own_tuning_only_when_its_notes_clearly_want_one(monkeypatch):
     q, _grid = _quant_with_lines()
-    tun = {"guitar": {"label": "E standard", "tuning": [40, 45, 50, 55, 59, 64], "capo": 0},
-           "bass": {"label": "E standard", "tuning": [28, 33, 38, 43], "capo": 0}}
+    tun = {"guitar": {"label": "E standard", "tuning": [40, 45, 50, 55, 59, 64], "capo": 0,
+                      "top": [{"label": "E standard", "cost": 0.4}, {"label": "Drop D", "cost": 0.6}]},
+           "bass": {"label": "E standard", "tuning": [28, 33, 38, 43], "capo": 0, "downtune": 0}}
     p = T.tab_params(None)
     assert T.line_tunings(q, tun, p, set()) == {}  # each part has fewer than LINE_TUNING_MIN_NOTES notes
     monkeypatch.setattr(T, "LINE_TUNING_MIN_NOTES", 1)
     calls = []
 
-    def fake_choose(events, bass_events, params, fixed=None):
-        calls.append(fixed)
-        drop = {"label": "Drop D", "tuning": [38, 45, 50, 55, 59, 64], "capo": 0, "cost": 1.0, "unknown": False,
-                "top": [{"label": "Drop D", "cost": 1.0}, {"label": "E standard", "cost": 1.5}]}
-        return {"guitar": drop if len(calls) == 1 else {**drop, "top": [{"label": "E standard", "cost": 1.1}]}}
+    def row(label, cost):
+        return {"label": label, "tuning": [38 if label == "Drop D" else 40, 45, 50, 55, 59, 64], "capo": 0,
+                "cost": cost, "per_note": cost, "unplayable": 0.0, "joint": cost, "prior": 0.0}
 
-    monkeypatch.setattr(T.TU, "choose", fake_choose)
+    def fake_rank(events, candidates, params, bass_downtune):
+        calls.append((list(candidates), bass_downtune))
+        if len(calls) == 1:
+            return [row("Drop D", 1.0), row("E standard", 1.5)]
+        return [row("Drop D", 1.0), row("E standard", 1.1)]
+
+    monkeypatch.setattr(T.TU, "rank_guitar", fake_rank)
     got = T.line_tunings(q, tun, p, set())
     assert list(got) == ["gtr_1"] and got["gtr_1"]["label"] == "Drop D"  # gtr_2: the song's tuning is close enough
-    assert calls[0] == {"guitar": "auto", "bass": "E standard"}
+    assert got["gtr_1"]["song_cost"] == 1.5 and "joint" not in got["gtr_1"]
+    # only the song's best few are searched (2026-10-17), against the song's bass
+    assert calls[0] == (["E standard", "Drop D"], 0)
     assert T.line_tunings(q, tun, {**p, "guitar_tuning": "E standard"}, set()) == {}  # the user named the tuning
     tracks = T.fret_tracks(q, {**tun, "lines": got}, p)
     assert tracks["gtr_1"]["tuning"] == [38, 45, 50, 55, 59, 64] and tracks["gtr_2"]["tuning"][0] == 40

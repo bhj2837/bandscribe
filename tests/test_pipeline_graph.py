@@ -34,8 +34,9 @@ EXPECTED.update({  # M6 router; M7a note signatures and the Part view (quant rea
 })
 EXPECTED.update({  # M3 (CPU only)
     "a4": {"stems"},
+    "tuning": {"notes", "bass", "grid", "sections"},  # the song's tuning without the parts (2026-10-17, --parts)
     "quant": {"notes", "bass", "parts", "grid", "sections"},  # the bass from the bass stage (M5), guitar from parts
-    "tab": {"quant", "a4"},
+    "tab": {"quant", "a4", "tuning"},
     "score": {"tab", "quant", "grid", "sections"},
 })
 GPU = {"beats", "sep", "amt_ms1", "amt_gtr", "bass_f0"}
@@ -78,9 +79,10 @@ def test_until_notes_includes_s35_parts():
     assert graph.selected("grid") == ["beats", "grid"]
     assert graph.selected("sections") == ["beats", "grid", "sections"]
     assert graph.descendants({"sections"}) == {"sections", "resid1", "amt_ms1", "instr", "amt_gtr", "s35", "notes",
-                                               "bass", "quant", "tab", "score", "router", "notesig", "parts"}
+                                               "bass", "quant", "tab", "score", "router", "notesig", "parts",
+                                               "tuning"}
     assert {"router", "notesig", "parts"} <= set(graph.selected("score")) and graph.selected("router")[-1] == "router"
-    assert graph.selected("score")[-5:] == ["parts", "a4", "quant", "tab", "score"]
+    assert graph.selected("score")[-6:] == ["parts", "a4", "tuning", "quant", "tab", "score"]
     assert "bass_f0" in graph.selected("score") and "bass" in graph.selected("score")
 
 

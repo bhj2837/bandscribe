@@ -208,7 +208,7 @@ def _pack(fings: list[tuple[tuple[int, int], ...]], kept: list[int], n: int, w: 
     for i, f in enumerate(fings):
         fr = [x for _s, x in f if x > 0]
         if fr:
-            hand[i] = float(np.mean(fr))
+            hand[i] = sum(fr) / len(fr)  # np.mean on a few ints was a third of the fretting time
         for s, x in f:
             frets[i, s - 1] = x
         if len(f) == 1:
@@ -352,12 +352,21 @@ def assign(events: Sequence[Event], inst: Instrument, weights: Mapping[str, floa
     w = {**DEFAULT_WEIGHTS, **(weights or {})}
     cands: list[_Cands | None] = []
     drops: list[list[int]] = []
+    # an event's candidates depend only on its pitches (when nothing is pinned): chords repeat, so each pitch tuple
+    # is worked out once per call (the packed arrays are only read below)
+    memo: dict[tuple[int, ...], tuple[list[int], _Cands | None]] = {}
     for ev in events:
         fixed = {pi: pins[nid] for pi, nid in enumerate(ev.ids) if nid in pins} if pins and ev.ids else None
-        fings, dropped = candidates(ev.pitches, inst, w, fixed=fixed)
-        kept = [i for i in range(len(ev.pitches)) if i not in dropped]
-        cands.append(_pack(fings, kept, inst.n_strings, w) if fings else None)
-        drops.append(dropped)
+        key = None if fixed else tuple(int(p) for p in ev.pitches)
+        hit = memo.get(key) if key is not None else None
+        if hit is None:
+            fings, dropped = candidates(ev.pitches, inst, w, fixed=fixed)
+            kept = [i for i in range(len(ev.pitches)) if i not in dropped]
+            hit = (dropped, _pack(fings, kept, inst.n_strings, w) if fings else None)
+            if key is not None:
+                memo[key] = hit
+        cands.append(hit[1])
+        drops.append(list(hit[0]))
     out: list[Assignment] = []
     # independent Viterbi runs over stretches of fingerable events (an unfingerable event breaks the chain)
     idx = [i for i, c in enumerate(cands) if c is not None]

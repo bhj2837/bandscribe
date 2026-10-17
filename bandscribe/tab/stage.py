@@ -7,11 +7,13 @@
   pass-1 bass after the silence gate, cleaned with the F0 tracks; a run from before M5 used ``notes/bass_raw.json``)
   quantised on the grid with one subdivision decision per beat, the meter re-read (shuffle vs 12/8) and the
   triplet feel per section (``bandscribe.tab.quantize``); ``parts`` = the parts stage's count and Line names.
-- ``tab`` (CPU): ``tab.json`` + ``text/<track>.txt`` - guitar and bass tuning chosen jointly
-  (``bandscribe.tab.tuning``, fake low guitar notes left out of the evidence), the bass fretted
+- ``tuning`` (CPU): ``tuning.json`` - the song's guitar and bass tuning chosen jointly (``bandscribe.tab.tuning``,
+  fake low guitar notes left out of the evidence) on the merged guitar and the bass, quantised like ``quant`` but
+  without the parts stage: another part count (``--parts``) reuses it (2026-10-17; it was inside ``tab``).
+- ``tab`` (CPU): ``tab.json`` + ``text/<track>.txt`` - the tuning stage's tunings, the bass fretted
   (``bandscribe.tab.fretting``), each guitar part (``gtr_1``..``gtr_4``, M7a) fretted as one player's part, with a
-  tuning of its own when its notes clearly prefer one (``line_tunings``); the merged guitar and the Unassigned
-  notes stay staff + MIDI only (DESIGN 4.2).
+  tuning of its own when its notes clearly prefer one of the song's best few (``line_tunings``); the merged guitar
+  and the Unassigned notes stay staff + MIDI only (DESIGN 4.2).
 - ``score`` (CPU): ``tab/score.alphatex`` (every track; staffs where not fretted; one ``\\sync`` per bar on the
   recording's time), ``tab/score.gp5`` (fretted tracks), ``tab/<track>.txt``, ``midi/<track>_quantized.mid`` and
   ``score.json`` (schema v0), all from the same spelled bars (``bandscribe.tab.notation``). Track order and names:
@@ -54,6 +56,9 @@ UNASSIGNED = "unassigned"  # the staff of the guitar notes no part took (DESIGN 
 DERIVED = {**{f"gtr_{x}": x for x in PART_LINES}, UNASSIGNED: "u"}
 LINE_TUNING_MIN_NOTES = 150  # a part's own tuning needs this many notes ...
 LINE_TUNING_MARGIN = 0.3  # ... and must beat the song's guitar tuning on them by this cost per note
+LINE_TUNING_CANDIDATES = 5  # ... among the song's best this many guitar tunings (each costs ~0.1 s per part)
+TUNING_JSON = "tuning.json"
+TUNING_FORMAT = "bandscribe.tuning/1"
 
 
 class TabStageError(RuntimeError):
@@ -133,6 +138,37 @@ def run_quant(ctx: Any) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ tab
+
+
+def tuning_params(cfg: Any) -> dict[str, Any]:
+    """The tuning stage's params: the search, the user's fixed tunings and the quantisation it judges on - not the
+    part count, so ``--parts`` does not redo it."""
+    tp = tab_params(cfg)
+    return {"tuning": tp["tuning"], "guitar_tuning": tp["guitar_tuning"], "bass_tuning": tp["bass_tuning"],
+            "quant": quant_params(cfg)}
+
+
+def song_tuning(q: Mapping[str, Any], p: Mapping[str, Any]) -> tuple[dict[str, Any], set[int]]:
+    """(tunings chosen jointly for the song, indices of the fake low guitar notes) of a quantisation ``q``."""
+    g_notes = Q.notes_of(q, "guitar_all")
+    b_notes = Q.notes_of(q, BASS)
+    fake = TU.fake_low_notes(g_notes, b_notes, float(p["tuning"]["bleed_window_s"]))
+    evidence = F.group_events([n for i, n in enumerate(g_notes) if i not in fake])
+    tun = TU.choose(evidence, F.group_events(b_notes), p["tuning"],
+                    fixed={"guitar": p.get("guitar_tuning", "auto"), "bass": p.get("bass_tuning", "auto")})
+    return tun, fake
+
+
+def run_tuning(ctx: Any) -> None:
+    dd = {k: Path(v) for k, v in ctx.dep_dirs.items()}
+    p = dict(ctx.params)
+    grid = atomic.read_json(dd["grid"] / "grid.json")
+    sections = atomic.read_json(dd["sections"] / "sections.json").get("sections") or []
+    q = Q.quantize(quant_tracks({k: v for k, v in dd.items() if k in ("notes", "bass")}), grid, sections,
+                   dict(p["quant"]))
+    tun, fake = song_tuning(q, p)
+    atomic.write_json(Path(ctx.out_dir) / TUNING_JSON, {"format": TUNING_FORMAT, "tuning": tun,
+                                                        "fake_low_guitar_notes": len(fake)})
 
 
 def _cfg_get(cfg: Any, key: str, default: Any) -> Any:
@@ -275,21 +311,25 @@ def line_tunings(q: Mapping[str, Any], tun: Mapping[str, Any], p: Mapping[str, A
     parts = [tid for tid in DERIVED if tid != UNASSIGNED and track_notes(q, tid)]
     if not g or len(parts) < 2 or str(p.get("guitar_tuning", "auto")).lower() != "auto":
         return {}
-    b_events = F.group_events(Q.notes_of(q, BASS))
-    bass = (tun.get("bass") or {}).get("label") or "auto"
+    # the song's best few (the part's notes are part of the song's evidence), the song's own first
+    cands = list(dict.fromkeys([g["label"], *[t["label"] for t in g.get("top") or []]]))[:LINE_TUNING_CANDIDATES]
+    bass = tun.get("bass") or {}
     out: dict[str, Any] = {}
     for tid in parts:
         notes = [n for n in track_notes(q, tid) if int(n["src_k"]) not in fake]
         if len(notes) < LINE_TUNING_MIN_NOTES:
             continue
-        got = TU.choose(F.group_events(notes), b_events, p["tuning"], fixed={"guitar": "auto", "bass": bass})
-        lg = got.get("guitar")
-        if not lg or lg["label"] == g["label"] or lg.get("unknown"):
+        rows = TU.rank_guitar(F.group_events(notes), cands, p["tuning"], bass.get("downtune"))
+        if not rows or rows[0]["label"] == g["label"]:
             continue
-        song_cost = next((t["cost"] for t in lg.get("top") or [] if t["label"] == g["label"]), None)
-        if song_cost is not None and song_cost - lg["cost"] < LINE_TUNING_MARGIN:
+        best = rows[0]
+        if best["per_note"] > float(p["tuning"]["unknown_cost"]):
             continue
-        out[tid] = {**lg, "song_cost": song_cost}
+        song_cost = next((r["cost"] for r in rows if r["label"] == g["label"]), None)
+        if song_cost is not None and song_cost - best["cost"] < LINE_TUNING_MARGIN:
+            continue
+        out[tid] = {**{k: v for k, v in best.items() if k not in ("joint", "prior")}, "song_cost": song_cost,
+                    "top": [{"label": r["label"], "cost": r["cost"]} for r in rows]}
     return out
 
 
@@ -304,12 +344,13 @@ def run_tab(ctx: Any) -> None:
     p = dict(ctx.params)
     q = atomic.read_json(Path(ctx.dep_dirs["quant"]) / "quant.json")
     a4 = atomic.read_json(Path(ctx.dep_dirs["a4"]) / "a4.json")
-    g_notes = Q.notes_of(q, "guitar_all")
-    b_notes = Q.notes_of(q, BASS)
-    fake = TU.fake_low_notes(g_notes, b_notes, float(p["tuning"]["bleed_window_s"]))
-    evidence = F.group_events([n for i, n in enumerate(g_notes) if i not in fake])
-    tun = TU.choose(evidence, F.group_events(b_notes), p["tuning"],
-                    fixed={"guitar": p.get("guitar_tuning", "auto"), "bass": p.get("bass_tuning", "auto")})
+    tdir = ctx.dep_dirs.get("tuning")
+    if tdir is not None and (Path(tdir) / TUNING_JSON).is_file():
+        tun = dict(atomic.read_json(Path(tdir) / TUNING_JSON)["tuning"])
+        fake = TU.fake_low_notes(Q.notes_of(q, "guitar_all"), Q.notes_of(q, BASS),
+                                 float(p["tuning"]["bleed_window_s"]))
+    else:  # a caller without the tuning stage (tests, tools): judge here
+        tun, fake = song_tuning(q, p)
     tun["lines"] = line_tunings(q, tun, p, fake)
     tracks = fret_tracks(q, tun, p)
     doc = {"format": "bandscribe.tab/1", "guitar_parts": int(p["guitar_parts"]), "tuning": tun,
@@ -489,8 +530,8 @@ def score_doc(song_key: str, meta: dict[str, Any], title: str, quant: dict[str, 
         frets = {int(n["i"]): n for n in tr.get("notes") or []} if fretted else {}
         notes = []
         for i, n in enumerate(qn):
-            on = max(0.0, float(tm.beat_to_time(int(n["gtick"]) / Q.TPB)))
-            off = max(on, float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB)))
+            on = max(0.0, tm.beat_time(int(n["gtick"]) / Q.TPB))
+            off = max(on, tm.beat_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB))
             f = frets.get(i) or {}
             placed = f.get("string") is not None
             flags = {"octave": True} if f.get("octave_shift") else {}
@@ -538,8 +579,8 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
         qn = track_notes(quant, tid)
         if tid in DERIVED and not (qn and (tab.get("tracks") or {}).get(tid)):
             continue
-        notes = [{"onset_s": max(0.0, float(tm.beat_to_time(int(n["gtick"]) / Q.TPB))),
-                  "offset_s": max(0.0, float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB))),
+        notes = [{"onset_s": max(0.0, tm.beat_time(int(n["gtick"]) / Q.TPB)),
+                  "offset_s": max(0.0, tm.beat_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB)),
                   "pitch": int(n["pitch"])} for n in qn]
         midi.write_performance_midi(out / "midi" / f"{tid}_quantized.mid",
                                     [(track_name(quant, tid)[0], 33 if tid == BASS else 27, notes)], grid)
@@ -557,12 +598,15 @@ def run_score(ctx: Any) -> None:
 
 
 # quant 4 / tab 7 / score 5: M7a Part view (guitar notes and Line names from the parts stage; K part tracks with
-# their own tunings, the Unassigned staff)
+# their own tunings, the Unassigned staff). tab 8: the song tuning from the tuning stage, a part's own tuning among
+# the song's best few (2026-10-17, the --parts switch)
 STAGES: dict[str, dict] = {
+    "tuning": {"run": run_tuning, "code_version": "1", "params": tuning_params, "device": "cpu",
+               "models": lambda cfg: {}},
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
     "quant": {"run": run_quant, "code_version": "4", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
-    "tab": {"run": run_tab, "code_version": "7", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
+    "tab": {"run": run_tab, "code_version": "8", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
     "score": {"run": run_score, "code_version": "5", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

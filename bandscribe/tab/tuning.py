@@ -217,6 +217,27 @@ def labels(instrument: str) -> list[str]:
     return [h.label for h in pool]
 
 
+def rank_guitar(events: Sequence[F.Event], candidates: Sequence[str], params: Mapping[str, Any] | None = None,
+                bass_downtune: int | None = None) -> list[dict[str, Any]]:
+    """Only the guitar hypotheses named in ``candidates`` scored on ``events``, best first: [{label, ..., cost,
+    per_note, unplayable, joint}] with ``joint`` = cost + the downtune-mismatch penalty against a fixed bass (as
+    ``choose`` pairs them). The per-part tuning search (M7a) uses it over the song's best few, not every hypothesis."""
+    p = {**DEFAULT_PARAMS, **(params or {})}
+    ev = _sample(events, int(p["max_events"]))
+    rows = []
+    for lab in dict.fromkeys(candidates):
+        h = resolve(lab, "guitar")
+        if h is None:
+            continue
+        s = score(ev, h, p)
+        mismatch = float(p["downtune_mismatch"]) if bass_downtune is not None and h.downtune != bass_downtune else 0.0
+        rows.append({"label": h.label, "profile": h.profile, "downtune": h.downtune, "capo": h.capo,
+                     "tuning": list(h.tuning), "cost": round(s["cost"], 4), "per_note": round(s["per_note"], 4),
+                     "unplayable": round(s["unplayable"], 4), "joint": s["cost"] + mismatch, "prior": h.prior})
+    rows.sort(key=lambda r: (r["joint"], r["prior"]))
+    return rows
+
+
 def choose(guitar_events: Sequence[F.Event], bass_events: Sequence[F.Event], params: Mapping[str, Any] | None = None,
            *, guitar_notes_low: bool = False, fixed: Mapping[str, str | None] | None = None) -> dict[str, Any]:
     """{"guitar": {...}, "bass": {...}} with best hypothesis, runner-up, margin and unknown flag per instrument.

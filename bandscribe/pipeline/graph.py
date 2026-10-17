@@ -55,8 +55,10 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("parts", ("notes", "notesig", "router", "grid"), "bandscribe.parts.stage"),
     # M3 (CPU only): A4 reference, quantisation, tuning + string/fret; the bass comes from the bass stage (M5)
     ("a4", ("stems",), "bandscribe.tab.stage"),
+    # the song's tuning on the merged guitar and the bass: not on the parts, so --parts reuses it (2026-10-17)
+    ("tuning", ("notes", "bass", "grid", "sections"), "bandscribe.tab.stage"),
     ("quant", ("notes", "bass", "parts", "grid", "sections"), "bandscribe.tab.stage"),
-    ("tab", ("quant", "a4"), "bandscribe.tab.stage"),
+    ("tab", ("quant", "a4", "tuning"), "bandscribe.tab.stage"),
     ("score", ("tab", "quant", "grid", "sections"), "bandscribe.tab.stage"),
 )
 

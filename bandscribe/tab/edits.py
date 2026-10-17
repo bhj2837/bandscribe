@@ -585,8 +585,8 @@ def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
                         frets.setdefault(int(i_), r)
         for k, n in enumerate(Q.notes_of(state.quant, tid)):
             f = frets.get(k) or {}
-            t0 = float(tm.beat_to_time(int(n["gtick"]) / Q.TPB))
-            t1 = float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB))
+            t0 = tm.beat_time(int(n["gtick"]) / Q.TPB)
+            t1 = tm.beat_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB)
             notes[f"{tid}:{k}"] = {"track": tid, "pitch": int(f.get("pitch", n["pitch"])), "bar": int(n["bar"]),
                                    "string": f.get("string"), "fret": f.get("fret"), "pinned": bool(f.get("pinned")),
                                    "added": bool(n.get("added")),

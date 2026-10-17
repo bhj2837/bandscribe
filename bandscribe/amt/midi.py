@@ -95,7 +95,9 @@ class TempoPlan:
 
     def tick_at(self, t: float) -> int:
         t = max(0.0, float(t))
-        starts = [s.t0 for s in self.segments]
+        starts = self.__dict__.get("_starts")
+        if starts is None or len(starts) != len(self.segments):  # built once per plan (was once per note)
+            starts = self.__dict__["_starts"] = [s.t0 for s in self.segments]
         i = max(0, bisect_right(starts, t) - 1)
         s = self.segments[i]
         return int(round(s.tick0 + (t - s.t0) / s.spt))

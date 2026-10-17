@@ -16,6 +16,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+import math
+
 import numpy as np
 from pydantic import Field, model_validator
 
@@ -251,6 +253,15 @@ class TempoMap:
         bt = self.beat_times
         i = np.clip(np.searchsorted(bt, ta, side="right") - 1, 0, len(bt) - 2)
         return i + (ta - bt[i]) / (bt[i + 1] - bt[i])
+
+    def beat_time(self, b: float) -> float:
+        """``beat_to_time`` of one beat as a plain float (the same arithmetic, without numpy's per-call cost: the
+        score stage converts every note's start and end)."""
+        bt = self.__dict__.get("_bt_list")
+        if bt is None or len(bt) != len(self.beat_times):
+            bt = self.__dict__["_bt_list"] = [float(x) for x in self.beat_times]
+        i = min(max(math.floor(b), 0), len(bt) - 2)
+        return bt[i] + (b - i) * (bt[i + 1] - bt[i])
 
     def beat_to_time(self, b: Any) -> np.ndarray:
         ba = np.asarray(b, dtype=np.float64)

@@ -175,7 +175,10 @@ flowchart LR
     parts --> quant
     notes --> quant["quant<br/>박마다 16분·셋잇단 선택<br/>셔플·12/8 · 셋잇단 느낌"]
     grid --> quant
-    quant --> tab["tab<br/>튜닝 추정 + 줄·프렛 Viterbi<br/>파트마다 운지 · 파트별 튜닝"]
+    notes --> tuning["tuning<br/>곡의 기타·베이스 튜닝 추정<br/>(파트와 무관: --parts 를 바꿔도 캐시)"]
+    bass --> tuning
+    quant --> tab["tab<br/>줄·프렛 Viterbi<br/>파트마다 운지 · 파트별 튜닝"]
+    tuning --> tab
     a4 --> tab
     tab --> score["score<br/>alphaTex · GP5 · 양자화 MIDI"]
     score --> edit["편집 (M4a)<br/>edits.jsonl 재생<br/>export 다시 쓰기"]
