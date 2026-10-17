@@ -43,11 +43,35 @@ fixes).
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
 | M4b A/B mixer + review tools | ✅ WebAudio engine in `bandscribe view` (recordings + per-track tab synth via alphaTab audio export, A/B hold key, mixer, sound position, 50-100 % slowdown with an own pitch shifter, loop, count-in), CQT piano roll with unkept candidates, part band, review queue; E26 (edit anchors after upstream changes) 0.94; acceptance `docs/acceptance/M4b.md`: **3 pass** |
+| M8 narrow mixes + S7 (interim) | ⏸ three negative results, nothing on by default: E10 (repetition-subtraction lead view) rejected by its ceiling (+0.004 vs +0.05), E29 repeat consensus rejected (−0.02 points), E30 bleed flags held / rejected (vocal precision 0.56 on 18 notes, bass 0.70); safety net and keys bleed wait for GPU (user's call); interim report `docs/acceptance/M8.md`: **0 pass / 3 fail / 1 blocked / 2 n/a**, no tag yet |
 | M7c Role / Player views + part UI | ✅ `parts/views.py` (section roles, Role view, Player view: per-section DP, no two simultaneous parts per player, `Gtr extra (overdub)`, idle / unison policies, markers), `tab/views/` export + `score.json` roles, viewer: view switch, part count switch (`parts_k`, ~1 s), Ctrl+Shift+1-4/0 to the end of the section (`part_span`); acceptance `docs/acceptance/M7c.md`: **4 pass** |
 | M7b identity tracking | ✅ `parts/track.py` (window layers, links, Viterbi over relabellings, repeat-map window pairs; off by default), repeat links `rep` + `part` edit (Shift+1-4/0, spreads to repeats), whole-song Tier B data (`parts/eval_track.py`, 24 remixes), E27 rejected (no note changed); acceptance `docs/acceptance/M7b.md`: **3 pass / 1 fail / 1 n/a** |
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## M8 interim (2026-10-17): narrow mixes, repeat consensus, bleed
+
+Code: `bandscribe/amt/consensus.py` (repeat consensus), `bandscribe/amt/bleed.py` (vocal / bass bleed flags, vocal
+f0 by pyin), runners `bandscribe/parts/eval_e29.py`, `eval_e30.py`, `docs/research/experiments/e10_ceiling.py`.
+None is wired into the pipeline: every default is unchanged. Report: `docs/acceptance/M8.md`.
+
+- **E10 (repetition-subtraction lead view, R0 path) - rejected without a GPU run.** Only 4 of the 9 Tier B songs
+  have a single-note lead take next to a chord take (machine label: share of one-note onset groups). A generous oracle
+  (every window R0, pairs allowed, perfect extraction in bars where the lead plays in a minority of the repeats)
+  lifts the lead Line F1 by +0.004 on average: real leads repeat with the rhythm, so the median removes them too.
+- **E29 (repeat consensus) - rejected.** Voting across repeat-map occurrences adds a note one repeat lacks. Test
+  −0.02 [−0.17, +0.06] points; added notes 65 % precise (below the notes they join). On the Tier A songs no bar
+  voted: the repeat map (whole-mix similarity) pairs bars whose guitar chords differ (seisyun complex bars 32 / 73 /
+  117). A next try would pair bars by their guitar notes.
+- **E30 (bleed flags) - vocal held, bass rejected.** Vocal: the voice arrives at the note's pitch with it. Test 18
+  notes, 0.56 (dev 0.84 came from one song). Bass: a note under E2 on the bass f0's pitch class, 0.70 (a low guitar
+  doubles the bass). On Tier A both flag 0-5 notes per song: the silence gate and the mask already remove most bleed.
+- **Explored, not registered:** octave ghosts (an upper note shorter than its octave partner) looked 97 % false on dev,
+  but 3,869 of the 4,026 came from moosmusic (a stem full of other instruments); elsewhere 18 %. Lesson: read
+  precision per song.
+- **Waiting on the user:** safety net (needs a full-band nonvox transcription per song: GPU) and keys bleed (needs a
+  full piano+other transcription: GPU); optional cloud voters (accounts, upload consent) and E17 (downloads).
 
 ## M7c (2026-10-17): Role and Player views, part UI
 
@@ -784,6 +808,8 @@ mask the backing used:
 
 ## Priority for the next session
 
+- **M8 interim (2026-10-17):** E10, E29, E30 all negative (see "M8 interim"). Open: the user's call on the GPU
+  items (safety net, keys bleed) or closing M8 as is and going on to M9 (techniques, chord charts, GP7 backing).
 - **After M7c (2026-10-17):** by DESIGN's order the next milestone is M8 (narrow mixes: the B route, repetition
   subtraction, safety net; optional voters). Same-position count: the width evidence
   (E28) is held for want of test songs - a new experiment with more A-type songs could adopt it; B (two centred
