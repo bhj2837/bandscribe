@@ -1,6 +1,9 @@
 # bandscribe progress / handoff
 
-Last updated: 2026-10-11 (**M7a done with known gaps**: the Part view - the guitar part count per song, each note's
+Last updated: 2026-10-17 (**M4b done**: the viewer as a practice tool - the recordings and a tab synth per score
+track played in step (A/B, mixer, 50-100 % slowdown at the same pitch, loop, count-in), a CQT piano roll, the part
+band and a review queue - see "M4b" below and `docs/acceptance/M4b.md`; 怪獣の花唄's forced one part removed.
+2026-10-11: **M7a done with known gaps**: the Part view - the guitar part count per song, each note's
 part, one fretted tab per part next to the merged reference staff - see "M7a" below and `docs/acceptance/M7a.md`;
 before it the M6 follow-up (E6b, E7, CenterWide models). 2026-10-10: **M6 done with known gaps**: the stereo router and
 the first automatic part split - two guitars at different stereo positions become two fretted parts - see "M6"
@@ -29,9 +32,56 @@ fixes).
 | M4a editing | ✅ keyboard edits in `bandscribe view`, `edits.jsonl`, replay + re-export, re-applied after `run`; acceptance `docs/acceptance/M4a.md`: **4 pass / 1 blocked** (human baseline) (tag `m4a`) |
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
+| M4b A/B mixer + review tools | ✅ WebAudio engine in `bandscribe view` (recordings + per-track tab synth via alphaTab audio export, A/B hold key, mixer, sound position, 50-100 % slowdown with an own pitch shifter, loop, count-in), CQT piano roll with unkept candidates, part band, review queue; E26 (edit anchors after upstream changes) 0.94; acceptance `docs/acceptance/M4b.md`: **3 pass** |
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
-All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`).
+All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`).
+
+## M4b (2026-10-17): A/B mixer and review tools
+
+Code: `bandscribe/tab/viewer/` (`engine.js` WebAudio engine, `synth.js` tab synth + `syncReport`, `roll.js` piano
+roll and part band, `stretch_core.js` + `stretch.worklet.js` pitch shifter; the page `index.html` is an ES module
+now), `bandscribe/tab/viewer_media.py` (stage dirs behind the export, recordings, CQT cache, unkept candidates,
+router windows), `bandscribe/tab/viewer.py` (routes `/static/`, `/api/media`, `/media/<id>`, `/api/cqt/<id>`,
+`/api/candidates`), `bandscribe/tab/edits.py` (note map: `t`, `d`, `on`, `line`, `p`, `amber`, `fc` and `timeline`;
+session `not_applied`), `bandscribe/tab/reapply_eval.py` (E26). Tests: `tests/test_viewer_m4b.py`,
+`tests/test_reapply_eval.py`, `tests/node/stretch_test.mjs`.
+
+- **Playback**: every source is an AudioBuffer started together on one AudioContext: the original (on), the six sep
+  stems and the two practice mixes (decoded when switched on), and one tab-synth buffer per score track. The synth is
+  rendered in the background with alphaTab's `exportAudio` (sync points on, other tracks at volume 0) at 44.1 kHz -
+  at 22.05 kHz alphaTab's synthesizer turns to NaN within a second - kept mono at 22.05 kHz, and only tracks whose
+  notes changed are rendered again after an edit. On seisyun complex every written note time of Bass / Gtr 1 / Gtr 2
+  finds its synth onset: median 0 ms, 5-95 % -19..+5 ms, no drift over the song.
+- **Controls**: A/B mode (synth; hold B for the recordings), "원곡과 함께 듣기", per-source on / solo / volume, sound
+  position (stereo / left / right / mid / side) on the recordings, speed 50-100 % in 5 % steps (`-` / `=`) through
+  an AudioWorklet pitch shifter (two taps, 60 ms grains, SOLA alignment within 25 ms; ±0.25 cent at 50/60/75/90 %
+  in Node and in the browser), loop (`L`: start -> end -> off; buffer loop points), count-in (`C`: one bar of clicks
+  before the next beat). The cursor follows the heard position (output latency and the shifter's 42 ms taken off).
+- **Lower panel**: part band over the whole song (sections, router labels, a lane per part + Unassigned + bass,
+  click to seek); piano roll on the guitar stem's CQT (cached in the job's `cache/viewer`) with the score's notes
+  (part colours, opacity = part probability or fretting confidence) and the transcribers' unkept notes dashed
+  (seisyun complex 753); click a note to select it. Ctrl+wheel zooms.
+- **Review queue**: edits that no longer land (red, with their time) -> Unassigned notes -> notes under the
+  threshold (default 0.6) of the chosen confidence, lowest first; `N` / `P` step through it.
+- **E26** (`20261017-130024_740d6fd_exp-e26`, registered first): synthetic edits anchored on the M4a-day result of
+  the five Tier A songs (50 guitar + 50 bass notes + 20 bar lines each) landed 564 / 600 = 0.94 [0.82, 1.00] on
+  today's result (guitar 0.86, bass 1.00, bar lines 0.99) -> pass. Weak evidence: only 青と夏's guitar notes changed
+  since (tempo hint -> grid -> transcription, 4978 -> 3009 notes); there 15 / 50 landed, the 35 misses are notes that
+  are gone (31) or moved an octave (4) - none a tolerance miss.
+- **Review** (independent agent, 2026-10-17; table in `docs/acceptance/M4b.md`): no blockers, no security issue. Fixed:
+  a source decoded during the count-in started early (now joins at the scheduled start), a part track removed by an
+  edit left its synth playing and shifted the mixer rows (synth sources keyed by track id, `engine.remove`), editor
+  keys fired while a slider had focus, rate changes rewound by the output latency, an empty loop near the end gave
+  NaN, synth buffers shorter than the recording wrapped loops early (padded), the shifter's alignment search could
+  overrun a block (coarse + fine: worst 1.9 ms of 2.9), the original is now `input/mix_44k_f32.wav` (the stems'
+  source, no decoder delay), smaller races; E26's registration corrected (bar-line tolerance 0.3 beat, not ⅓).
+  New `tests/node/engine_test.mjs` (fake AudioContext).
+- **怪獣の花唄**: `guitar_parts = 1` removed from its `hints.toml` (user OK, 2026-10-17); re-run gives 2 parts
+  (`Gtr 1 - Rhythm (acoustic, L)` 1047 notes / 70 bars, `Gtr 2 - Rhythm (acoustic, R)` 575 / 42).
+- **Not done** (see `docs/acceptance/M4b.md`): dragging part boundaries (M7c), Line audio (M10), expected-error
+  order (M10), colouring the score by confidence, alphaTab's Media Sync Editor (sync is fixed with the M4a grid
+  edits).
 
 ## M5 (2026-10-08): bass
 
@@ -634,12 +684,11 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After M7a (2026-10-11):** by DESIGN's order the next milestone is M4b (A/B mixer, review queue), then M7b
-  (identity tracking). Open M7a items: a fast `--parts` switch (a tuning stage that does not depend on the parts;
+- **After M4b (2026-10-17):** by DESIGN's order the next milestone is M7b (identity tracking), then M7c (Role /
+  Player, K switch and Line reassignment in the viewer). Open M7a items: a fast `--parts` switch (a tuning stage that does not depend on the parts;
   the viewer switch in M7c re-frets with the stored tuning like M4a edits), same-position parts (E25: the
   symbolic-only split beat v0 on some A1/B2 songs but splits single guitars too - a gated symbolic evidence would
-  need its own experiment), calibrated part posteriors (M10), and 怪獣の花唄's `hints.toml` `guitar_parts = 1`
-  (set in M3 to get a tab; with M7a it forces one part - ask the user before removing it).
+  need its own experiment), calibrated part posteriors (M10).
 
 - **Guitar mask:** the distractor run found 0 notes relabelled non-guitar and −2.1 F1 points on average when the
   production mask added keys/synth classes (13 conditions), but E3c (held-out windows) rejected `guitar_only`

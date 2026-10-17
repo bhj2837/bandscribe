@@ -559,9 +559,10 @@ def fretted_row(tab: Mapping[str, Any], tid: str, k: int) -> tuple[dict[str, Any
 def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
     """Where every note is written: ``pos`` = {"<track>:<bar>:<beat>:s<string>|p<pitch>": note id} (alphaTab's
     track/bar/beat indices; strings 1 = highest), ``at`` = {note id: [track, bar, beat, key]} (its first written
-    piece), ``notes`` = {note id: what the editor shows}."""
+    piece), ``notes`` = {note id: what the editor shows}, ``timeline`` = bars, beats, sections, parts (``timeline``)."""
     pos: dict[str, str] = {}
     at: dict[str, list[Any]] = {}
+    tm = TempoMap.from_dict(state.grid)
     for ti, tr in enumerate(score.tracks):
         for bi, beats in enumerate(tr.beats):
             for k, be in enumerate(beats):
@@ -584,13 +585,33 @@ def note_map(score: ATX.WScore, state: State) -> dict[str, Any]:
                         frets.setdefault(int(i_), r)
         for k, n in enumerate(Q.notes_of(state.quant, tid)):
             f = frets.get(k) or {}
+            t0 = float(tm.beat_to_time(int(n["gtick"]) / Q.TPB))
+            t1 = float(tm.beat_to_time((int(n["gtick"]) + int(n["dur"])) / Q.TPB))
             notes[f"{tid}:{k}"] = {"track": tid, "pitch": int(f.get("pitch", n["pitch"])), "bar": int(n["bar"]),
                                    "string": f.get("string"), "fret": f.get("fret"), "pinned": bool(f.get("pinned")),
-                                   "added": bool(n.get("added"))}
+                                   "added": bool(n.get("added")),
+                                   # M4b (piano roll, review queue): written time and length on the recording (s),
+                                   # the transcription's onset, the part and its posterior, the fretting confidence
+                                   "t": round(t0, 4), "d": round(max(0.0, t1 - t0), 4),
+                                   "on": round(float(n["onset_s"]), 4), "line": n.get("line"),
+                                   "p": n.get("p"), "amber": bool(n.get("amber")), "fc": f.get("conf")}
     # one entry per written track, in alphaTab's track order (the viewer indexes it by track index): the parts,
     # the merged guitar, the Unassigned staff and the bass (M7a)
     tracks = [{"id": tr.tid, "fretted": bool(tr.fretted)} for tr in score.tracks]
-    return {"tracks": tracks, "pos": pos, "at": at, "notes": notes}
+    return {"tracks": tracks, "pos": pos, "at": at, "notes": notes, "timeline": timeline(state)}
+
+
+def timeline(state: State) -> dict[str, Any]:
+    """Bars, beats, sections and parts of an edited score on the recording (the M4b part band, loop and count-in)."""
+    g = state.grid
+    parts = state.quant.get("parts") or {}
+    return {"bars": [[int(b["bar"]), round(float(b["start_s"]), 4), round(float(b["end_s"]), 4), int(b["n_beats"])]
+                     for b in g.get("bars") or []],
+            "beats": [round(float(b["t_s"]), 4) for b in g.get("beats") or []],
+            "sections": [{"id": s.get("id"), "label": s.get("label"), "start_s": round(float(s["start_s"]), 4),
+                          "end_s": round(float(s["end_s"]), 4)} for s in state.sections if "start_s" in s],
+            "lines": [{"number": str(ln.get("number")), "name": ln.get("name"), "short": ln.get("short")}
+                      for ln in parts.get("lines") or []]}
 
 
 def render(base: Base, state: State) -> tuple[ATX.WScore, str]:
@@ -882,7 +903,23 @@ class Session:
         st = self.state
         return {"version": self.version, "hash": self.hash, "edits": st.n_active, "undo": len(undo), "redo": len(redo),
                 "unmatched": len(st.report["unmatched"]), "skipped": len(self.skipped),
-                "export_error": self.export_error}
+                "export_error": self.export_error, "not_applied": self.not_applied()}
+
+    def not_applied(self) -> list[dict[str, Any]]:
+        """The edits of the log that are not in the score (M4b review queue): ``why`` = ``unmatched`` (its note or
+        bar line is not in this run) or ``skipped`` (it no longer replays), with where it was (``t_s``, pitch)."""
+        by_id = {str(e.get("id")): e for e in self.entries}
+        out: list[dict[str, Any]] = []
+        rows = [(u, "unmatched") for u in self.state.report["unmatched"]]
+        rows += [({"id": i}, "skipped") for i in self.skipped]
+        for u, why in rows:
+            e = by_id.get(str(u.get("id"))) or {}
+            note = u.get("note") or e.get("note") or {}
+            t = note.get("onset_s", e.get("at_s", e.get("t_s")))
+            out.append({"id": u.get("id"), "op": u.get("op") or e.get("op"), "why": why,
+                        "t_s": None if t is None else round(float(t), 4), "pitch": note.get("pitch"),
+                        "track": note.get("track") or e.get("track")})
+        return out
 
     def snapshot(self) -> dict[str, Any]:
         """What the page loads: the alphaTex, the note map and the version info, consistent with each other."""

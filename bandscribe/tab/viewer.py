@@ -7,7 +7,13 @@ A threaded HTTP server bound to 127.0.0.1 only (DESIGN 7.2) serves one job:
 - ``/audio``             the job's original input (with HTTP Range, so the browser can seek),
 - ``/alphatab/...``      alphaTab 1.8.4's ``dist`` from ``node/node_modules`` (fonts, worker script),
 - ``/api/score``         M4a: the (edited) alphaTex, the note map and the edit version in one JSON,
-- ``POST /api/cmd``      M4a: one edit (``bandscribe.tab.edits.Session.command``); needs the page's token header.
+- ``POST /api/cmd``      M4a: one edit (``bandscribe.tab.edits.Session.command``); needs the page's token header,
+- ``/static/<file>``     M4b: the page's scripts (``viewer/*.js``: the WebAudio engine, the time-stretch worklet, the
+                         piano roll and the part band),
+- ``/api/media``         M4b: the mixer's recordings, the router windows, the CQT sources (``viewer_media``),
+- ``/media/<id>``        M4b: one recording (original, stem, practice mix; with HTTP Range),
+- ``/api/cqt/<id>``      M4b: the constant-Q image of one recording (raw uint8, its header in ``X-Cqt``),
+- ``/api/candidates``    M4b: the transcribers' notes the run did not keep (outlined in the roll).
 With an edit session ``/score.alphatex`` is the edited score; every edit lands in the job's ``edits.jsonl`` and
 the score files of ``export/`` follow it. Every request must carry this server's own Host (DNS rebinding).
 Nothing else of the disk is reachable (paths are resolved and must stay inside their root). Workers and fonts
@@ -32,9 +38,10 @@ from urllib.parse import unquote, urlsplit
 
 from bandscribe import atomic
 
-TEMPLATE = Path(__file__).with_name("viewer") / "index.html"
+VIEWER_DIR = Path(__file__).with_name("viewer")
+TEMPLATE = VIEWER_DIR / "index.html"
 AUDIO_EXTS = (".mp3", ".m4a", ".mp4", ".wav", ".flac", ".ogg", ".opus", ".webm", ".aac")
-MIME = {".alphatex": "text/plain; charset=utf-8", ".gp5": "application/octet-stream", ".mjs": "text/javascript",
+MIME = {".alphatex": "text/plain; charset=utf-8", ".u8": "application/octet-stream", ".gp5": "application/octet-stream", ".mjs": "text/javascript",
         ".js": "text/javascript", ".woff2": "font/woff2", ".woff": "font/woff", ".sf2": "application/octet-stream",
         ".txt": "text/plain; charset=utf-8", ".mp4": "audio/mp4", ".m4a": "audio/mp4", ".flac": "audio/flac",
         ".wav": "audio/wav", ".mp3": "audio/mpeg"}
@@ -93,12 +100,47 @@ def _inside(root: Path, rel: str) -> Path | None:
 class _Ctx:
     """What every request of one viewer server shares."""
 
-    def __init__(self, files: Mapping[str, Any], alphatab: Path, session: Any, readonly: str) -> None:
+    def __init__(self, files: Mapping[str, Any], alphatab: Path, session: Any, readonly: str,
+                 job_dir: Path | None = None) -> None:
         self.files = files
         self.alphatab = alphatab
         self.session = session          # bandscribe.tab.edits.Session, or None (read-only)
         self.readonly = readonly        # why there is no session ("" when editing works)
         self.token = secrets.token_urlsafe(18)
+        self.job_dir = Path(job_dir) if job_dir is not None else None
+        self._media_lock = threading.Lock()
+        self._media_key: str | None = None
+        self._media: dict[str, Any] = {}
+
+    def media(self) -> dict[str, Any]:
+        """Stage dirs and recordings behind the current export (re-read when a newer run replaced it)."""
+        from bandscribe.tab import edits as E
+        from bandscribe.tab import viewer_media as VM
+
+        key = E.export_score_key(self.job_dir) if self.job_dir is not None else None
+        with self._media_lock:
+            if key != self._media_key or not self._media:
+                dirs = VM.stage_dirs(self.job_dir, key) if self.job_dir is not None else {}
+                srcs = (VM.sources(self.job_dir, dirs, VM.original(self.job_dir, Path(self.files["audio"])))
+                        if self.job_dir is not None else [])
+                self._media_key = key
+                self._media = {"dirs": dirs, "sources": {s["id"]: s for s in srcs}, "order": [s["id"] for s in srcs],
+                               "candidates": None}
+            return self._media
+
+    def candidates(self) -> list[dict[str, Any]]:
+        from bandscribe.tab import stage as T
+        from bandscribe.tab import viewer_media as VM
+
+        m = self.media()
+        if m["candidates"] is None:
+            dirs = m["dirs"]
+            try:
+                kept = T.quant_tracks(dirs) if "notes" in dirs else {}
+            except (OSError, ValueError, KeyError):
+                kept = {}
+            m["candidates"] = VM.candidates(dirs, kept)
+        return m["candidates"]
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -201,7 +243,47 @@ class _Handler(BaseHTTPRequestHandler):
             p = _inside(self.alphatab, route[len("/alphatab/"):])
             if p:
                 return self._send_file(p)
+        if route.startswith("/static/") and route.endswith(".js"):
+            p = _inside(VIEWER_DIR, route[len("/static/"):])
+            if p:
+                return self._send_file(p)
+        if route == "/api/media":
+            return self._json(self._media_doc())
+        if route.startswith("/media/"):
+            src = self.ctx.media()["sources"].get(route[len("/media/"):])
+            if src and Path(src["file"]).is_file():
+                return self._send_file(Path(src["file"]))
+        if route.startswith("/api/cqt/"):
+            return self._cqt(route[len("/api/cqt/"):])
+        if route == "/api/candidates":
+            return self._json({"notes": self.ctx.candidates()})
         self.send_error(404)
+
+    def _media_doc(self) -> dict[str, Any]:
+        from bandscribe.tab import viewer_media as VM
+
+        m = self.ctx.media()
+        srcs = [{k: v for k, v in m["sources"][i].items() if k != "file"} for i in m["order"]]
+        return {"sources": srcs, "router": VM.router_windows(m["dirs"]),
+                "cqt_default": next((i for i in ("stem_guitar", "mix") if i in m["sources"]), None)}
+
+    def _cqt(self, sid: str) -> None:
+        from bandscribe.tab import viewer_media as VM
+
+        src = self.ctx.media()["sources"].get(sid)
+        if not src:
+            return self._json({"error": "없는 소스입니다"}, 404)
+        try:
+            data, head = VM.cqt(self.ctx.job_dir, src)
+        except VM.MediaError as e:
+            return self._json({"error": str(e)}, 500)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Cqt", json.dumps(head))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
         """``/api/cmd``: one edit command from the page (JSON). Needs this server's token in ``X-Bandscribe-Token``
@@ -262,7 +344,7 @@ def serve(job_dir: Path, *, port: int = 0, alphatab: Path | None = None, edit: b
         except Exception as e:  # noqa: BLE001 - the score can still be viewed
             log.exception("viewer: the edit session of %s did not open", Path(job_dir).name)
             readonly = f"편집 기록을 열지 못했습니다: {e}"
-    ctx = _Ctx(files, at, session, readonly)
+    ctx = _Ctx(files, at, session, readonly, Path(job_dir))
     httpd = ThreadingHTTPServer(("127.0.0.1", int(port)), partial(_Handler, ctx=ctx))
     httpd.session = session  # type: ignore[attr-defined]
     httpd.readonly = readonly  # type: ignore[attr-defined]

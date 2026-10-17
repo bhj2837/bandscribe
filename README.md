@@ -1,11 +1,13 @@
 # bandscribe
 
 > **English summary.** bandscribe is a personal, local Windows tool whose goal is to turn one band recording into
-> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestone M7a of M0–M12) it
+> one guitar tab per part plus a bass tab (drum and piano scores come later). Today (milestones up to M4b of M0–M12) it
 > separates 6 stems, transcribes guitar and bass, quantises them onto the beat grid, picks the tuning, assigns
 > strings and frets by Viterbi, counts the guitar parts and writes **one fretted tab per part**, a **bass tab** and a
-> reference staff of all guitars together (alphaTex, Guitar Pro 5, MIDI) that a local alphaTab viewer plays in sync
-> with the original recording. Parts are told apart when they sit at different stereo positions, note by note from
+> reference staff of all guitars together (alphaTex, Guitar Pro 5, MIDI). A local alphaTab viewer plays them in sync
+> with the original recording and works as a practice tool: the recording, its stems and a synth of each tab track
+> play sample-locked in one WebAudio graph (A/B by holding a key, 50–100 % slowdown at the same pitch, loops,
+> count-in), with a constant-Q piano roll, a part timeline and a review queue for low-confidence notes. Parts are told apart when they sit at different stereo positions, note by note from
 > each note's own inter-channel level difference (78 % of the notes to the right guitar on a real song's Guitar Pro
 > tabs); a single guitar stays one part (12/12 held-out remixes). Guitars at the same position (a wide double with a
 > centred part, two centred parts) still come out as one part; identity tracking and that split come in M7b–M8.
@@ -17,9 +19,10 @@
 밴드 녹음 한 곡을 넣으면 **기타 파트마다 탭 하나와 베이스 탭**을 만드는 것이 목표인 Windows 로컬 도구다.
 드럼·피아노 악보는 그 다음 계획이다. 기타가 두 대 이상인 곡에서 "누가 어떤 음을 쳤는가"는 오디오 분리만으로는
 거의 가를 수 없다. 그래서 bandscribe는 분리와 전사로 음표 후보와 증거(스테레오 위치, 음색 클래스, 반복, 기호 규칙)를
-모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M7a까지 구현되어 6 스템 분리, 기타·베이스 전사,
+모은 뒤 **음표 하나하나를 파트에 배정**하도록 설계했다. 지금은 M7a·M4b까지 구현되어 6 스템 분리, 기타·베이스 전사,
 양자화, 튜닝 추정, 줄·프렛 배정을 거쳐 **기타 파트마다 탭 하나, 베이스 탭, 모든 기타의 참조 오선보**(alphaTex·Guitar
-Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. 파트 수는 곡마다 센다: 기타가 **좌우에 따로**
+Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어로 보여 준다. 뷰어에서 원곡·스템·탭 신스를 같이 틀어
+비교하고(A/B), 느리게(음높이 그대로)·구간 반복으로 연습하며, 피아노롤과 검토 큐로 고칠 곳을 찾는다. 파트 수는 곡마다 센다: 기타가 **좌우에 따로**
 있으면 음마다 좌우 에너지 차로 파트를 가르고(M6–M7a), 기타가 한 대면 한 파트로 둔다. 같은 위치에 겹친 기타(넓은 더블 +
 가운데 파트, 가운데 둘)는 아직 한 파트로 나오고, 곡 전체 정체성 추적은 M7b 다.
 
@@ -57,8 +60,18 @@ Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어
 | 연습용 반주 | 기타 뺀 믹스, 베이스 뺀 믹스, 베이스 스템. 분리 오차가 그대로 남는다 |
 
 `bandscribe view <작업>` 이 악보를 브라우저로 연다(127.0.0.1 에서만). 원곡을 재생하면 커서가 따라가고, 악보를 누르면 그
-위치로 이동한다. 속도를 50–100 % 로 늦출 수 있다(음높이 유지). 怪獣の花唄 곡 전체에서 커서와 박 격자의 차이는 최대
-31 ms였다(박 격자 자체가 틀린 구간은 아래 「원곡 동기」 참고).
+위치로 이동한다. 怪獣の花唄 곡 전체에서 커서와 박 격자의 차이는 최대 31 ms였다(박 격자 자체가 틀린 구간은 아래 「원곡 동기」 참고).
+
+**연습·검토(M4b):**
+- **믹서**(왼쪽): 원곡, 분리 스템 6개, 기타 뺀 믹스·베이스 뺀 믹스, 그리고 악보 트랙마다 탭 신스를 켜기·솔로·볼륨으로 섞는다.
+  모두 한 WebAudio 시계에서 같이 시작해 샘플 단위로 맞물린다. 탭 신스는 페이지가 alphaTab 으로 트랙마다 미리 만들고(편집하면
+  바뀐 트랙만 다시), 악보에 적힌 시각에 맞춰 울린다(seisyun complex: 음마다 중앙값 0 ms, 5–95 % −19~+5 ms). "소리 위치" 로
+  원곡을 왼쪽만·오른쪽만·가운데·옆으로 들을 수 있다.
+- **A/B 비교**: 탭 신스가 나오다가 **B** 를 누르고 있는 동안 원곡이 나온다.
+- **속도** 50–100 %(−/=, 음높이 그대로), **구간 반복**(L: 시작 → 끝 → 해제), **카운트인**(C: 한 마디 클릭 뒤 시작).
+- **아래 패널**: 곡 전체의 파트 띠(구간·라우터 라벨·파트별로 치는 마디, 누르면 이동)와 기타 스템의 CQT 위 피아노롤(파트 색,
+  투명도 = 신뢰도, 점선 = 전사기가 들었지만 넣지 않은 음; Ctrl+휠 확대).
+- **검토 큐**(왼쪽 아래): 다시 붙지 못한 편집, 미배정 음, 문턱 아래 파트 확률·운지 확신의 음을 낮은 순으로. N / P 로 차례로 간다.
 
 **편집(M4a):** 같은 화면에서 음을 누르고 키보드로 고친다. 음을 고른 뒤 한 번씩 누르면 된다.
 
@@ -89,7 +102,7 @@ Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어
 
 **아직 없는 것:** 같은 위치에 겹친 기타 나누기(넓은 더블 + 가운데 파트, 가운데 둘, 좁은 믹스: M7b–M8), 곡 전체 정체성
 추적(M7b), 3 파트 이상 자동 세기(지금은 `--parts` 로만), 뷰어에서 파트 바꾸기·파트 수 전환(M7c; 지금은 파트 트랙의 음을 고르면
-합친 기타의 같은 음이 골라지고 고친 결과는 파트에도 반영되며, 새로 넣은 음은 옆에 고른 음의 파트로 간다), A/B 믹서·검토 큐(M4b),
+합친 기타의 같은 음이 골라지고 고친 결과는 파트에도 반영되며, 새로 넣은 음은 옆에 고른 음의 파트로 간다), 파트 띠에서 경계 끌기(M7c),
 화면에서 튜닝·박자표 바꾸기(지금은 `hints.toml`), 주법·코드 차트(M9). 드럼·피아노 악보는 v1 범위 밖이다.
 
 ## 마일스톤
@@ -108,7 +121,7 @@ M7a → M4b → M7b → M7c → M8 → M9 → M10 → M11 → (M12)이고, M1b�
 | **M5** | 베이스 완성: F0 추적기 3개, 슬라이드 합치기, 주법 제안 | **완료, 알려진 한계 있음** (기준 8개 중 통과 4 · 미달 1 · 보류 3, 태그 `m5`; [인수 문서](docs/acceptance/M5.md)) |
 | **M6** | 스테레오 라우터와 공간 경로: **첫 자동 기타 파트 분리**(좌우 다른 파트) | **완료, 알려진 한계 있음** (기준 10개 중 통과 7 · 미달 2 · 보류 1; [인수 문서](docs/acceptance/M6.md)) |
 | **M7a** | Part 뷰: 파트 수(K) 추정, 음표별 배정, 미배정(Unassigned) 트랙 | **완료, 알려진 한계 있음** (기준 7개 중 통과 3 · 미달 4; [인수 문서](docs/acceptance/M7a.md)) |
-| M4b | A/B 믹서, 검토 큐 | 계획 |
+| **M4b** | A/B 믹서(원곡·스템·탭 신스 동기 재생), 감속·구간 반복·카운트인, CQT 피아노롤, 파트 띠, 검토 큐 | **완료** (기준 3개 모두 통과, 태그 `m4b`; [인수 문서](docs/acceptance/M4b.md)) |
 | **M7b** | 정체성 추적: 트랙렛, 재식별, HMM 평활 | 계획 (핵심) |
 | M7c | Role/Player 뷰(연주자 수에 맞춘 트랙 배치) | 계획 |
 | M8 | 좁은 믹스(모노·같은 위치) 경로, 반복 차감 | 계획 |

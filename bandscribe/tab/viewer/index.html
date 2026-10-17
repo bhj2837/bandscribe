@@ -6,10 +6,10 @@
 <title>{{TITLE}} · bandscribe</title>
 <style>
   :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --accent: #2f6f5e; --chip: #efeee9;
-          --sel: #d9480f; --warn: #b4540a; }
+          --sel: #d9480f; --warn: #b4540a; --bad: #c92a2a; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) { --bg: #1b1c1a; --fg: #ecebe6; --muted: #a3a29b; --line: #34352f; --accent: #7cc4ad;
-                                     --chip: #2a2b27; --warn: #f0a050; }
+                                     --chip: #2a2b27; --warn: #f0a050; --bad: #ff8787; }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, "Malgun Gothic", sans-serif; }
@@ -17,17 +17,30 @@
      page, which put the line being played at the very top, under the sticky header. */
   body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
   header { flex: none; background: var(--bg); border-bottom: 1px solid var(--line);
-           padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
-  #viewport { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+           padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  #work { flex: 1 1 auto; min-height: 0; display: flex; }
+  #side { flex: none; width: 300px; overflow-y: auto; border-right: 1px solid var(--line); padding: 8px 12px; font-size: 14px; }
+  #side[hidden] { display: none; }
+  #viewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; }
   #viewport:focus { outline: none; }
-  h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; }
+  #lower { flex: none; border-top: 1px solid var(--line); background: #121214; }
+  #lower[hidden] { display: none; }
+  #band { display: block; width: 100%; height: 92px; cursor: pointer; }
+  #roll { display: block; width: 100%; height: 216px; cursor: crosshair; }
+  h1 { font-size: 17px; margin: 0 6px 0 0; font-weight: 650; }
+  h2 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: none; }
   button, select { font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line);
-                   border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+                   border-radius: 8px; padding: 5px 11px; cursor: pointer; }
   button:disabled { opacity: .45; cursor: default; }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); min-width: 84px; }
   button[aria-pressed="false"] { opacity: .55; }
+  button[aria-pressed="true"].tog { background: var(--accent); color: #fff; border-color: var(--accent); opacity: 1; }
   .time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 110px; }
   .info { width: 100%; color: var(--muted); font-size: 13px; }
+  label.rate { display: inline-flex; align-items: center; gap: 6px; }
+  label.rate input { width: 110px; }
+  #rateVal { font-variant-numeric: tabular-nums; min-width: 40px; }
+  #loopInfo { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   #edit { width: 100%; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 14px; }
   #sel { flex: 1 1 260px; min-width: 0; }
   #sel b { font-weight: 600; }
@@ -43,15 +56,33 @@
   .sel-box { position: absolute; border: 2px solid var(--sel); border-radius: 4px; pointer-events: none;
              box-shadow: 0 0 0 3px rgba(217, 72, 15, .2); z-index: 5; }
   body.busy #at { cursor: progress; }
-  #help { position: fixed; right: 16px; top: 64px; z-index: 20; max-width: min(440px, calc(100vw - 32px));
+  .mix { display: grid; grid-template-columns: 18px 1fr auto 70px; gap: 2px 6px; align-items: center; }
+  .mix .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mix .name small { color: var(--muted); }
+  .mix button { padding: 0 6px; font-size: 12px; border-radius: 6px; }
+  .mix input[type=range] { width: 70px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+  #synthState { color: var(--muted); font-size: 12px; }
+  #queue { list-style: none; margin: 4px 0 0; padding: 0; }
+  #queue li { padding: 3px 4px; border-radius: 6px; cursor: pointer; display: flex; gap: 6px; font-size: 13px;
+              font-variant-numeric: tabular-nums; }
+  #queue li:hover, #queue li.on { background: var(--chip); }
+  #queue li .t { color: var(--muted); min-width: 40px; }
+  #queue li.bad .what { color: var(--bad); }
+  #queue li .v { margin-left: auto; color: var(--muted); }
+  #qCount { color: var(--muted); font-size: 12px; }
+  #help { position: fixed; right: 16px; top: 64px; z-index: 20; max-width: min(460px, calc(100vw - 32px));
+          max-height: calc(100vh - 90px); overflow-y: auto;
           background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
           box-shadow: 0 8px 28px rgba(0, 0, 0, .18); font-size: 14px; }
   #help[hidden] { display: none; }
-  #help h2 { font-size: 15px; margin: 0 0 6px; }
+  #help h2 { font-size: 15px; margin: 0 0 6px; color: var(--fg); }
   #help table { border-collapse: collapse; }
   #help td { padding: 2px 8px 2px 0; vertical-align: top; }
   #help td:first-child { white-space: nowrap; font-family: ui-monospace, Consolas, monospace; color: var(--accent); }
   #help p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+  @media (max-width: 760px) { #side { width: 220px; } }
 </style>
 </head>
 <body>
@@ -59,8 +90,13 @@
   <h1>{{TITLE}}</h1>
   <button id="play" class="primary" disabled>▶ 재생</button>
   <span class="time" id="time">0:00 / 0:00</span>
-  <label>속도 <select id="speed"><option value="1">100%</option><option value="0.85">85%</option>
-    <option value="0.75">75%</option><option value="0.5">50%</option></select></label>
+  <label class="rate">속도 <input id="rate" type="range" min="50" max="100" step="5" value="100"><span id="rateVal">100%</span></label>
+  <button id="loopBtn" title="구간 반복: 누를 때마다 시작 → 끝 → 해제 (L)">⟲ 구간</button>
+  <span id="loopInfo"></span>
+  <button id="countBtn" class="tog" aria-pressed="false" title="재생 전에 한 마디 세기 (C)">카운트인</button>
+  <button id="abBtn" class="tog" aria-pressed="false" title="A/B: 탭 신스가 나오고 B 를 누르고 있는 동안 원곡 (B)">A/B 비교</button>
+  <button id="sideBtn" aria-pressed="true" title="믹서·검토 큐 보이기">믹서</button>
+  <button id="lowerBtn" aria-pressed="true" title="피아노롤·파트 띠 보이기">피아노롤</button>
   <span id="tracks"></span>
   <div class="info">{{INFO}}</div>
   <div id="edit">
@@ -69,7 +105,7 @@
     <span id="counts"></span>
     <button id="undo" title="되돌리기 (Ctrl+Z)" disabled>↶ 되돌리기</button>
     <button id="redo" title="다시 하기 (Ctrl+Y)" disabled>↷ 다시</button>
-    <button id="helpBtn" title="편집 키 (?)" aria-expanded="false" aria-controls="help">?</button>
+    <button id="helpBtn" title="키 목록 (?)" aria-expanded="false" aria-controls="help">?</button>
   </div>
 </header>
 <div id="help" hidden>
@@ -86,315 +122,600 @@
     <tr><td>[ / ]</td><td>이 마디 첫 박을 한 박 앞 / 뒤로 (뒤 마디도 함께)</td></tr>
     <tr><td>D</td><td>여기가 마디 첫 박 (재생 중엔 모았다가 멈추면 적용)</td></tr>
     <tr><td>Ctrl+Z / Ctrl+Y</td><td>되돌리기 / 다시</td></tr>
-    <tr><td>Space / Esc</td><td>재생·멈춤 / 고르기 해제</td></tr>
   </table>
-  <p>고칠 때마다 작업 폴더의 edits.jsonl 에 기록되고, export 의 악보·GP5·MIDI 도 바로 고쳐집니다.</p>
+  <h2 style="margin-top:10px">재생 키</h2>
+  <table>
+    <tr><td>Space / Esc</td><td>재생·멈춤 / 고르기 해제</td></tr>
+    <tr><td>B (누르고 있기)</td><td>A/B 비교 중: 누르는 동안 원곡, 떼면 탭 신스</td></tr>
+    <tr><td>L</td><td>구간 반복: 시작 → 끝 → 해제 (고른 음이 있으면 그 마디부터)</td></tr>
+    <tr><td>C</td><td>카운트인 켜기·끄기</td></tr>
+    <tr><td>− / =</td><td>속도 5 % 내리기 / 올리기 (50–100 %, 음높이 그대로)</td></tr>
+    <tr><td>N / P</td><td>검토 큐의 다음 / 앞 항목</td></tr>
+    <tr><td>Ctrl + 휠</td><td>피아노롤 확대·축소</td></tr>
+  </table>
+  <p>고칠 때마다 작업 폴더의 edits.jsonl 에 기록되고, export 의 악보·GP5·MIDI 도 바로 고쳐집니다. 피아노롤의 점선 상자는
+     전사기가 들었지만 악보에 넣지 않은 음입니다.</p>
 </div>
-<audio id="audio" src="/audio" preload="auto"></audio>
-<main id="viewport" tabindex="-1">
-  <div id="status">악보를 불러오는 중…</div>
-  <div id="at"></div>
-</main>
+<div id="work">
+  <aside id="side">
+    <h2>원곡·스템</h2>
+    <div class="mix" id="mixRec"></div>
+    <div class="row"><label>소리 위치 <select id="view">
+      <option value="stereo">스테레오</option><option value="left">왼쪽만</option><option value="right">오른쪽만</option>
+      <option value="mid">가운데 (L+R)</option><option value="side">옆 (L−R)</option></select></label></div>
+    <h2>탭 신스 <span id="synthState"></span></h2>
+    <div class="row"><label title="A/B 비교가 꺼져 있을 때도 원곡과 함께 탭 신스를 듣는다"><input type="checkbox" id="synthWith"> 원곡과 함께 듣기</label></div>
+    <div class="mix" id="mixSynth"></div>
+    <h2>검토 큐 <span id="qCount"></span></h2>
+    <div class="row">
+      <select id="qKind" title="정렬과 피아노롤 투명도에 쓸 신뢰도">
+        <option value="part">파트 확률</option><option value="fret">운지 확신</option></select>
+      <label title="이 값보다 낮은 음만">문턱 <input id="qThr" type="range" min="0.1" max="1" step="0.05" value="0.6"></label>
+      <span id="qThrVal">0.60</span>
+    </div>
+    <ol id="queue"></ol>
+  </aside>
+  <main id="viewport" tabindex="-1">
+    <div id="status">악보를 불러오는 중…</div>
+    <div id="at"></div>
+  </main>
+</div>
+<div id="lower">
+  <canvas id="band" title="파트 띠: 구간 · 라우터 창 라벨 · 파트별로 치는 마디 (누르면 그 자리로)"></canvas>
+  <canvas id="roll" title="피아노롤: 녹음의 CQT 위에 악보의 음 (투명도 = 신뢰도, 점선 = 넣지 않은 후보)"></canvas>
+</div>
 <script src="/alphatab/alphaTab.min.js"></script>
-<script>
-(() => {
-  const TOKEN = "{{TOKEN}}";
-  const $ = (id) => document.getElementById(id);
-  const audio = $("audio"), playBtn = $("play"), timeEl = $("time"), status = $("status"), viewport = $("viewport");
-  const selEl = $("sel"), msgEl = $("msg"), countsEl = $("counts"), undoBtn = $("undo"), redoBtn = $("redo");
-  const helpEl = $("help"), helpBtn = $("helpBtn");
-  const fmt = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
-  const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-  const pitchName = (p) => `${NAMES[p % 12]}${Math.floor(p / 12) - 1}`;
-  const TRACK_KO = { guitar_all: "기타", bass: "베이스", bass_raw: "베이스" };
+<script type="module">
+import { Engine } from "/static/engine.js";
+import { renderTrack, signature, syncReport } from "/static/synth.js";
+import { Lower, LINE_COLORS, confOf, noteColor } from "/static/roll.js";
 
-  // absolute URLs: the render worker's importScripts() rejects a path-only URL
-  const abs = (p) => new URL(p, location.href).href;
-  const api = new alphaTab.AlphaTabApi($("at"), {
-    // includeNoteBounds: note heads in the bounds lookup (clicking a note and the selection box need them)
-    core: { fontDirectory: abs("/alphatab/font/"), scriptFile: abs("/alphatab/alphaTab.min.js"), engine: "svg",
-            includeNoteBounds: true },
-    display: { layoutMode: alphaTab.LayoutMode.Page, scale: 0.95 },
-    player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia, enableCursor: true,
-              enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollMode: alphaTab.ScrollMode.Continuous,
-              scrollElement: "#viewport", scrollOffsetY: -12 },  // the line being played sits 12 px below the header
-  });
+const TOKEN = "{{TOKEN}}";
+const $ = (id) => document.getElementById(id);
+const playBtn = $("play"), timeEl = $("time"), status = $("status"), viewport = $("viewport");
+const selEl = $("sel"), msgEl = $("msg"), countsEl = $("counts"), undoBtn = $("undo"), redoBtn = $("redo");
+const helpEl = $("help"), helpBtn = $("helpBtn");
+const fmt = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
+const fmt1 = (s) => { s = Math.max(0, s || 0); return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
+const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const pitchName = (p) => `${NAMES[p % 12]}${Math.floor(p / 12) - 1}`;
+const TRACK_KO = { guitar_all: "기타", bass: "베이스", bass_raw: "베이스" };
+const OP_KO = { pitch: "음높이", delete: "지우기", assign: "트랙 옮기기", pin: "줄 고정", barline: "마디선", add: "음 넣기" };
 
-  // The recording is the time axis: alphaTab follows the <audio> element through the score's \sync points.
-  const handler = {
-    get backingTrackDuration() { return Number.isFinite(audio.duration) ? audio.duration * 1000 : 0; },
-    get playbackRate() { return audio.playbackRate; },
-    set playbackRate(v) { audio.playbackRate = v; },
-    get masterVolume() { return audio.volume; },
-    set masterVolume(v) { audio.volume = v; },
-    seekTo(ms) { audio.currentTime = ms / 1000; },
-    play() { audio.play(); },
-    pause() { audio.pause(); },
-  };
-  let raf = 0;
-  const tick = () => {
-    if (api.player) api.player.output.updatePosition(audio.currentTime * 1000);
-    timeEl.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration)}`;
-    if (!audio.paused) raf = requestAnimationFrame(tick);
-  };
-  const connect = () => { if (api.player && api.player.output) api.player.output.handler = handler; };
-  api.playerReady.on(() => { connect(); playBtn.disabled = false; tick(); });
-  connect();
-  audio.addEventListener("play", () => { playBtn.textContent = "⏸ 일시정지"; cancelAnimationFrame(raf); tick(); });
-  audio.addEventListener("pause", () => { playBtn.textContent = "▶ 재생"; tick(); flushTaps(); });
-  audio.addEventListener("seeked", tick);
-  audio.addEventListener("loadedmetadata", tick);
-  audio.addEventListener("ended", () => api.stop());
-  playBtn.addEventListener("click", () => api.playPause());
-  $("speed").addEventListener("change", (e) => { api.playbackSpeed = Number(e.target.value); });
-  viewport.focus({ preventScroll: true });  // arrow keys and Page Down scroll the score, as they scrolled the page
+// The recording is the time axis: the engine (WebAudio) plays the recordings and the tab synth in step, and alphaTab
+// follows it through the score's \sync points (EnabledExternalMedia).
+const engine = new Engine();
+const audio = engine;  // M4a's code below speaks to it like the <audio> element it replaces
 
-  // ------------------------------------------------------------------------------------------- the score
-  let doc = { version: 0, map: null, readonly: "" };  // the server's snapshot (alphaTex + note map + counts)
-  let shown = null;          // track indices the user keeps visible
-  let selected = null;       // note id ("<track>:<index>")
-  let busy = false;
-  let afterRender = null;
-  const taps = [];           // downbeat taps while playing, sent when playback stops
+// absolute URLs: the render worker's importScripts() rejects a path-only URL
+const abs = (p) => new URL(p, location.href).href;
+const api = new alphaTab.AlphaTabApi($("at"), {
+  // includeNoteBounds: note heads in the bounds lookup (clicking a note and the selection box need them)
+  core: { fontDirectory: abs("/alphatab/font/"), scriptFile: abs("/alphatab/alphaTab.min.js"), engine: "svg",
+          includeNoteBounds: true },
+  display: { layoutMode: alphaTab.LayoutMode.Page, scale: 0.95 },
+  player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia, enableCursor: true,
+            enableAnimatedBeatCursor: true, enableUserInteraction: true, scrollMode: alphaTab.ScrollMode.Continuous,
+            scrollElement: "#viewport", scrollOffsetY: -12 },  // the line being played sits 12 px below the header
+});
 
-  api.scoreLoaded.on((score) => {
-    status.remove();
-    const box = $("tracks");
+const handler = {
+  get backingTrackDuration() { return engine.duration * 1000; },
+  get playbackRate() { return engine.rate; },
+  set playbackRate(v) { setRate(v); },
+  get masterVolume() { return engine.out.gain.value; },
+  set masterVolume(v) { engine.out.gain.value = v; },
+  seekTo(ms) { engine.seek(ms / 1000); },
+  play() { engine.play(); },
+  pause() { engine.pause(); },
+};
+let raf = 0;
+const lower = new Lower($("band"), $("roll"), {
+  onSeek: (t) => { engine.seek(t); },
+  onPick: (uid, t) => { select(uid, true); engine.seek(t); },
+});
+const tick = () => {
+  const t = audio.currentTime;
+  if (api.player) api.player.output.updatePosition(t * 1000);
+  timeEl.textContent = `${fmt(t)} / ${fmt(audio.duration)}`;
+  if (!$("lower").hidden) lower.draw(t);
+  if (!audio.paused) raf = requestAnimationFrame(tick);
+};
+const connect = () => { if (api.player && api.player.output) api.player.output.handler = handler; };
+let playerReady = false;
+const enablePlay = () => { playBtn.disabled = !(playerReady && engine.duration > 0); };
+api.playerReady.on(() => { connect(); playerReady = true; enablePlay(); tick(); });
+connect();
+engine.addEventListener("play", () => { playBtn.textContent = "⏸ 일시정지"; cancelAnimationFrame(raf); tick(); });
+engine.addEventListener("pause", () => { playBtn.textContent = "▶ 재생"; tick(); flushTaps(); });
+engine.addEventListener("seeked", tick);
+engine.addEventListener("loadedmetadata", () => { enablePlay(); tick(); lower.setDoc(doc.map, engine.duration); });
+engine.addEventListener("ended", () => api.stop());
+engine.addEventListener("sources", () => drawMixer());
+engine.addEventListener("error", (e) => flash(`소리를 불러오지 못했습니다: ${e.detail && e.detail.message ? e.detail.message : e.detail}`));
+playBtn.addEventListener("click", () => api.playPause());
+viewport.focus({ preventScroll: true });  // arrow keys and Page Down scroll the score, as they scrolled the page
+
+// --------------------------------------------------------------------------------------------- the mixer
+const rateEl = $("rate"), rateVal = $("rateVal");
+function setRate(v) {
+  const r = Math.min(1, Math.max(0.5, Math.round(Number(v) * 20) / 20));
+  rateEl.value = String(Math.round(r * 100));
+  rateVal.textContent = `${Math.round(r * 100)}%`;
+  engine.setRate(r).then(tick);
+}
+// the label follows the thumb; the speed changes when it is let go (every change restarts the sources)
+rateEl.addEventListener("input", () => { rateVal.textContent = `${rateEl.value}%`; });
+rateEl.addEventListener("change", () => { api.playbackSpeed = Number(rateEl.value) / 100; setRate(Number(rateEl.value) / 100); });
+
+function mixRow(s) {
+  const frag = document.createDocumentFragment();
+  const on = document.createElement("input");
+  on.type = "checkbox"; on.checked = s.on; on.title = "켜기·끄기";
+  on.addEventListener("change", () => engine.set(s.id, { on: on.checked }));
+  const name = document.createElement("span");
+  name.className = "name";
+  if (s.color) {
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = s.color;
+    name.append(sw, " ");
+  }
+  name.append(s.label);
+  const state = s.loading ? "불러오는 중" : (s.on && !s.buffer && s.group === "synth" ? "준비 중" : "");
+  if (state) { const sm = document.createElement("small"); sm.textContent = ` ${state}`; name.append(sm); }
+  name.title = s.label;
+  const solo = document.createElement("button");
+  solo.textContent = "S"; solo.title = "솔로"; solo.className = "tog"; solo.setAttribute("aria-pressed", String(!!s.solo));
+  solo.addEventListener("click", () => engine.set(s.id, { solo: !s.solo }));
+  const vol = document.createElement("input");
+  vol.type = "range"; vol.min = "0"; vol.max = "1.5"; vol.step = "0.05"; vol.value = String(s.vol); vol.title = "볼륨";
+  vol.addEventListener("input", () => engine.set(s.id, { vol: Number(vol.value) }));
+  frag.append(on, name, solo, vol);
+  return frag;
+}
+function drawMixer() {
+  for (const [box, group] of [[$("mixRec"), "rec"], [$("mixSynth"), "synth"]]) {
     box.innerHTML = "";
-    const all = score.tracks.map((t) => t.index);
-    if (!shown || shown.some((i) => !all.includes(i))) shown = all;
-    score.tracks.forEach((t) => {
-      const b = document.createElement("button");
-      b.textContent = t.name;
-      b.setAttribute("aria-pressed", String(shown.includes(t.index)));
-      b.addEventListener("click", () => {
-        const on = shown.includes(t.index);
-        if (on && shown.length === 1) return;
-        shown = on ? shown.filter((i) => i !== t.index) : [...shown, t.index].sort((a, c) => a - c);
-        b.setAttribute("aria-pressed", String(!on));
-        api.renderTracks(score.tracks.filter((x) => shown.includes(x.index)));
-      });
-      box.appendChild(b);
-    });
-  });
-  api.renderFinished.on(() => {
-    const f = afterRender;
-    afterRender = null;
-    if (f) f();
-    drawSelection();
-  });
-  api.error.on((e) => { status.textContent = "악보를 열지 못했습니다: " + (e && e.message ? e.message : e); });
+    for (const s of engine.sources.values()) if (s.group === group) box.appendChild(mixRow(s));
+  }
+}
+$("view").addEventListener("change", (e) => engine.setView(e.target.value));
 
-  // resolves when alphaTab has drawn the new score (or after 20 s), so no click lands on the old drawing
-  async function load(keepScroll) {
-    const r = await fetch("/api/score", { cache: "no-store" });
-    if (!r.ok) throw new Error(`/api/score: HTTP ${r.status}`);
-    const d = await r.json();
-    doc = d;
-    showCounts(d);
-    const top = viewport.scrollTop;
-    await new Promise((resolve) => {
-      const timer = setTimeout(resolve, 20000);
-      afterRender = () => { clearTimeout(timer); if (keepScroll) { viewport.scrollTop = top; tick(); } resolve(); };
-      api.tex(d.tex, shown ? shown : "all");
-      showSelection();
-    });
+// A/B, loop, count-in
+const abBtn = $("abBtn"), countBtn = $("countBtn"), loopBtn = $("loopBtn"), loopInfo = $("loopInfo");
+abBtn.addEventListener("click", () => {
+  engine.setAB(!engine.ab);
+  abBtn.setAttribute("aria-pressed", String(engine.ab));
+  if (engine.ab) ensureSynth();
+});
+countBtn.addEventListener("click", () => { engine.countIn = !engine.countIn; countBtn.setAttribute("aria-pressed", String(engine.countIn)); });
+let loopA = null;
+function barStartAt(t) {
+  const bars = (doc.map && doc.map.timeline && doc.map.timeline.bars) || [];
+  let best = null;
+  for (const b of bars) if (b[1] <= t + 1e-3) best = b; else break;
+  return best ? best[1] : t;
+}
+function loopStep() {
+  const sel = selectedNote();
+  const t = sel && sel.t !== undefined ? sel.t : audio.currentTime;
+  if (engine.loop) { engine.setLoop(null); loopA = null; }
+  else if (loopA === null) { loopA = sel ? barStartAt(t) : t; }
+  else {
+    const a = Math.min(loopA, t), b = Math.max(loopA, t);
+    engine.setLoop(a, b > a + 0.25 ? b : a + 2);
+    loopA = null;
   }
+  showLoop();
+}
+function showLoop() {
+  loopInfo.textContent = engine.loop ? `반복 ${fmt1(engine.loop[0])}–${fmt1(engine.loop[1])}` :
+                         loopA !== null ? `시작 ${fmt1(loopA)} · 끝에서 L` : "";
+  loopBtn.setAttribute("aria-pressed", String(!!engine.loop));
+}
+loopBtn.addEventListener("click", loopStep);
+$("sideBtn").addEventListener("click", (e) => { const s = $("side"); s.hidden = !s.hidden; e.target.setAttribute("aria-pressed", String(!s.hidden)); });
+$("lowerBtn").addEventListener("click", (e) => { const s = $("lower"); s.hidden = !s.hidden; e.target.setAttribute("aria-pressed", String(!s.hidden)); if (!s.hidden) { lower._fit(); lower.drawBand(); lower.draw(audio.currentTime); } });
 
-  // ------------------------------------------------------------------------------------------ selection
-  const selBox = document.createElement("div");
-  selBox.className = "sel-box";
-  const keyOf = (note, fretted) => {
-    const staff = note.beat.voice.bar.staff;
-    return fretted ? "s" + (staff.tuning.length + 1 - note.string) : "p" + note.realValue;  // ours: string 1 = highest
-  };
-  function uidOf(note) {
-    if (!doc.map) return null;
-    const ti = note.beat.voice.bar.staff.track.index;
-    const tr = doc.map.tracks[ti];
-    if (!tr) return null;
-    return doc.map.pos[`${ti}:${note.beat.voice.bar.index}:${note.beat.index}:${keyOf(note, tr.fretted)}`] || null;
+// recordings, router windows, CQT
+async function loadMedia() {
+  const r = await fetch("/api/media", { cache: "no-store" });
+  if (!r.ok) throw new Error(`/api/media: HTTP ${r.status}`);
+  const m = await r.json();
+  for (const s of m.sources) engine.add({ id: s.id, label: s.label, group: "rec", url: `/media/${s.id}`, on: s.on });
+  drawMixer();
+  lower.setRouter(m.router);
+  if (m.cqt_default) {
+    fetch(`/api/cqt/${m.cqt_default}`).then(async (res) => {
+      if (!res.ok) return;
+      const head = JSON.parse(res.headers.get("X-Cqt"));
+      lower.setCqt(new Uint8Array(await res.arrayBuffer()), head);
+    }).catch(() => {});
   }
-  function noteOf(uid) {
-    const at = doc.map && doc.map.at[uid];
-    const track = at && api.score && api.score.tracks[at[0]];
-    if (!track) return null;
-    const bar = track.staves[0].bars[at[1]];
-    const beat = bar && bar.voices[0].beats[at[2]];
-    if (!beat) return null;
-    const fretted = doc.map.tracks[at[0]].fretted;
-    return beat.notes.find((n) => keyOf(n, fretted) === at[3]) || null;
+  fetch("/api/candidates").then((res) => res.ok ? res.json() : { notes: [] }).then((d) => lower.setCandidates(d.notes)).catch(() => {});
+}
+
+// tab synth: one source per score track ("synth:<track id>": an edit can add or remove a part track, which shifts
+// alphaTab's track indices), rendered when first needed and again when the track changed
+const synthSig = new Map();  // track id -> signature of the rendered buffer
+const trackId = (ti) => ((doc.map && doc.map.tracks[ti]) || {}).id || `#${ti}`;
+let synthWanted = false, synthBusy = false, synthAgain = false;
+const synthState = $("synthState");
+function synthSources(score) {
+  const tracks = (doc.map && doc.map.tracks) || [];
+  const hasParts = tracks.some((t) => /^gtr_/.test(t.id));
+  const now = new Set();
+  score.tracks.forEach((t) => {
+    const tid = trackId(t.index);
+    const id = `synth:${tid}`;
+    now.add(id);
+    const s = engine.sources.get(id);
+    if (s) { s.label = t.name; return; }
+    const line = /^gtr_(\d)$/.exec(tid);
+    engine.add({ id, label: t.name, group: "synth", on: !(hasParts && tid === "guitar_all"),
+                 color: tid === "bass" ? "#ffd43b" : line ? LINE_COLORS[line[1]] : "#adb5bd" });
+  });
+  for (const [id, s] of [...engine.sources]) {
+    if (s.group === "synth" && !now.has(id)) { engine.remove(id); synthSig.delete(id.slice(6)); }
   }
-  function drawSelection() {
-    const note = selected && noteOf(selected);
-    const lookup = api.boundsLookup;
-    const bb = note && lookup && lookup.findBeat(note.beat);
-    const nb = bb && bb.notes && bb.notes.find((x) => x.note === note);
-    if (!nb) { selBox.remove(); return null; }
-    const r = nb.noteHeadBounds;
-    const host = document.querySelector("#at .at-cursors") || $("at");
-    if (selBox.parentNode !== host) host.appendChild(selBox);
-    Object.assign(selBox.style, { left: `${r.x - 4}px`, top: `${r.y - 4}px`, width: `${r.w + 8}px`, height: `${r.h + 8}px` });
-    return selBox;
+  drawMixer();
+}
+function ensureSynth() { synthWanted = true; renderSynth(); }
+async function renderSynth() {
+  if (!synthWanted || !api.score) return;
+  if (synthBusy) { synthAgain = true; return; }
+  synthBusy = true;
+  try {
+    do {
+      synthAgain = false;
+      const todo = api.score.tracks.filter((t) => engine.sources.get(`synth:${trackId(t.index)}`) &&
+                                                  synthSig.get(trackId(t.index)) !== signature(doc.map, t.index));
+      for (let i = 0; i < todo.length; i++) {
+        const t = todo[i], tid = trackId(t.index), sig = signature(doc.map, t.index);
+        synthState.textContent = `만드는 중 ${i + 1}/${todo.length}`;
+        const buf = await renderTrack(api, engine.ctx, t.index, (f) => {
+          synthState.textContent = `만드는 중 ${i + 1}/${todo.length} (${Math.round(f * 100)}%)`;
+        });
+        if (synthAgain) break;  // the score changed meanwhile: start over with the new one
+        if (buf) engine.setBuffer(`synth:${tid}`, buf);
+        synthSig.set(tid, sig);
+      }
+    } while (synthAgain);
+    synthState.textContent = "";
+  } catch (e) {
+    synthState.textContent = `실패: ${e && e.message ? e.message : e}`;
+  } finally {
+    synthBusy = false;
   }
-  function showSelection() {
-    const n = selected && doc.map && doc.map.notes[selected];
-    if (!n) {
-      selEl.textContent = doc.readonly ? `읽기 전용: ${doc.readonly}` : "음을 누르면 골라집니다. 키 목록은 ? 버튼.";
-      return;
-    }
-    const pos = n.string ? ` · ${n.string}번 줄 ${n.fret}프렛${n.pinned ? " (고정)" : ""}` : "";
-    const at = doc.map.at[selected];  // the bar number printed on the score (alphaTab counts written bars from 1)
-    selEl.innerHTML = `<b>${TRACK_KO[n.track] || n.track}</b> · 마디 ${at ? at[1] + 1 : "?"} · ` +
-                      `<b>${pitchName(n.pitch)}</b>${pos}` + (n.added ? " · 넣은 음" : "");
-  }
-  function select(uid, reveal) {
-    selected = uid;
+}
+$("mixSynth").addEventListener("change", ensureSynth);
+$("synthWith").addEventListener("change", (e) => { engine.setSynthWithRec(e.target.checked); if (e.target.checked) ensureSynth(); });
+// after a click in the side panel the keys go to the score again (Space would toggle the box once more)
+$("side").addEventListener("change", () => viewport.focus({ preventScroll: true }));
+$("side").addEventListener("click", (e) => { if (e.target.closest("button")) viewport.focus({ preventScroll: true }); });
+
+// ------------------------------------------------------------------------------------------- the score
+let doc = { version: 0, map: null, readonly: "" };  // the server's snapshot (alphaTex + note map + counts)
+let shown = null;          // track indices the user keeps visible
+let selected = null;       // note id ("<track>:<index>")
+let busy = false;
+let afterRender = null;
+const taps = [];           // downbeat taps while playing, sent when playback stops
+
+api.scoreLoaded.on((score) => {
+  status.remove();
+  const box = $("tracks");
+  box.innerHTML = "";
+  const all = score.tracks.map((t) => t.index);
+  if (!shown || shown.some((i) => !all.includes(i))) shown = all;
+  score.tracks.forEach((t) => {
+    const b = document.createElement("button");
+    b.textContent = t.name;
+    b.setAttribute("aria-pressed", String(shown.includes(t.index)));
+    b.addEventListener("click", () => {
+      const on = shown.includes(t.index);
+      if (on && shown.length === 1) return;
+      shown = on ? shown.filter((i) => i !== t.index) : [...shown, t.index].sort((a, c) => a - c);
+      b.setAttribute("aria-pressed", String(!on));
+      api.renderTracks(score.tracks.filter((x) => shown.includes(x.index)));
+    });
+    box.appendChild(b);
+  });
+  synthSources(score);
+});
+api.renderFinished.on(() => {
+  const f = afterRender;
+  afterRender = null;
+  if (f) f();
+  drawSelection();
+  ensureSynth();  // the tab synth is rendered in the background after every new score (only changed tracks)
+});
+api.error.on((e) => { status.textContent = "악보를 열지 못했습니다: " + (e && e.message ? e.message : e); });
+
+// resolves when alphaTab has drawn the new score (or after 20 s), so no click lands on the old drawing
+async function load(keepScroll) {
+  const r = await fetch("/api/score", { cache: "no-store" });
+  if (!r.ok) throw new Error(`/api/score: HTTP ${r.status}`);
+  const d = await r.json();
+  doc = d;
+  showCounts(d);
+  const tl = (d.map && d.map.timeline) || {};
+  engine.beats = tl.beats || [];
+  engine.bars = tl.bars || [];
+  lower.setDoc(d.map, engine.duration);
+  drawQueue();
+  const top = viewport.scrollTop;
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 20000);
+    afterRender = () => { clearTimeout(timer); if (keepScroll) { viewport.scrollTop = top; tick(); } resolve(); };
+    api.tex(d.tex, shown ? shown : "all");
     showSelection();
-    const box = drawSelection();
-    if (box && reveal) {
-      const b = box.getBoundingClientRect(), v = viewport.getBoundingClientRect();
-      if (b.top < v.top + 8 || b.bottom > v.bottom - 8) viewport.scrollTop += b.top - v.top - v.height / 3;
-    }
-  }
-  api.noteMouseDown.on((note) => { const uid = uidOf(note); if (uid) select(uid); });
-  function step(dir) {
-    const [tid, k] = selected.split(":");
-    for (let i = Number(k) + dir; i >= 0; i += dir) {
-      const uid = `${tid}:${i}`;
-      if (!doc.map.notes[uid]) return;
-      if (doc.map.at[uid]) { select(uid, true); return; }
-    }
-  }
-  function currentBar() {
-    if (selected && doc.map && doc.map.at[selected]) return doc.map.at[selected][1];
-    const tc = api.tickCache;
-    const res = tc && tc.findBeat(new Set([0]), api.tickPosition);
-    return res && res.beat ? res.beat.voice.bar.index : null;
-  }
-
-  // -------------------------------------------------------------------------------------------- edits
-  let msgTimer = 0;
-  function flash(text) {
-    msgEl.textContent = text || "";
-    clearTimeout(msgTimer);
-    if (text) msgTimer = setTimeout(() => { msgEl.textContent = ""; }, 6000);
-  }
-  function showCounts(d) {
-    undoBtn.disabled = !d.undo || !!d.readonly;
-    redoBtn.disabled = !d.redo || !!d.readonly;
-    countsEl.textContent = d.readonly ? "" : `편집 ${d.edits || 0}개` + (d.unmatched ? ` · 못 찾은 편집 ${d.unmatched}` : "") +
-                                              (d.skipped ? ` · 적용 못 한 편집 ${d.skipped}` : "");
-    if (d.export_error) flash(d.export_error);
-  }
-  const setBusy = (b) => { busy = b; document.body.classList.toggle("busy", b); };
-  // one command; the caller holds `busy` (so no other key is sent before the page shows the result)
-  async function run(cmd, reload = true) {
-    const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json",
-      "X-Bandscribe-Token": TOKEN }, body: JSON.stringify({ ...cmd, version: doc.version }) });
-    const d = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-    if (r.status === 409 && d.stale) { flash(d.error); await load(true); return null; }
-    if (!r.ok) { flash(d.error || `HTTP ${r.status}`); return null; }
-    flash(d.message);
-    doc.version = d.version;
-    showCounts(d);
-    if (d.applied) {
-      selected = d.select || (cmd.cmd === "delete" ? cmd.uid : null);
-      if (reload) await load(true);
-    }
-    return d;
-  }
-  async function send(cmd) {
-    if (doc.readonly) { flash(`편집할 수 없습니다: ${doc.readonly}`); return null; }
-    if (busy) return null;
-    setBusy(true);
-    try { return await run(cmd); } catch (e) { flash(String(e)); return null; } finally { setBusy(false); }
-  }
-  function tap() {
-    if (!audio.paused) { taps.push(audio.currentTime); flash(`첫 박 표시 ${taps.length}개 · 멈추면 적용`); return; }
-    send({ cmd: "tap", t_s: audio.currentTime });
-  }
-  async function flushTaps() {
-    if (!taps.length || doc.readonly) return;
-    while (busy) await new Promise((res) => setTimeout(res, 50));
-    const list = taps.splice(0);
-    let applied = 0;
-    setBusy(true);
-    try {
-      for (const t of list) {
-        const d = await run({ cmd: "tap", t_s: t }, false);
-        if (d && d.applied) applied += 1;
-      }
-      if (applied) await load(true);
-      flash(`첫 박 ${list.length}개 중 ${applied}개로 마디선을 옮겼습니다`);
-    } catch (e) {
-      flash(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  const selectedNote = () => (selected && doc.map && doc.map.notes[selected]) || null;
-  undoBtn.addEventListener("click", () => send({ cmd: "undo" }));
-  redoBtn.addEventListener("click", () => send({ cmd: "redo" }));
-  const toggleHelp = (force) => {
-    const show = force === undefined ? helpEl.hidden : force;
-    helpEl.hidden = !show;
-    helpBtn.setAttribute("aria-expanded", String(show));
-  };
-  helpBtn.addEventListener("click", () => toggleHelp());
-  // after a header button, keys go to the score again (Space on a focused ↶ would press it once more)
-  document.querySelector("header").addEventListener("click", (e) => {
-    if (e.target.closest("button")) viewport.focus({ preventScroll: true });
   });
+}
 
-  document.addEventListener("keydown", (e) => {
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
-    const onPage = t === document.body || t === viewport;
-    if (e.code === "Space" && (onPage || (t && t.tagName === "BUTTON"))) { e.preventDefault(); api.playPause(); return; }
-    if (e.ctrlKey || e.metaKey) {
-      const k = e.key.toLowerCase();
-      if (k === "z") { e.preventDefault(); send({ cmd: e.shiftKey ? "redo" : "undo" }); }
-      else if (k === "y") { e.preventDefault(); send({ cmd: "redo" }); }
-      return;
-    }
-    if (e.altKey) return;
-    const n = selectedNote();
-    switch (e.key) {
-      case "Escape": toggleHelp(false); select(null); break;
-      case "?": toggleHelp(); break;
-      case "ArrowLeft": case "ArrowRight":
-        if (n) { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
-        break;
-      case "ArrowUp": case "ArrowDown":
-        if (n) { e.preventDefault(); send({ cmd: "pitch", uid: selected, delta: (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1) }); }
-        break;
-      case "Delete": case "Backspace":
-        if (n) { e.preventDefault(); send({ cmd: "delete", uid: selected }); }
-        break;
-      case "s": case "S":
-        if (n) send({ cmd: "string", uid: selected, dir: e.shiftKey ? -1 : 1 });
-        break;
-      case "1": case "2":
-        if (n) send({ cmd: "assign", uid: selected, track: e.key === "1" ? "guitar_all" : "bass" });
-        break;
-      case "a": case "A":
-        send({ cmd: "add", track: n ? n.track : "guitar_all", t_s: audio.currentTime, pitch: n ? n.pitch : 0,
-               uid: selected || null });
-        break;
-      case "[": case "]": {
-        const bi = currentBar();
-        if (bi !== null && bi !== undefined) send({ cmd: "barline", bar_index: bi, delta: e.key === "[" ? -1 : 1 });
-        break;
-      }
-      case "d": case "D": tap(); break;
-      default: return;
-    }
+// ------------------------------------------------------------------------------------------ selection
+const selBox = document.createElement("div");
+selBox.className = "sel-box";
+const keyOf = (note, fretted) => {
+  const staff = note.beat.voice.bar.staff;
+  return fretted ? "s" + (staff.tuning.length + 1 - note.string) : "p" + note.realValue;  // ours: string 1 = highest
+};
+function uidOf(note) {
+  if (!doc.map) return null;
+  const ti = note.beat.voice.bar.staff.track.index;
+  const tr = doc.map.tracks[ti];
+  if (!tr) return null;
+  return doc.map.pos[`${ti}:${note.beat.voice.bar.index}:${note.beat.index}:${keyOf(note, tr.fretted)}`] || null;
+}
+function noteOf(uid) {
+  const at = doc.map && doc.map.at[uid];
+  const track = at && api.score && api.score.tracks[at[0]];
+  if (!track) return null;
+  const bar = track.staves[0].bars[at[1]];
+  const beat = bar && bar.voices[0].beats[at[2]];
+  if (!beat) return null;
+  const fretted = doc.map.tracks[at[0]].fretted;
+  return beat.notes.find((n) => keyOf(n, fretted) === at[3]) || null;
+}
+function drawSelection() {
+  const note = selected && noteOf(selected);
+  const lookup = api.boundsLookup;
+  const bb = note && lookup && lookup.findBeat(note.beat);
+  const nb = bb && bb.notes && bb.notes.find((x) => x.note === note);
+  if (!nb) { selBox.remove(); return null; }
+  const r = nb.noteHeadBounds;
+  const host = document.querySelector("#at .at-cursors") || $("at");
+  if (selBox.parentNode !== host) host.appendChild(selBox);
+  Object.assign(selBox.style, { left: `${r.x - 4}px`, top: `${r.y - 4}px`, width: `${r.w + 8}px`, height: `${r.h + 8}px` });
+  return selBox;
+}
+function showSelection() {
+  const n = selected && doc.map && doc.map.notes[selected];
+  if (!n) {
+    selEl.textContent = doc.readonly ? `읽기 전용: ${doc.readonly}` : "음을 누르면 골라집니다. 키 목록은 ? 버튼.";
+    return;
+  }
+  const pos = n.string ? ` · ${n.string}번 줄 ${n.fret}프렛${n.pinned ? " (고정)" : ""}` : "";
+  const at = doc.map.at[selected];  // the bar number printed on the score (alphaTab counts written bars from 1)
+  const line = (doc.map.timeline && doc.map.timeline.lines || []).find((l) => l.number === n.line);
+  const part = n.track !== "bass" ? ` · ${line ? line.short || line.name : "미배정"}` +
+               (n.p !== null && n.p !== undefined ? ` (${Number(n.p).toFixed(2)})` : "") : "";
+  selEl.innerHTML = `<b>${TRACK_KO[n.track] || n.track}</b>${part} · 마디 ${at ? at[1] + 1 : "?"} · ` +
+                    `<b>${pitchName(n.pitch)}</b>${pos}` + (n.added ? " · 넣은 음" : "");
+}
+function select(uid, reveal) {
+  selected = uid;
+  lower.selected = uid;
+  showSelection();
+  const box = drawSelection();
+  if (box && reveal) {
+    const b = box.getBoundingClientRect(), v = viewport.getBoundingClientRect();
+    if (b.top < v.top + 8 || b.bottom > v.bottom - 8) viewport.scrollTop += b.top - v.top - v.height / 3;
+  }
+  lower.draw(audio.currentTime);
+}
+api.noteMouseDown.on((note) => { const uid = uidOf(note); if (uid) select(uid); });
+function step(dir) {
+  const [tid, k] = selected.split(":");
+  for (let i = Number(k) + dir; i >= 0; i += dir) {
+    const uid = `${tid}:${i}`;
+    if (!doc.map.notes[uid]) return;
+    if (doc.map.at[uid]) { select(uid, true); return; }
+  }
+}
+function currentBar() {
+  if (selected && doc.map && doc.map.at[selected]) return doc.map.at[selected][1];
+  const tc = api.tickCache;
+  const res = tc && tc.findBeat(new Set([0]), api.tickPosition);
+  return res && res.beat ? res.beat.voice.bar.index : null;
+}
+
+// -------------------------------------------------------------------------------------- review queue
+const queueEl = $("queue"), qKind = $("qKind"), qThr = $("qThr"), qThrVal = $("qThrVal"), qCount = $("qCount");
+let queue = [], qPos = -1;
+function drawQueue() {
+  const kind = qKind.value, thr = Number(qThr.value);
+  qThrVal.textContent = thr.toFixed(2);
+  lower.conf = kind;
+  const items = [];
+  for (const e of doc.not_applied || []) {
+    items.push({ bad: true, t: e.t_s, what: `편집 ${OP_KO[e.op] || e.op}` + (e.pitch !== null && e.pitch !== undefined ? ` ${pitchName(e.pitch)}` : ""),
+                 v: e.why === "skipped" ? "적용 못 함" : "못 찾음", key: -1 });
+  }
+  const notes = (doc.map && doc.map.notes) || {};
+  for (const [uid, n] of Object.entries(notes)) {
+    if (!doc.map.at[uid] && !(n.track !== "bass" && (!n.line || n.line === "u"))) continue;
+    const unassigned = n.track !== "bass" && (!n.line || n.line === "u") && kind === "part";
+    const cf = confOf(n, kind);
+    if (!unassigned && (cf === null || cf >= thr)) continue;
+    items.push({ uid, t: n.t, what: `${n.track === "bass" ? "베이스" : unassigned ? "미배정" : `Gtr ${n.line}`} ${pitchName(n.pitch)}`,
+                 v: unassigned ? "미배정" : cf.toFixed(2), key: unassigned ? 0 : cf, color: noteColor(n) });
+  }
+  items.sort((a, b) => a.key - b.key || (a.t || 0) - (b.t || 0));
+  queue = items.slice(0, 300);
+  qCount.textContent = items.length ? `${items.length}개` + (items.length > queue.length ? ` (앞 ${queue.length}개)` : "") : "없음";
+  queueEl.innerHTML = "";
+  queue.forEach((it, i) => {
+    const li = document.createElement("li");
+    li.className = it.bad ? "bad" : "";
+    li.innerHTML = `<span class="t">${it.t === null || it.t === undefined ? "–" : fmt1(it.t)}</span>` +
+                   (it.color ? `<span class="swatch" style="background:${it.color};margin-top:4px"></span>` : "") +
+                   `<span class="what"></span><span class="v"></span>`;
+    li.querySelector(".what").textContent = it.what;
+    li.querySelector(".v").textContent = it.v;
+    li.addEventListener("click", () => goQueue(i));
+    queueEl.appendChild(li);
   });
-  window.bandscribeViewer = { api, audio, send, select, get doc() { return doc; }, get selected() { return selected; } };
+  qPos = -1;
+}
+function goQueue(i) {
+  if (!queue.length) return;
+  qPos = (i + queue.length) % queue.length;
+  const it = queue[qPos];
+  [...queueEl.children].forEach((li, k) => li.classList.toggle("on", k === qPos));
+  queueEl.children[qPos].scrollIntoView({ block: "nearest" });
+  if (it.uid) select(it.uid, true);
+  if (it.t !== null && it.t !== undefined) engine.seek(it.t);
+}
+qKind.addEventListener("change", () => { drawQueue(); lower.draw(audio.currentTime); });
+qThr.addEventListener("input", drawQueue);
 
-  load(false).catch((e) => { status.textContent = String(e); });
-})();
+// -------------------------------------------------------------------------------------------- edits
+let msgTimer = 0;
+function flash(text) {
+  msgEl.textContent = text || "";
+  clearTimeout(msgTimer);
+  if (text) msgTimer = setTimeout(() => { msgEl.textContent = ""; }, 6000);
+}
+function showCounts(d) {
+  undoBtn.disabled = !d.undo || !!d.readonly;
+  redoBtn.disabled = !d.redo || !!d.readonly;
+  countsEl.textContent = d.readonly ? "" : `편집 ${d.edits || 0}개` + (d.unmatched ? ` · 못 찾은 편집 ${d.unmatched}` : "") +
+                                            (d.skipped ? ` · 적용 못 한 편집 ${d.skipped}` : "");
+  if (d.export_error) flash(d.export_error);
+}
+const setBusy = (b) => { busy = b; document.body.classList.toggle("busy", b); };
+// one command; the caller holds `busy` (so no other key is sent before the page shows the result)
+async function run(cmd, reload = true) {
+  const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json",
+    "X-Bandscribe-Token": TOKEN }, body: JSON.stringify({ ...cmd, version: doc.version }) });
+  const d = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (r.status === 409 && d.stale) { flash(d.error); await load(true); return null; }
+  if (!r.ok) { flash(d.error || `HTTP ${r.status}`); return null; }
+  flash(d.message);
+  doc.version = d.version;
+  showCounts(d);
+  if (d.applied) {
+    selected = d.select || (cmd.cmd === "delete" ? cmd.uid : null);
+    if (reload) await load(true);
+  }
+  return d;
+}
+async function send(cmd) {
+  if (doc.readonly) { flash(`편집할 수 없습니다: ${doc.readonly}`); return null; }
+  if (busy) return null;
+  setBusy(true);
+  try { return await run(cmd); } catch (e) { flash(String(e)); return null; } finally { setBusy(false); }
+}
+function tap() {
+  if (!audio.paused) { taps.push(audio.currentTime); flash(`첫 박 표시 ${taps.length}개 · 멈추면 적용`); return; }
+  send({ cmd: "tap", t_s: audio.currentTime });
+}
+async function flushTaps() {
+  if (!taps.length || doc.readonly) return;
+  while (busy) await new Promise((res) => setTimeout(res, 50));
+  const list = taps.splice(0);
+  let applied = 0;
+  setBusy(true);
+  try {
+    for (const t of list) {
+      const d = await run({ cmd: "tap", t_s: t }, false);
+      if (d && d.applied) applied += 1;
+    }
+    if (applied) await load(true);
+    flash(`첫 박 ${list.length}개 중 ${applied}개로 마디선을 옮겼습니다`);
+  } catch (e) {
+    flash(String(e));
+  } finally {
+    setBusy(false);
+  }
+}
+const selectedNote = () => (selected && doc.map && doc.map.notes[selected]) || null;
+undoBtn.addEventListener("click", () => send({ cmd: "undo" }));
+redoBtn.addEventListener("click", () => send({ cmd: "redo" }));
+const toggleHelp = (force) => {
+  const show = force === undefined ? helpEl.hidden : force;
+  helpEl.hidden = !show;
+  helpBtn.setAttribute("aria-expanded", String(show));
+};
+helpBtn.addEventListener("click", () => toggleHelp());
+// after a header button, keys go to the score again (Space on a focused ↶ would press it once more)
+document.querySelector("header").addEventListener("click", (e) => {
+  if (e.target.closest("button")) viewport.focus({ preventScroll: true });
+});
+
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" && t.type !== "range" && t.type !== "checkbox" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+  // a slider or box with the focus keeps its own arrow keys, and never deletes or re-pitches the selected note
+  if (t && t.tagName === "INPUT" && /^(Arrow|Delete$|Backspace$|Home$|End$|Page)/.test(e.key)) return;
+  const onPage = t === document.body || t === viewport || (t && t.tagName === "INPUT");
+  if (e.code === "Space" && (onPage || (t && t.tagName === "BUTTON"))) { e.preventDefault(); api.playPause(); return; }
+  if (e.ctrlKey || e.metaKey) {
+    const k = e.key.toLowerCase();
+    if (k === "z") { e.preventDefault(); send({ cmd: e.shiftKey ? "redo" : "undo" }); }
+    else if (k === "y") { e.preventDefault(); send({ cmd: "redo" }); }
+    return;
+  }
+  if (e.altKey) return;
+  const n = selectedNote();
+  switch (e.key) {
+    case "Escape": toggleHelp(false); select(null); break;
+    case "?": toggleHelp(); break;
+    case "ArrowLeft": case "ArrowRight":
+      if (n) { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
+      break;
+    case "ArrowUp": case "ArrowDown":
+      if (n) { e.preventDefault(); send({ cmd: "pitch", uid: selected, delta: (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 12 : 1) }); }
+      break;
+    case "Delete": case "Backspace":
+      if (n) { e.preventDefault(); send({ cmd: "delete", uid: selected }); }
+      break;
+    case "s": case "S":
+      if (n) send({ cmd: "string", uid: selected, dir: e.shiftKey ? -1 : 1 });
+      break;
+    case "1": case "2":
+      if (n) send({ cmd: "assign", uid: selected, track: e.key === "1" ? "guitar_all" : "bass" });
+      break;
+    case "a": case "A":
+      send({ cmd: "add", track: n ? n.track : "guitar_all", t_s: audio.currentTime, pitch: n ? n.pitch : 0,
+             uid: selected || null });
+      break;
+    case "[": case "]": {
+      const bi = currentBar();
+      if (bi !== null && bi !== undefined) send({ cmd: "barline", bar_index: bi, delta: e.key === "[" ? -1 : 1 });
+      break;
+    }
+    case "d": case "D": tap(); break;
+    case "b": case "B":
+      if (!e.repeat) { if (!engine.ab) abBtn.click(); engine.holdAB(true); }
+      break;
+    case "l": case "L": loopStep(); break;
+    case "c": case "C": countBtn.click(); break;
+    case "-": case "_": setRate(engine.rate - 0.05); api.playbackSpeed = engine.rate; break;
+    case "=": case "+": setRate(engine.rate + 0.05); api.playbackSpeed = engine.rate; break;
+    case "n": case "N": goQueue(qPos + 1); break;
+    case "p": case "P": goQueue(qPos - 1); break;
+    default: return;
+  }
+});
+document.addEventListener("keyup", (e) => { if (e.key === "b" || e.key === "B") engine.holdAB(false); });
+window.addEventListener("blur", () => engine.holdAB(false));
+window.bandscribeViewer = { api, audio, engine, lower, send, select, renderSynth, ensureSynth, syncReport,
+                            get doc() { return doc; }, get selected() { return selected; } };
+
+Promise.all([loadMedia(), load(false)]).catch((e) => { status.textContent = String(e); });
 </script>
 </body>
 </html>
