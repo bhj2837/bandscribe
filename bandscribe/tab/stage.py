@@ -868,8 +868,8 @@ def write_gp7(out: Path, score: ATX.WScore, grid: Mapping[str, Any], backing: Pa
         return None
 
 
-CHART_NOTE = ("# 자동 추정 코드 차트 (bandscribe M9). 기타 음에서 박마다 추정했다. 잰 곡은 하나뿐이다 - 사용자 악보(seisyun\n"
-              "# complex) 대조 근음 + 부류(maj/min/7/5) 55 %, 근음만 64 % (E31). 텐션 코드와 근음 없는 보이싱에 약하다.\n"
+CHART_NOTE = ("# 자동 추정 코드 차트 (bandscribe M9) - 참고용. 기타 음에서 박마다 추정했다. 사용자 악보 세 곡 대조(근음 + 부류):\n"
+              "# seisyun complex 55 %, 다른 두 곡 28 %·45 % (E31, E33). 텐션 코드와 근음 없는 보이싱에 약하다.\n"
               "# 칸 = 마디, 칸 안의 글자 = 박마다 바뀌는 코드(. = 그대로, N.C. = 기타 없음).\n\n")
 
 
@@ -882,7 +882,7 @@ def write_chords(out: Path, *, quant: dict[str, Any], grid: dict[str, Any],
         res = CH.recognize(Q.notes_of(quant, GUITAR), Q.notes_of(quant, BASS) if quant.get("tracks", {}).get(BASS)
                            else [], edges)
         doc = {"format": "bandscribe.chords/1", "params": dict(CH.DEFAULTS), "segments": res["segments"],
-               "checks": res["checks"], "measured": "E31: seisyun complex root+class 0.546, root 0.639"}
+               "checks": res["checks"], "measured": "E31/E33 root+class: seisyun complex 0.546, two other songs 0.281 / 0.452"}
         atomic.write_json(out / "chords" / "chords.json", doc)
         atomic.write_text(out / "chords" / "chords.txt", CHART_NOTE + CH.text_chart(res["segments"], grid, sections))
         return doc
@@ -935,7 +935,7 @@ def run_score(ctx: Any) -> None:
 
 # quant 4 / tab 7 / score 5: M7a Part view (guitar notes and Line names from the parts stage; K part tracks with
 # their own tunings, the Unassigned staff). tab 8: the song tuning from the tuning stage, a part's own tuning among
-# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff); 8: the chord chart and the GP7 file (M9); 9: M9 review (stems dep, note drift)
+# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff); 8: the chord chart and the GP7 file (M9); 9: M9 review (stems dep, note drift); 10: chart header with three songs (E33)
 STAGES: dict[str, dict] = {
     "tuning": {"run": run_tuning, "code_version": "1", "params": tuning_params, "device": "cpu",
                "models": lambda cfg: {}},
@@ -943,6 +943,6 @@ STAGES: dict[str, dict] = {
     "quant": {"run": run_quant, "code_version": "4", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
     "tab": {"run": run_tab, "code_version": "8", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
-    "score": {"run": run_score, "code_version": "9", "params": score_params, "device": "cpu",
+    "score": {"run": run_score, "code_version": "10", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

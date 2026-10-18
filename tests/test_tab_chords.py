@@ -80,3 +80,13 @@ def test_the_score_stage_writes_the_chart_and_names_chords_only_when_asked(tmp_p
     names = {b.effect.chord.name for tr in song.tracks for m in tr.measures for v in m.voices for b in v.beats
              if b.effect.chord is not None}
     assert named[0] in names
+
+
+def test_e33_options_tension_templates_and_the_bass_in_the_histogram():
+    # D F A C E without the root on the guitar, D on the bass: Fmaj7-ish alone; Dm9 once the bass counts
+    voicing = chord((53, 57, 60, 64), 0, 4)
+    bass = chord((38,), 0, 4)
+    assert run(voicing, bass, n=4)["segments"][0]["name"] == "Fmaj7"
+    r = run(voicing, bass, n=4, extended=True, bass_weight=1.0)
+    assert r["segments"][0]["name"] == "Dm9" and C.CLASS["m9"] == "min"
+    assert run(voicing, bass, n=4)["segments"][0]["name"] == "Fmaj7"  # defaults unchanged (E31's recogniser)

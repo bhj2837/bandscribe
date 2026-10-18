@@ -74,6 +74,15 @@ chords_in_score = false`, `gp7_backing = "original"`. Report: `docs/acceptance/M
 - **E32 bends:** none found - every marked bend sits inside two strumming guitars, where pyin on either stem channel
   is unvoiced (8 % / 1 % voiced over the song). Next: partial tracking around each note's pitch, judged against the f0
   of the clean Tier B lead takes.
+- **Two more songs with the user's sheets (2026-10-18):** 「ギターと孤独と蒼い惑星」 (job f-56f32f7fc6873405) and
+  「あのバンド」 (f-cb4a96577087aaf4), audio from the user, sheets extracted to `data/tmp/sheets_gka`, `sheets_anb`
+  (`data/tmp/m9/songs.py`: sheet offset from note bags, E31's chord truth for any song).
+  - The first song's grid was at half tempo (97 vs the sheet's 193): `hints.toml` `[grid] tempo_bpm = 193`.
+  - E33 (chord recogniser v1 = bass in the histogram, chosen on seisyun complex 0.607): the new songs give v0 0.359,
+    v1 0.343 → rejected, v0 kept. The chart header now says it is for reference (55 / 28 / 45 % on the three songs).
+  - E32b: the bend rule finds 1 of 99 bends on the new songs (the lead shares each stem channel with a distorted
+    rhythm, pyin sees no single line). With 115 marked bends on three songs, partial tracking now has dev and test
+    data.
 
 ## M8 (2026-10-17/18): narrow mixes, repeat consensus, bleed
 

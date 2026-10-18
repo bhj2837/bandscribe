@@ -26,8 +26,17 @@ ROOTS = ("C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
 # the evaluation's classes (DESIGN §10 M9 "근음 + maj/min/5/7"; the rest kept apart)
 CLASS = {"maj": "maj", "maj7": "maj", "add9": "maj", "min": "min", "m7": "min", "7": "7", "5": "5",
          "sus2": "sus", "sus4": "sus", "dim": "dim"}
+# E33 (opt-in, ``extended``): tension chords, the guitar voicings E31 missed (m9, maj9 ... ), reduced to E31's classes
+EXTENDED: dict[str, tuple[int, ...]] = {
+    "m9": (0, 3, 7, 10, 2), "maj9": (0, 4, 7, 11, 2), "9": (0, 4, 7, 10, 2), "7sus4": (0, 5, 7, 10),
+    "6": (0, 4, 7, 9), "m6": (0, 3, 7, 9), "dim7": (0, 3, 6, 9), "m7b5": (0, 3, 6, 10), "madd9": (0, 3, 7, 2)}
+SUFFIX.update({q: q for q in EXTENDED})
+CLASS.update({"m9": "min", "maj9": "maj", "9": "7", "7sus4": "sus", "6": "maj", "m6": "min", "dim7": "dim",
+              "m7b5": "min", "madd9": "min"})
+# bass_weight (E33): the bass's own sounding seconds join the guitar histogram (x weight) - a listener reads the
+# harmony from both, and guitar voicings often leave the root to the bass
 DEFAULTS: dict[str, Any] = {"change_cost": 0.15, "bass_bonus": 0.1, "size_prior": 0.02, "min_fill": 0.1,
-                            "empty_cost": 0.25}
+                            "empty_cost": 0.25, "extended": False, "bass_weight": 0.0}
 N = "N"
 
 
@@ -35,14 +44,18 @@ def chord_name(root: int, quality: str) -> str:
     return ROOTS[root % 12] + SUFFIX[quality]
 
 
-def _states() -> list[tuple[int, str]]:
-    return [(r, q) for q in QUALITIES for r in range(12)]
+def _intervals(q: str) -> tuple[int, ...]:
+    return QUALITIES.get(q) or EXTENDED[q]
+
+
+def _states(extended: bool = False) -> list[tuple[int, str]]:
+    return [(r, q) for q in (*QUALITIES, *(EXTENDED if extended else ())) for r in range(12)]
 
 
 def _templates(states: Sequence[tuple[int, str]]) -> np.ndarray:
     t = np.zeros((len(states), 12))
     for i, (r, q) in enumerate(states):
-        for iv in QUALITIES[q]:
+        for iv in _intervals(q):
             t[i, (r + iv) % 12] = 1.0
     return t / np.linalg.norm(t, axis=1, keepdims=True)
 
@@ -77,14 +90,16 @@ def recognize(guitar: Sequence[Mapping[str, Any]], bass: Sequence[Mapping[str, A
     "end" (beat indices, end exclusive), "t0", "t1", "root", "quality", "name"}], "checks": [{"beat", "t", "chord",
     "bass"}]} over the beats between consecutive ``edges`` (seconds)."""
     p = {**DEFAULTS, **(params or {})}
-    states = _states()
+    states = _states(bool(p["extended"]))
     tmpl = _templates(states)
     h = histograms(guitar, edges)
     roots = bass_roots(bass, edges)
+    if float(p["bass_weight"]) > 0 and len(h):
+        h = h + float(p["bass_weight"]) * histograms(bass, edges)
     n = len(h)
     if n == 0:
         return {"beats": [], "states": [], "segments": [], "checks": []}
-    size = np.array([len(QUALITIES[q]) for _r, q in states], dtype=float)
+    size = np.array([len(_intervals(q)) for _r, q in states], dtype=float)
     prior = float(p["size_prior"]) * np.abs(size - 3.0)
     root_of = np.array([r for r, _q in states])
     S = len(states)
@@ -132,7 +147,7 @@ def recognize(guitar: Sequence[Mapping[str, Any]], bass: Sequence[Mapping[str, A
     for k, s in enumerate(st):
         if s is None or roots[k] is None:
             continue
-        tones = {(s[0] + iv) % 12 for iv in QUALITIES[s[1]]}
+        tones = {(s[0] + iv) % 12 for iv in _intervals(s[1])}
         if roots[k] not in tones:
             checks.append({"beat": k, "t": round(float(edges[k]), 4), "chord": labels[k], "bass": ROOTS[roots[k]]})
     return {"beats": labels, "states": st, "segments": out_segs, "checks": checks}
