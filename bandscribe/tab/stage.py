@@ -34,6 +34,7 @@ from bandscribe.schema.grid import TempoMap
 from bandscribe.tab import a4 as A4
 from bandscribe.tab import alphatex as ATX
 from bandscribe.tab import ascii as ascii_tab
+from bandscribe.tab import chords as CH
 from bandscribe.tab import fretting as F
 from bandscribe.tab import gp5 as GP5
 from bandscribe.tab import notation as N
@@ -411,7 +412,9 @@ def score_params(cfg: Any) -> dict[str, Any]:
     return {"tempo_change_ratio": 0.04, "title": str(_cfg_get(cfg, "hints.title", "") or "").strip(),
             "views": {"players": int(_cfg_get(cfg, "views.players", 2)),
                       "idle_policy": str(_cfg_get(cfg, "views.idle_policy", "rest")),
-                      "unison_policy": str(_cfg_get(cfg, "views.unison_policy", "duplicate"))}}
+                      "unison_policy": str(_cfg_get(cfg, "views.unison_policy", "duplicate"))},
+            "chords": {"in_score": bool(_cfg_get(cfg, "tab.chords_in_score", False))},
+            "gp7": {"backing": str(_cfg_get(cfg, "tab.gp7_backing", "original"))}}
 
 
 def _job_meta(ctx: Any) -> dict[str, Any]:
@@ -533,11 +536,25 @@ def view_layout(quant: Mapping[str, Any], tab: Mapping[str, Any], sections: Sequ
     return out, doc
 
 
+def chord_marks(segments: Sequence[Mapping[str, Any]], grid: Mapping[str, Any]) -> list[tuple[int, int, str]]:
+    """(bar, tick in the bar, name) where each chord of the chart starts ("N" left out)."""
+    beats = grid.get("beats") or []
+    out = []
+    for g in segments:
+        k = int(g["start"])
+        if g.get("name") in (None, CH.N) or not 0 <= k < len(beats):
+            continue
+        out.append((int(beats[k]["bar"]), (int(beats[k].get("beat") or 1) - 1) * Q.TPB, str(g["name"])))
+    return out
+
+
 def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: dict[str, Any],
                 sections: list[dict[str, Any]], params: dict[str, Any],
-                layout: Sequence[Mapping[str, Any]] | None = None) -> tuple[ATX.WScore, list[str]]:
+                layout: Sequence[Mapping[str, Any]] | None = None,
+                chords: Sequence[Mapping[str, Any]] | None = None) -> tuple[ATX.WScore, list[str]]:
     """The written score of a job (shared bars, spelled tracks) and spelling problems (empty = consistent).
-    ``layout`` (M7c, ``view_layout``) writes those tracks instead of the Part view's."""
+    ``layout`` (M7c, ``view_layout``) writes those tracks instead of the Part view's; ``chords`` (M9, the chart's
+    segments) names the chords on the guitar tracks' beats where they start."""
     tm = TempoMap.from_dict(grid)
     family_of = {int(b): str(f) for b, f in ((quant.get("beat_families") or {}).get("*") or [])}
     tracks_src = []
@@ -578,6 +595,15 @@ def build_score(title: str, quant: dict[str, Any], tab: dict[str, Any], grid: di
                 if i is not None and spelled[i]:
                     first = spelled[i][0]
                     first.text = text if not first.text else f"{first.text}; {text}"
+        if chords and tid != BASS:  # M9: the chord on the beat that holds its start
+            at = {b.bar: i for i, b in enumerate(bars)}
+            for bar_no, tick, name in chord_marks(chords, grid):
+                i = at.get(bar_no)
+                if i is None:
+                    continue
+                be = next((x for x in spelled[i] if x.start <= tick < x.start + x.dur), None)
+                if be is not None and be.chord is None:
+                    be.chord = name
         if tid == BASS:
             instrument = "electricbassfinger"
         else:
@@ -649,7 +675,7 @@ def score_doc(song_key: str, meta: dict[str, Any], title: str, quant: dict[str, 
 
 def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, quant: dict[str, Any],
                 tab: dict[str, Any], grid: dict[str, Any], sections: list[dict[str, Any]],
-                params: dict[str, Any]) -> ATX.WScore:
+                params: dict[str, Any], job_dir: Path | None = None) -> ATX.WScore:
     """Every file of the written score under ``out``: ``tab/score.alphatex``, ``tab/score.gp5``, ``tab/<track>.txt``,
     ``midi/<track>_quantized.mid`` and ``score.json`` (the ``score`` stage, and M4a's re-export of an edited score);
     with parts (M7c) also the Role and Player views, ``tab/views/{role,player}.{alphatex,gp5}`` and
@@ -657,12 +683,17 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
     from bandscribe.amt import midi
     from bandscribe.schema.score import save_score
 
-    score, problems = build_score(title, quant, tab, grid, sections, params)
+    out = Path(out)
+    chart = write_chords(out, quant=quant, grid=grid, sections=sections)
+    in_score = bool((params.get("chords") or {}).get("in_score")) and chart is not None
+    segs = chart["segments"] if in_score else None
+    score, problems = build_score(title, quant, tab, grid, sections, params, chords=segs)
     if problems:
         raise TabStageError(f"리듬 표기 오류 {len(problems)}건(버그): {problems[:3]}")
-    out = Path(out)
     atomic.write_text(out / "tab" / "score.alphatex", ATX.write(score))
     GP5.write(score, out / "tab" / "score.gp5")
+    write_gp7(out, score, grid, backing_audio(job_dir, str((params.get("gp7") or {}).get("backing") or "none")),
+              job_dir=job_dir)
     for tid, tr in (tab.get("tracks") or {}).items():
         if tr.get("fretted"):
             atomic.write_text(out / "tab" / f"{tid}.txt", text_tab(tid, tr, quant))
@@ -677,12 +708,146 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
         midi.write_performance_midi(out / "midi" / f"{tid}_quantized.mid",
                                     [(track_name(quant, tid)[0], 33 if tid == BASS else 27, notes)], grid)
     save_score(out / "score.json", score_doc(song_key, meta, title, quant, tab, grid, sections))
-    write_views(out, title=title, quant=quant, tab=tab, grid=grid, sections=sections, params=params)
+    write_views(out, title=title, quant=quant, tab=tab, grid=grid, sections=sections, params=params, chords=segs)
     return score
 
 
+def backing_audio(job_dir: Path | None, choice: str) -> Path | None:
+    """The recording a ``.gp`` embeds (M9, ``tab.gp7_backing``): the job's input mix, its no-guitar practice mix
+    (the published copy, else the newest stems stage's), or None."""
+    if job_dir is None or choice == "none":
+        return None
+    job_dir = Path(job_dir)
+    if choice == "original":
+        cands = [job_dir / "input" / "mix_44k_f32.wav"]
+    else:
+        cands = [job_dir / "export" / "practice" / "mix_minus_guitar.wav",
+                 *sorted((job_dir / "stages" / "stems").glob("*/practice/mix_minus_guitar.wav"),
+                         key=lambda p: p.stat().st_mtime, reverse=True)]
+    return next((p for p in cands if p.is_file()), None)
+
+
+def _backing_mp3(wav: Path, job_dir: Path | None) -> Path:
+    """``wav`` as MP3 (libsndfile), cached in the job's ``cache/gp7`` by path, size and mtime."""
+    import hashlib
+
+    import soundfile as sf
+
+    st = wav.stat()
+    key = hashlib.sha256(f"{wav.resolve()}|{st.st_size}|{st.st_mtime_ns}|mp3/1".encode()).hexdigest()[:16]
+    root = (Path(job_dir) / "cache" / "gp7") if job_dir is not None else wav.parent
+    mp3 = root / f"{key}.mp3"
+    if not mp3.is_file():
+        root.mkdir(parents=True, exist_ok=True)
+        y, sr = sf.read(str(wav), dtype="float32", always_2d=True)
+        tmp = mp3.with_suffix(".part.mp3")
+        sf.write(str(tmp), y[:, :2], sr, format="MP3")
+        atomic._replace(str(tmp), mp3)
+    return mp3
+
+
+def gp7_sync_points(score: ATX.WScore, grid: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """One sync point per grid beat of every written bar (its bar position = beat k / the bar's beats), so a
+    player follows the recording inside the bar too; a bar without grid beats gets one at its start."""
+    by_bar: dict[int, list[float]] = {}
+    for b in grid.get("beats") or []:
+        by_bar.setdefault(int(b["bar"]), []).append(float(b["t_s"]))
+    out = []
+    for i, bar in enumerate(score.bars):
+        ts = sorted(by_bar.get(int(bar.bar)) or [float(bar.start_s)])
+        for k, t in enumerate(ts):
+            out.append({"barIndex": i, "barOccurence": 0, "barPosition": round(k / len(ts), 6),
+                        "millisecondOffset": round(1000.0 * max(0.0, t), 3)})
+    return out
+
+
+def gp7_drift(check: Mapping[str, Any], score: ATX.WScore, grid: Mapping[str, Any]) -> dict[str, float] | None:
+    """|audio time a player gives each grid beat (the reloaded file's synth tick -> ms) - the beat's time|, ms."""
+    import bisect
+
+    sync = sorted(check.get("sync") or [], key=lambda p: p[1])
+    if len(sync) < 2:
+        return None
+    ticks, ms = [float(p[1]) for p in sync], [float(p[2]) for p in sync]
+    by_bar: dict[int, list[float]] = {}
+    for b in grid.get("beats") or []:
+        by_bar.setdefault(int(b["bar"]), []).append(float(b["t_s"]))
+    d = []
+    for (start, dur), bar in zip(check.get("bars") or [], score.bars):
+        ts = sorted(by_bar.get(int(bar.bar)) or [])
+        for k, t in enumerate(ts):
+            tick = float(start) + k * float(dur) / len(ts)
+            j = min(max(bisect.bisect_right(ticks, tick) - 1, 0), len(ticks) - 2)
+            a = ms[j] + (ms[j + 1] - ms[j]) * (tick - ticks[j]) / max(1e-9, ticks[j + 1] - ticks[j])
+            d.append(abs(a - 1000.0 * t))
+    if not d:
+        return None
+    d.sort()
+    return {"beats": len(d), "median": round(d[len(d) // 2], 2), "p95": round(d[int(0.95 * (len(d) - 1))], 2),
+            "max": round(d[-1], 2)}
+
+
+def write_gp7(out: Path, score: ATX.WScore, grid: Mapping[str, Any], backing: Path | None, *,
+              job_dir: Path | None = None) -> dict[str, Any] | None:
+    """``tab/score.gp`` (Guitar Pro 7/8 by alphaTab's Gp7Exporter from ``tab/score.alphatex``, one sync point per
+    beat, ``backing`` embedded as MP3) and ``tab/score_gp.json`` (what a player reads back: sizes, sync points, the
+    drift against the grid). Best effort: no Node / alphaTab or a failure leaves the .gp out (logged)."""
+    from bandscribe.eval import node as NJ
+
+    try:
+        if not NJ.alphatab_available():
+            log.info("Node/alphaTab 이 없어 GP7(.gp)은 건너뜁니다")
+            return None
+        with NJ._scratch() as tmp:
+            sync = Path(tmp) / "sync.json"
+            check = Path(tmp) / "check.json"
+            atomic.write_json(sync, gp7_sync_points(score, grid))
+            args: list[Any] = ["gp7", out / "tab" / "score.alphatex", out / "tab" / "score.gp", "--sync", sync,
+                               "--check", check]
+            mp3 = _backing_mp3(backing, job_dir) if backing is not None else None
+            if mp3 is not None:
+                args += ["--audio", mp3]
+            NJ.run_score(args, timeout_s=300)
+            chk = atomic.read_json(check)
+        doc = {"format": "bandscribe.gp7/1", "backing": None if backing is None else backing.name,
+               "bytes": chk.get("bytes"), "backing_bytes": chk.get("backing_bytes"),
+               "sync_points": len(chk.get("flat_sync") or []), "master_bars": chk.get("master_bars"),
+               "drift_ms": gp7_drift(chk, score, grid),
+               "note": "개인용: 백킹으로 원곡 음원이 들어 있다" if backing is not None else None}
+        atomic.write_json(out / "tab" / "score_gp.json", doc)
+        return doc
+    except Exception as e:  # noqa: BLE001 - logged; the .gp is left out
+        log.warning("GP7(.gp)을 쓰지 못했습니다: %s", e)
+        (out / "tab" / "score.gp").unlink(missing_ok=True)
+        return None
+
+
+CHART_NOTE = ("# 자동 추정 코드 차트 (bandscribe M9). 기타 음에서 박마다 추정했다 - 사용자 악보 대조(seisyun complex)에서\n"
+              "# 근음 + 부류(maj/min/7/5) 54 %, 근음만 62 % (E31). 텐션 코드(m9, maj7 ...)와 근음 없는 보이싱에 약하다.\n"
+              "# 칸 = 마디, 칸 안의 글자 = 박마다 바뀌는 코드(. = 그대로, N.C. = 기타 없음).\n\n")
+
+
+def write_chords(out: Path, *, quant: dict[str, Any], grid: dict[str, Any],
+                 sections: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """``chords/chords.json`` (segments, the bass cross-check) and ``chords/chords.txt`` (M9, DESIGN 6.5); best
+    effort - a problem here never fails the score."""
+    try:
+        edges = CH.beat_edges(grid)
+        res = CH.recognize(Q.notes_of(quant, GUITAR), Q.notes_of(quant, BASS) if quant.get("tracks", {}).get(BASS)
+                           else [], edges)
+        doc = {"format": "bandscribe.chords/1", "params": dict(CH.DEFAULTS), "segments": res["segments"],
+               "checks": res["checks"], "measured": "E31: seisyun complex root+class 0.543, root 0.623"}
+        atomic.write_json(out / "chords" / "chords.json", doc)
+        atomic.write_text(out / "chords" / "chords.txt", CHART_NOTE + CH.text_chart(res["segments"], grid, sections))
+        return doc
+    except Exception as e:  # noqa: BLE001 - logged; the chart is left out
+        log.warning("코드 차트를 쓰지 못했습니다: %s", e)
+        return None
+
+
 def write_views(out: Path, *, title: str, quant: dict[str, Any], tab: dict[str, Any], grid: dict[str, Any],
-                sections: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any] | None:
+                sections: list[dict[str, Any]], params: dict[str, Any],
+                chords: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any] | None:
     """The Role and Player views of a song with guitar parts (M7c; module doc of ``bandscribe.parts.views``)."""
     if not split_on(quant) or not sections:
         return None
@@ -693,7 +858,7 @@ def write_views(out: Path, *, title: str, quant: dict[str, Any], tab: dict[str, 
             lay, vd = view_layout(quant, tab, sections, view, settings)
             if not lay:
                 continue
-            score, problems = build_score(title, quant, tab, grid, sections, params, layout=lay)
+            score, problems = build_score(title, quant, tab, grid, sections, params, layout=lay, chords=chords)
             if problems:
                 raise TabStageError(f"리듬 표기 오류 {len(problems)}건(버그): {problems[:3]}")
             atomic.write_text(out / "tab" / "views" / f"{view}.alphatex", ATX.write(score))
@@ -710,7 +875,12 @@ def write_views(out: Path, *, title: str, quant: dict[str, Any], tab: dict[str, 
 
 def run_score(ctx: Any) -> None:
     dd = {k: Path(v) for k, v in ctx.dep_dirs.items()}
+    try:
+        job_dir = Path(ctx.store.job_dir(ctx.song_key))
+    except (AttributeError, TypeError):
+        job_dir = None
     write_score(Path(ctx.out_dir), song_key=str(getattr(ctx, "song_key", "song")), meta=_job_meta(ctx),
+                job_dir=job_dir,
                 title=_title(ctx), quant=atomic.read_json(dd["quant"] / "quant.json"),
                 tab=atomic.read_json(dd["tab"] / "tab.json"), grid=atomic.read_json(dd["grid"] / "grid.json"),
                 sections=atomic.read_json(dd["sections"] / "sections.json").get("sections") or [],
@@ -719,7 +889,7 @@ def run_score(ctx: Any) -> None:
 
 # quant 4 / tab 7 / score 5: M7a Part view (guitar notes and Line names from the parts stage; K part tracks with
 # their own tunings, the Unassigned staff). tab 8: the song tuning from the tuning stage, a part's own tuning among
-# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff)
+# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff); 8: the chord chart and the GP7 file (M9)
 STAGES: dict[str, dict] = {
     "tuning": {"run": run_tuning, "code_version": "1", "params": tuning_params, "device": "cpu",
                "models": lambda cfg: {}},
@@ -727,6 +897,6 @@ STAGES: dict[str, dict] = {
     "quant": {"run": run_quant, "code_version": "4", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
     "tab": {"run": run_tab, "code_version": "8", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
-    "score": {"run": run_score, "code_version": "7", "params": score_params, "device": "cpu",
+    "score": {"run": run_score, "code_version": "8", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

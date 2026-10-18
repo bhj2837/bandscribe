@@ -4,6 +4,7 @@
 //   node bandscribe_score.mjs import <in.gp|gpx|gp5|...> <out.json> [--encoding cp949]
 //   node bandscribe_score.mjs render <in> <out.wav> [--soundfont <sf2>] [--sample-rate 44100]
 //   node bandscribe_score.mjs checktex <in.alphatex> <out.json>
+//   node bandscribe_score.mjs gp7 <in.alphatex> <out.gp> [--audio <backing file>] [--sync <points.json>] [--check <out.json>]
 //   node bandscribe_score.mjs version
 //
 // `import` writes the neutral RefScore JSON (format "bandscribe.refscore/1", see bandscribe/eval/refscore.py) with the
@@ -189,12 +190,42 @@ function cmdCheckTex(input, output) {
   writeFileSync(output, JSON.stringify(res));
 }
 
+// `gp7` (M9): the alphaTex (its \sync points: one per bar, the recording's time) written by alphaTab's Gp7Exporter as
+// a Guitar Pro 7/8 file, with <audio> embedded as the backing track (Content/Assets/backing-track). `--check` reloads
+// the written file and reports what a player will use: the backing track's size, the flat sync points and
+// MidiFileGenerator.generateSyncPoints (synth tick -> audio ms), plus each master bar's start tick and length.
+function cmdGp7(input, output, audio, sync, check) {
+  const settings = new alphaTab.Settings();
+  const score = alphaTab.importer.ScoreLoader.loadAlphaTex(readFileSync(input, "utf8"), settings);
+  // --sync: [{barIndex, barOccurence, barPosition, millisecondOffset}] replacing the alphaTex's per-bar points
+  // (bandscribe writes one per beat, so the backing follows tempo changes inside a bar)
+  if (sync) score.applyFlatSyncPoints(JSON.parse(readFileSync(sync, "utf8")));
+  if (audio) {
+    score.backingTrack = new alphaTab.model.BackingTrack();
+    score.backingTrack.rawAudioFile = new Uint8Array(readFileSync(audio));
+  }
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(score, settings);
+  writeFileSync(output, bytes);
+  if (!check) return;
+  const back = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(readFileSync(output)), new alphaTab.Settings());
+  const gen = alphaTab.midi.MidiFileGenerator.generateSyncPoints(back);
+  writeFileSync(check, JSON.stringify({
+    format: "bandscribe.gp7_check/1", alphatab: PKG.version, bytes: bytes.length,
+    backing_bytes: back.backingTrack && back.backingTrack.rawAudioFile ? back.backingTrack.rawAudioFile.length : 0,
+    master_bars: back.masterBars.length, tracks: back.tracks.map((t) => t.name),
+    flat_sync: back.exportFlatSyncPoints().map((p) => [p.barIndex, p.barOccurence, p.barPosition, p.millisecondOffset]),
+    sync: gen.map((p) => [p.masterBarIndex, p.synthTick, p.syncTime]),
+    bars: back.masterBars.map((mb) => [mb.start, mb.calculateDuration()]),
+  }));
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 const { pos, opts } = parseArgs(rest);
 try {
   if (cmd === "import" && pos.length === 2) cmdImport(pos[0], pos[1], opts.encoding ?? null);
   else if (cmd === "render" && pos.length === 2) cmdRender(pos[0], pos[1], opts.soundfont ?? null, Number(opts["sample-rate"] ?? 44100));
   else if (cmd === "checktex" && pos.length === 2) cmdCheckTex(pos[0], pos[1]);
+  else if (cmd === "gp7" && pos.length === 2) cmdGp7(pos[0], pos[1], opts.audio ?? null, opts.sync ?? null, opts.check ?? null);
   else if (cmd === "version") process.stdout.write(JSON.stringify({ alphatab: PKG.version, node: process.version }) + "\n");
   else { process.stderr.write("usage: bandscribe_score.mjs import <in> <out.json> | render <in> <out.wav> | version\n"); process.exit(2); }
 } catch (e) {

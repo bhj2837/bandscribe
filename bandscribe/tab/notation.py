@@ -42,6 +42,7 @@ class WBeat:
     tuplet: tuple[int, int] | None = None
     notes: list[WNote] = field(default_factory=list)  # empty = rest
     text: str | None = None  # text above the beat (M7c Player-view markers)
+    chord: str | None = None  # chord name from this beat on (M9, `tab.chords_in_score`)
 
 
 @dataclass

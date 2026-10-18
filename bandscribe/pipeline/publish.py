@@ -50,6 +50,9 @@ EXPORT_MAP: tuple[tuple[str, str, str, bool, bool], ...] = (
     # M3 (optional: `--until notes` publishes without them)
     ("tab/score.alphatex", "score", "tab/score.alphatex", False, False),
     ("tab/score.gp5", "score", "tab/score.gp5", False, False),
+    # M9 (optional: needs Node + alphaTab): Guitar Pro 7/8 with the backing track, and its sync check
+    ("tab/score.gp", "score", "tab/score.gp", False, False),
+    ("tab/score_gp.json", "score", "tab/score_gp.json", False, False),
     ("tab/bass.txt", "score", "tab/bass.txt", False, False),
     ("tab/guitar_all.txt", "score", "tab/guitar_all.txt", False, False),
     ("tab/tab.json", "tab", "tab.json", False, False),
@@ -64,6 +67,9 @@ EXPORT_MAP: tuple[tuple[str, str, str, bool, bool], ...] = (
     *((f"tab/views/{v}.{ext}", "score", f"tab/views/{v}.{ext}", False, False) for v in ("role", "player")
       for ext in ("alphatex", "gp5")),
     ("tab/views/views.json", "score", "tab/views/views.json", False, False),
+    # M9 (optional: the chart is best effort): the chord chart and the bass cross-check
+    ("chords/chords.txt", "score", "chords/chords.txt", False, False),
+    ("chords/chords.json", "score", "chords/chords.json", False, False),
 )
 
 _RENAME_RETRIES = 8

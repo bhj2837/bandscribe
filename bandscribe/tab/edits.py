@@ -811,12 +811,15 @@ def build_tolerant(base: Base, edits: Sequence[Mapping[str, Any]], cache: _Cache
 
 # ----------------------------------------------------------------------------------------------- export
 
-SCORE_FILES = ("tab/score.gp5", *(f"tab/views/{v}.gp5" for v in ("role", "player")), "tab/score.alphatex",
+SCORE_FILES = ("tab/score.gp5", "tab/score.gp", *(f"tab/views/{v}.gp5" for v in ("role", "player")),
+               "tab/score_gp.json", "tab/score.alphatex",
                "score.json", "tab/tab.json",
                *(f"tab/{t}.txt" for t in (*TRACKS, *T.DERIVED)),
                *(f"midi/{t}_quantized.mid" for t in (*TRACKS, *T.DERIVED)),
                # M7c: the Role and Player views follow the edits
-               *(f"tab/views/{v}.alphatex" for v in ("role", "player")), "tab/views/views.json")
+               *(f"tab/views/{v}.alphatex" for v in ("role", "player")), "tab/views/views.json",
+               # M9: the chord chart follows the edits
+               "chords/chords.txt", "chords/chords.json")
 
 
 def export(base: Base, state: State, h: str) -> dict[str, Any]:
@@ -829,7 +832,8 @@ def export(base: Base, state: State, h: str) -> dict[str, Any]:
     tmp = Path(tempfile.mkdtemp(prefix=".edits-", dir=out))
     try:
         T.write_score(tmp, song_key=base.song_key, meta=base.meta, title=base.title, quant=state.quant,
-                      tab=state.tab, grid=state.grid, sections=state.sections, params=base.score_params)
+                      tab=state.tab, grid=state.grid, sections=state.sections, params=base.score_params,
+                      job_dir=base.job_dir)
         atomic.write_json(tmp / "tab" / "tab.json", state.tab)
         made = [r for r in SCORE_FILES if (tmp / r).is_file()]
         for rel in made:  # SCORE_FILES lists the GP5 first

@@ -293,6 +293,12 @@ class TabCfg(_Section):
     # job's hints.toml.
     guitar_tuning: str = Field("auto", min_length=1)
     bass_tuning: str = Field("auto", min_length=1)
+    # M9 (E31): the chord chart is always written to export/chords/; its names go into the score (alphaTex `ch`,
+    # GP5 chord) only when asked - E31 measured 54 % (root + class) on seisyun complex, under DESIGN's 70 %.
+    chords_in_score: bool = False
+    # M9: the Guitar Pro 7/8 file (tab/score.gp, alphaTab's Gp7Exporter) embeds a backing track - the "original"
+    # recording, the "no_guitar" practice mix, or "none" (no audio). Personal use: the file holds the recording.
+    gp7_backing: str = Field("original", pattern="^(original|no_guitar|none)$")
 
 
 class BassCfg(_Section):

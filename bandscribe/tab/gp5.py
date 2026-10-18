@@ -55,6 +55,10 @@ def build(score: WScore) -> gp.Song:
                                status=gp.BeatStatus.normal if be.notes else gp.BeatStatus.rest)
                 if getattr(be, "text", None):
                     beat.text = str(be.text)  # M7c markers (PyGuitarPro 0.11: a plain string)
+                if getattr(be, "chord", None):  # M9: a chord name without a diagram
+                    n_str = len(tr.tuning or []) or 6
+                    beat.effect.chord = gp.Chord(n_str, name=str(be.chord), newFormat=True, sharp=False, add=False,
+                                                 firstFret=1, show=False, strings=[-1] * n_str)
                 for n in be.notes:
                     fx = set(getattr(n, "fx", ()) or ())
                     kind = gp.NoteType.tie if n.tie else (gp.NoteType.dead if "x" in fx else gp.NoteType.normal)

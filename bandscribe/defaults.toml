@@ -150,6 +150,8 @@ resid_min_occurrences = 3
 guitar_parts = 0               # 0 = auto (the parts stage counts them), N = N guitar parts (--parts N; 1 = one)
 guitar_tuning = "auto"          # auto = tuning search; or e.g. "E standard", "Eb standard", "Drop D" (per song: hints.toml)
 bass_tuning = "auto"
+chords_in_score = false         # M9: chord names in the score too (E31: 54 % on seisyun complex; the chart is always written)
+gp7_backing = "original"        # M9: tab/score.gp backing track: original | no_guitar | none (the file holds the recording: personal use)
 
 [bass]                         # M5: clean-up of the pass-1 bass with the F0 tracks (E13, 2026-10-08)
 anchor = false                 # octave / semitone fixes when two of CREPE, PESTO, pyin agree (E13: no gain)
