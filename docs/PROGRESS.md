@@ -83,6 +83,16 @@ chords_in_score = false`, `gp7_backing = "original"`. Report: `docs/acceptance/M
   - E32b: the bend rule finds 1 of 99 bends on the new songs (the lead shares each stem channel with a distorted
     rhythm, pyin sees no single line). With 115 marked bends on three songs, partial tracking now has dev and test
     data.
+- **Six Tier A songs with sheets (2026-10-18):** three more (星座になれたら, ひとりぼっち東京, 光の中へ) run with their
+  sheet tempos (`run --tempo`, kept in `hints.toml`); all five downloaded songs moved to `D:\backing` under their
+  Japanese titles (same names as the sheet folders). Table in `docs/acceptance/M9.md`: guitar bar F1 59-74, bass
+  71-91, chords 0.28-0.55.
+  - Sheets carry tunings: a capo (光の中へ guitars 1 and 3), a half-step-down bass (星座になれたら, 光の中へ), a
+    drop-D bass (あのバンド). The scorer now reads the PDF header; before, those songs looked misaligned or wrong.
+    Capo sheets name the chord shapes.
+  - Bends by partial tracking (explored on the three dev songs only): recall 0.28-0.44 but precision about 0.1, F1
+    0.16 against DESIGN's 0.6 - the detections sit at chord onsets like the false ones. Not run on the test songs,
+    not registered; the detector is kept as a research record (`docs/research/experiments/bends_cqt.py`).
 
 ## M8 (2026-10-17/18): narrow mixes, repeat consensus, bleed
 
