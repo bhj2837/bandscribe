@@ -46,10 +46,12 @@ def test_cambridge_songs_have_ids_and_plain_host():
     spec = registry.get("cambridge_mt")
     required = [f for f in spec.files if f.required]
     assert 4 <= len(required) <= 6
-    # the distractor set (2026-10-04): optional parts, one per song, under ~3 GB in all
+    # optional parts, one per song: the distractor set (2026-10-04, 7 songs, under ~3 GB) and E37's strings /
+    # brass-winds songs (2026-10-18, 7 songs, 3.33 GB)
     optional = [f for f in spec.files if not f.required]
-    assert len(optional) == 7 and all(f.part == f.song for f in optional)
-    assert sum(f.bytes for f in optional) < 3_000_000_000
+    assert len(optional) == 14 and all(f.part == f.song for f in optional)
+    assert len({f.song for f in optional}) == 14
+    assert sum(f.bytes for f in optional) < 6_500_000_000
     for f in spec.files:
         assert f.song and f.song.isascii() and f.song == f.song.lower()
         # only the MTK archive host answered plain requests; the Cloudflare-protected hosts must not appear

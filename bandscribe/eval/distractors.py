@@ -65,7 +65,7 @@ from bandscribe.eval import stem_taxonomy as T
 log = logging.getLogger(__name__)
 
 SUITE = "distractors"
-CODE_VERSION = "1"
+CODE_VERSION = "2"  # 2: E37 level sweep, extra mask arms, dropped-note attribution
 SR = 44100
 FPS = 10.0
 WINDOW_S = 75.0
@@ -81,6 +81,18 @@ SEP_BATCH_S = 600.0
 ONSET_TOL = 0.05
 PITCH_TOL_CENTS = 50.0
 ARMS = ("production", "guitar_only")
+# E37 (2026-10-18): extra guitar-pass masks, scored on base and the arm-level conditions of EXTRA_ARM_CATS in the
+# windows where one of them is present. "strings" = production + bowed strings (E3b's guitar+present+strings); "strings_winds"
+# (diagnostic) also lets MuScriptor call a note brass or a wind instrument, which no production mask allows.
+EXTRA_ARMS = ("strings", "strings_winds")
+EXTRA_ARM_CATS = ("strings", "brass_winds")
+# Level sweep: a category's level against the guitar sum = mean power over the 100 ms frames where both sound (each
+# within 30 dB of its own loudest frame and above SILENCE_DBFS); each over its own active frames when they overlap in
+# fewer than LEVEL_MIN_FRAMES frames. The gain that puts a category at 0 dB is capped (a near-silent stem's noise).
+LEVEL_FRAME_S = 0.1
+LEVEL_ACTIVE_DB = -30.0
+LEVEL_MIN_FRAMES = 10
+MAX_LEVEL_GAIN_DB = 30.0
 # GPU time model for the budget check (RTX 2060 measurements, docs/PROGRESS.md): SW ~4.4x realtime + ~40 s per
 # worker; MuScriptor guitar view ~0.6 s per audio s (0.5-1.2) + ~40 s per worker; presence windows ~1.5 s per s.
 EST_SEP_RTF = 4.4
@@ -272,8 +284,11 @@ def activity(power: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
 
 
 def select_windows(power: Mapping[str, np.ndarray], *, window_s: float = WINDOW_S, step_s: float = STEP_S,
-                   max_windows: int = 2, fps: float = FPS) -> list[WindowChoice]:
-    """Deterministic excerpt windows (see the module docstring, point 2). Pure numpy."""
+                   max_windows: int = 2, fps: float = FPS,
+                   distractors: Sequence[str] | None = None) -> list[WindowChoice]:
+    """Deterministic excerpt windows (see the module docstring, point 2). Pure numpy. ``distractors`` = the
+    categories that count as present / for the window's strength (default every distractor category; E37 passes its
+    tonal ones so a window rich in effects does not win over one with the strings)."""
     act = activity(power)
     if "_guitar" not in act:
         return []
@@ -282,7 +297,7 @@ def select_windows(power: Mapping[str, np.ndarray], *, window_s: float = WINDOW_
     win = min(window_s, dur)
     wf = max(1, int(round(win * fps)))
     starts = np.arange(0.0, max(0.0, dur - win) + 1e-9, step_s) if dur > win else np.array([0.0])
-    distract = [c for c in T.DISTRACTORS if c in act]
+    distract = [c for c in (distractors or T.DISTRACTORS) if c in act]
     cands = []
     for s in starts:
         a = int(round(s * fps))
@@ -357,6 +372,7 @@ def parse_windows(spec: Any) -> dict[str, list[tuple[float, float]]]:
 class Condition:
     name: str
     categories: tuple[str, ...]
+    gains: tuple[tuple[str, float], ...] = ()  # (category, linear gain) for a level-sweep condition; others at unity
 
 
 def conditions_for(song_categories: Sequence[str], present: Sequence[str], *,
@@ -374,6 +390,95 @@ def conditions_for(song_categories: Sequence[str], present: Sequence[str], *,
     if guitar_alone:
         out.append(Condition("guitar_alone", tuple(c for c in have if c in T.GUITAR)))
     return out
+
+
+def level_tag(level_db: float) -> str:
+    return f"{float(level_db):+g}"
+
+
+def split_cond(name: str) -> tuple[str, str]:
+    """``+strings@+0`` -> (``+strings``, ``+0``); a name without a level -> (name, "")."""
+    head, _, lvl = name.partition("@")
+    return head, lvl
+
+
+def _frame_power(x: np.ndarray) -> np.ndarray:
+    m = np.asarray(x, dtype=np.float64)
+    m = m.mean(axis=1) if m.ndim == 2 else m
+    hop = int(round(LEVEL_FRAME_S * SR))
+    n = len(m) // hop
+    return np.square(m[: n * hop].reshape(n, hop)).mean(axis=1) if n else np.zeros(0)
+
+
+def _level_active(p: np.ndarray) -> np.ndarray:
+    if not len(p) or float(p.max()) <= 0.0:
+        return np.zeros(len(p), dtype=bool)
+    return (p >= p.max() * 10 ** (LEVEL_ACTIVE_DB / 10)) & (p >= 10 ** (SILENCE_DBFS / 10))
+
+
+def relative_level_db(x: np.ndarray, guitar: np.ndarray) -> float | None:
+    """Level of ``x`` against ``guitar`` in dB (see LEVEL_*); None when either is silent."""
+    px, pg = _frame_power(x), _frame_power(guitar)
+    n = min(len(px), len(pg))
+    px, pg = px[:n], pg[:n]
+    ax, ag = _level_active(px), _level_active(pg)
+    if not ax.any() or not ag.any():
+        return None
+    both = ax & ag
+    if int(both.sum()) >= LEVEL_MIN_FRAMES:
+        return 10 * math.log10(float(px[both].mean()) / float(pg[both].mean()))
+    return 10 * math.log10(float(px[ax].mean()) / float(pg[ag].mean()))
+
+
+def level_gains(cat_audio: Mapping[str, np.ndarray], cats: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Per category of ``cats`` with sound: its level against the window's guitar sum at unity (``level_db``) and the
+    dB gain that puts it at 0 dB (``gain_db``, capped at MAX_LEVEL_GAIN_DB -> ``capped``)."""
+    gs = [cat_audio[c] for c in T.GUITAR if c in cat_audio]
+    if not gs:
+        return {}
+    g = sum(gs)
+    out: dict[str, dict[str, Any]] = {}
+    for c in cats:
+        if c not in cat_audio or c in T.GUITAR:
+            continue
+        lv = relative_level_db(cat_audio[c], g)
+        if lv is None:
+            continue
+        out[c] = {"level_db": lv, "gain_db": min(-lv, MAX_LEVEL_GAIN_DB), "capped": -lv > MAX_LEVEL_GAIN_DB}
+    return out
+
+
+def level_conditions(song_categories: Sequence[str], present: Sequence[str], levels: Sequence[float],
+                     gains: Mapping[str, Mapping[str, Any]]) -> list[Condition]:
+    """base, then ``+<category>@<level>`` for every present distractor category with a measured level and every
+    level (dB against the guitar sum): base plus that category alone, scaled to the level."""
+    have = [c for c in T.CATEGORIES if c in song_categories]
+    base = tuple(c for c in have if c in T.BASE)
+    out = [Condition("base", base)]
+    for c in present:
+        if c in have and c not in T.BASE and c in gains:
+            for lv in levels:
+                g = 10 ** ((float(gains[c]["gain_db"]) + float(lv)) / 20)
+                out.append(Condition(f"+{c}@{level_tag(lv)}", tuple(x for x in have if x in base or x == c),
+                                     ((c, g),)))
+    return out
+
+
+def extra_mask(arm: str, production: Sequence[str]) -> list[str]:
+    """The guitar-pass mask of an extra arm: the production mask plus bowed strings (+ brass and winds)."""
+    from bandscribe.amt import instruments as I
+    from bandscribe.schema.instrumentation import FAMILIES
+
+    adds = list(I.GUITAR_MASK_STRINGS)
+    if arm == "strings_winds":
+        adds += list(FAMILIES["brass"]) + list(FAMILIES["winds"])
+    elif arm != "strings":
+        raise DistractorError(f"알 수 없는 arm: {arm} (가능: {', '.join(EXTRA_ARMS)})")
+    return I.sort_mt3(list(production) + adds)
+
+
+def _mask_vid(guitar_sha: str, mask: Sequence[str]) -> str:
+    return f"m{guitar_sha[:12]}{hashlib.sha256('+'.join(mask).encode()).hexdigest()[:6]}"
 
 
 def read_segment(path: Path, start_s: float, n_out: int) -> np.ndarray:
@@ -410,13 +515,15 @@ def category_audio(song: SongInfo, start_s: float, end_s: float) -> dict[str, np
     return out
 
 
-def condition_audio(cat_audio: Mapping[str, np.ndarray], gain: np.ndarray, cats: Iterable[str]) -> np.ndarray:
-    """(n, 2) float32 = clip(sum of the categories x gain, ceiling)."""
+def condition_audio(cat_audio: Mapping[str, np.ndarray], gain: np.ndarray, cats: Iterable[str],
+                    gains: Mapping[str, float] | None = None) -> np.ndarray:
+    """(n, 2) float32 = clip(sum of the categories (x their level gain, default 1) x gain, ceiling)."""
     cats = [c for c in cats if c in cat_audio]
+    gains = gains or {}
     n = len(gain)
     x = np.zeros((n, 2))
     for c in cats:
-        x += cat_audio[c]
+        x += cat_audio[c] * float(gains.get(c, 1.0))
     ceiling = 10 ** (CEILING_DBTP / 20)
     return np.clip(x * gain[:, None], -ceiling, ceiling).astype(np.float32)
 
@@ -614,6 +721,7 @@ class WindowRun:
     ref_wav: Path | None = None
     ref_notes: list[dict] = field(default_factory=list)
     conds: list[CondRun] = field(default_factory=list)
+    levels: dict[str, dict[str, Any]] = field(default_factory=dict)  # level sweep: level_gains of the window
 
     @property
     def item(self) -> str:
@@ -701,11 +809,11 @@ def _instrumentation(cr: CondRun, sel: Mapping[str, Any], presence_notes: list[d
 # ------------------------------------------------------------------------------------------- scoring
 
 
-def _arrays(notes: Sequence[Mapping[str, Any]], latency_s: float) -> np.ndarray:
+def _arrays(notes: Sequence[Mapping[str, Any]], latency_s: float, *, classes: Any = "guitar") -> np.ndarray:
     from bandscribe.amt import instruments as I
     from bandscribe.amt.experiments import note_arrays
 
-    iv, pp = note_arrays(notes, classes=I.GUITAR_CLASSES, latency_s=latency_s)
+    iv, pp = note_arrays(notes, classes=I.GUITAR_CLASSES if classes == "guitar" else classes, latency_s=latency_s)
     return np.column_stack([iv, pp]) if len(pp) else np.zeros((0, 3))
 
 
@@ -729,6 +837,8 @@ class Score:
     fp_dominant: Counter
     fn_dominant: Counter
     fp_pairs: Counter  # (cause, dominant) -> n
+    drop_dominant: Counter = field(default_factory=Counter)  # notes labelled non-guitar, unmatched: loudest sound
+    drop_ref: int = 0  # notes labelled non-guitar that match a reference (true guitar) note
 
     def counts(self) -> dict[str, float]:
         c: dict[str, float] = {"tp": self.tp, "fp": self.fp, "fn": self.fn, "min": self.minutes}
@@ -740,7 +850,10 @@ class Score:
 
 
 def score(ref: np.ndarray, est: np.ndarray, bands: Mapping[str, A.BandEnergy], *, floor: float,
-          minutes: float, mix: A.BandEnergy | None = None) -> Score:
+          minutes: float, mix: A.BandEnergy | None = None, dropped: np.ndarray | None = None) -> Score:
+    """Matches, FP / FN causes and, for ``dropped`` (the notes MuScriptor labelled non-guitar, E37), how many match a
+    reference note and the loudest sound under the others: the distractor-dominated output notes the mask kept out of
+    the guitar tab (``drop_dominant``) against the ones it let in (``fp_dominant``)."""
     pairs = match(ref, est)
     mr = {i for i, _ in pairs}
     me = {j for _, j in pairs}
@@ -762,7 +875,23 @@ def score(ref: np.ndarray, est: np.ndarray, bands: Mapping[str, A.BandEnergy], *
         c = A.attribute_fn(tuple(ref[i]), est, bands, guitar=T.GUITAR, floor=floor, mix=mix)
         fnc[c.label] += 1
         fnd[c.dominant or "none"] += 1
-    return Score(len(pairs), len(est) - len(pairs), len(ref) - len(pairs), minutes, fpc, fnc, fpd, fnd, fpp)
+    dd: Counter = Counter()
+    dref = 0
+    if dropped is not None and len(dropped):
+        dp = match(ref, dropped)
+        md = {j for _, j in dp}
+        dref = len(dp)
+        for j in range(len(dropped)):
+            if j not in md:
+                c = A.attribute_fp(tuple(dropped[j]), ref, bands, guitar=T.GUITAR, floor=floor, mix=mix)
+                dd[c.dominant or A.UNKNOWN] += 1
+    return Score(len(pairs), len(est) - len(pairs), len(ref) - len(pairs), minutes, fpc, fnc, fpd, fnd, fpp, dd, dref)
+
+
+def _arrays_non_guitar(notes: Sequence[Mapping[str, Any]], latency_s: float) -> np.ndarray:
+    from bandscribe.amt import instruments as I
+
+    return _arrays([n for n in notes if n.get("instrument") not in I.GUITAR_CLASSES], latency_s, classes=None)
 
 
 # --------------------------------------------------------------------------------------------- stats
@@ -834,7 +963,7 @@ def category_deltas(scores: Mapping[tuple[str, str, str], Score], windows: Seque
                 causes[k] = {"base": float(stats.block_bootstrap(a, per_min(k), n=0)[0]),
                              "cand": float(stats.block_bootstrap(b, per_min(k), n=0)[0]), "delta": d, "ci": [lo, hi]}
         res["causes"] = causes
-        cat = cond[1:] if cond.startswith("+") else ""
+        cat = split_cond(cond)[0][1:] if cond.startswith("+") else ""
         if cat:  # the same deltas per minute of the category's own activity (sparse sounds are not diluted)
             act_items = []
             for w, ia, ib in zip(ws, a, b):
@@ -876,10 +1005,12 @@ def pooled(scores: Mapping[tuple[str, str, str], Score], windows: Sequence[Windo
 def cond_order(name: str) -> tuple:
     """Report order of conditions: base, +category in CATEGORIES order, full, guitar_alone."""
     if name == "base":
-        return (0, 0, name)
+        return (0, 0, 0.0, name)
     if name.startswith("+"):
-        return (1, T.CATEGORIES.index(name[1:]) if name[1:] in T.CATEGORIES else 99, name)
-    return ({"full": 2, NULL_COND: 3}.get(name, 4), 0, name)
+        cat, lvl = split_cond(name)
+        cat = cat[1:]
+        return (1, T.CATEGORIES.index(cat) if cat in T.CATEGORIES else 99, float(lvl) if lvl else 0.0, name)
+    return ({"full": 2, NULL_COND: 3}.get(name, 4), 0, 0.0, name)
 
 
 NULL_COND = "base_null"
@@ -946,6 +1077,11 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     if isinstance(keep_conds, str):
         keep_conds = [c.strip() for c in keep_conds.split(",") if c.strip()]
     keep_conds = set(keep_conds or []) | {"base"} if keep_conds else None
+    # E37: the distractor categories that choose the windows and get level conditions (default: every category)
+    level_cats = args.get("level_cats")
+    if isinstance(level_cats, str):
+        level_cats = [c.strip() for c in level_cats.split(",") if c.strip()]
+    level_cats = [c for c in T.DISTRACTORS if c in level_cats] if level_cats else None
     songs = load_songs(str(args.get("dataset", "cambridge_mt")), only=only)
     if not songs:
         raise DistractorError("평가할 멀티트랙이 없습니다 (bandscribe data fetch cambridge_mt --part all).")
@@ -957,7 +1093,7 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     for song in songs:
         if song.unknown:
             unknown[song.track_id] = song.unknown
-        if not any(c in T.DISTRACTORS for c in song.categories()):
+        if not any(c in (level_cats or T.DISTRACTORS) for c in song.categories()):
             skipped[song.track_id] = "방해 소리 스템 없음"
             continue
         if not any(c in T.GUITAR for c in song.categories()):
@@ -969,7 +1105,7 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
             choices = [c for i, (a, b) in enumerate(explicit.get(song.track_id, []), 1)
                        if (c := window_at(power, a, b, f"h{i}")) is not None]
         else:
-            choices = select_windows(power, window_s=window_s, max_windows=max_windows)
+            choices = select_windows(power, window_s=window_s, max_windows=max_windows, distractors=level_cats)
         if not choices:
             skipped[song.track_id] = ("지정한 구간이 곡 밖이거나 기타가 없음" if explicit
                                       else "기타와 방해 소리가 함께 나오는 구간 없음")
@@ -981,14 +1117,47 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     ms_top, sep_top = ms_rung(params), sep_top_rung(cfg)
     lat = float(params["latency_s"])
     guitar_alone = bool(args.get("guitar_alone", False))
+    levels = args.get("levels")
+    if isinstance(levels, str):
+        levels = [v for v in levels.split(",") if v.strip()]
+    levels = sorted(float(v) for v in levels) if levels else None
+    extra_arms = args.get("arms") or []
+    if isinstance(extra_arms, str):
+        extra_arms = [a.strip() for a in extra_arms.split(",") if a.strip()]
+    bad = [a for a in extra_arms if a not in EXTRA_ARMS]
+    if bad:
+        raise DistractorError(f"알 수 없는 arm: {bad} (가능: {', '.join(EXTRA_ARMS)})")
+    guitar_only_arm = bool(args.get("guitar_only_arm", True))
+    arms_all = [a for a in ARMS if a != "guitar_only" or guitar_only_arm] + list(extra_arms)
+    arm_level = level_tag(float(args.get("arm_level", 0.0)))
+
+    def extra_ok(w: WindowRun, c: CondRun) -> bool:
+        if not extra_arms or not any(k in EXTRA_ARM_CATS for k in w.choice.present):
+            return False
+        if c.cond.name == "base" or not levels:
+            return True
+        head, lvl = split_cond(c.cond.name)
+        return lvl == arm_level and head[1:] in EXTRA_ARM_CATS  # only the sounds the extra masks are about
+
     for w in windows:
         cats = w.song.categories()
         w.cat_audio = category_audio(w.song, w.choice.start_s, w.choice.end_s)
-        w.gain = master_gain(sum(w.cat_audio.values()), SR, lufs=MASTER_LUFS, ceiling_dbtp=CEILING_DBTP)
-        for cond in conditions_for(cats, w.choice.present, guitar_alone=guitar_alone):
+        if levels:
+            # one mastering curve per window, computed on its loudest mixture (base + every present category at the
+            # top level), so the guitar signal is the same in every condition and no condition hits the limiter harder
+            w.levels = level_gains(w.cat_audio, [c for c in w.choice.present if c not in T.BASE
+                                                 and (level_cats is None or c in level_cats)])
+            loud = [w.cat_audio[c] for c in w.cat_audio if c in T.BASE]
+            loud += [w.cat_audio[c] * 10 ** ((lg["gain_db"] + levels[-1]) / 20) for c, lg in w.levels.items()]
+            w.gain = master_gain(sum(loud), SR, lufs=MASTER_LUFS, ceiling_dbtp=CEILING_DBTP)
+            conds = level_conditions(cats, w.choice.present, levels, w.levels)
+        else:
+            w.gain = master_gain(sum(w.cat_audio.values()), SR, lufs=MASTER_LUFS, ceiling_dbtp=CEILING_DBTP)
+            conds = conditions_for(cats, w.choice.present, guitar_alone=guitar_alone)
+        for cond in conds:
             if keep_conds is not None and cond.name not in keep_conds:
                 continue
-            x = condition_audio(w.cat_audio, w.gain, cond.categories)
+            x = condition_audio(w.cat_audio, w.gain, cond.categories, dict(cond.gains))
             w.conds.append(CondRun(w.item, cond, pcm_sha(x), len(x)))
         g = sum((w.cat_audio[c] for c in T.GUITAR if c in w.cat_audio), np.zeros_like(w.gain[:, None].repeat(2, 1)))
         gm = to_mono((g * w.gain[:, None]).astype(np.float32))
@@ -1007,6 +1176,8 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     cached_ids = _ms_cached(ref_views, params, ms_top)
     ref_fresh = {str(v["pcm_sha256"]) for v in ref_views if v["id"] not in cached_ids}
     est = estimate_gpu_s(windows, sep_cached=sep_cached, ref_fresh=ref_fresh, null=bool(args.get("null", True)))
+    est += sum(c.n for w in windows for c in w.conds if extra_ok(w, c) and c.sha not in sep_cached) / SR \
+        * EST_MS_S_PER_S * len(extra_arms)
     while est / 60.0 > budget_min and any(w.choice.wid == "w2" for w in windows):
         drop = [w for w in windows if w.choice.wid == "w2"][-1]
         windows.remove(drop)
@@ -1015,7 +1186,11 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
         est = estimate_gpu_s(windows, sep_cached=sep_cached, ref_fresh=ref_fresh, null=bool(args.get("null", True)))
     plan = {"windows": [{"item": w.item, "start_s": w.choice.start_s, "end_s": w.choice.end_s,
                          "guitar_share": w.choice.guitar_share, "shares": w.choice.shares, "present": w.choice.present,
-                         "conditions": {c.cond.name: list(c.cond.categories) for c in w.conds}} for w in windows],
+                         "conditions": {c.cond.name: list(c.cond.categories) for c in w.conds},
+                         **({"levels": w.levels, "gains_db": {c.cond.name: {k: 20 * math.log10(g) for k, g in c.cond.gains}
+                                                             for c in w.conds if c.cond.gains}} if levels else {})}
+                        for w in windows],
+            "levels": levels, "arms": arms_all,
             "skipped": skipped, "unknown_stem_names": unknown, "gpu_estimate_min": round(est / 60.0, 1),
             "stems": {s.track_id: {st.name: st.category for st in s.stems} for s in songs}}
     atomic.write_json(run_dir / "windows.json", runs.round_floats(plan))
@@ -1033,7 +1208,7 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     for w in windows:
         for c in w.conds:
             if c.sha not in sep_cached:
-                items.append((c.sha, condition_audio(w.cat_audio, w.gain, c.cond.categories)))
+                items.append((c.sha, condition_audio(w.cat_audio, w.gain, c.cond.categories, dict(c.cond.gains))))
             else:
                 items.append((c.sha, np.zeros((0, 2), dtype=np.float32)))
     seps, sep_info = separate_conditions(items, cfg, force_rung=sep_top, cache_root=croot, progress=say)
@@ -1053,7 +1228,8 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     for w in windows:
         for c in w.conds:
             gid = f"g{c.sep.guitar_sha[:16]}"
-            views1[gid] = _view(gid, c.sep.guitar_mono, c.sep.guitar_sha, I.mask_guitar_only())
+            if guitar_only_arm:
+                views1[gid] = _view(gid, c.sep.guitar_mono, c.sep.guitar_sha, I.mask_guitar_only())
             sel = _presence_selection(c.sep, c.n, cfg)
             sels[c.sha] = sel
             segs = P.spans(sel)
@@ -1081,11 +1257,20 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
             pnotes = (raws1.get(pid) or {}).get("notes") if P.spans(sel) else []
             c.instrumentation = _instrumentation(c, sel, pnotes, cfg)
             mask = list(c.instrumentation["masks"]["guitar_pass"] or [])
-            c.masks = {"production": mask, "guitar_only": guitar_only}
-            c.notes["guitar_only"] = raws1[f"g{c.sep.guitar_sha[:16]}"].get("notes") or []
-            if I.sort_mt3(mask) != I.sort_mt3(guitar_only):
-                vid = f"m{c.sep.guitar_sha[:12]}{hashlib.sha256('+'.join(mask).encode()).hexdigest()[:6]}"
+            c.masks = {"production": mask}
+            if guitar_only_arm:
+                c.masks["guitar_only"] = guitar_only
+                c.notes["guitar_only"] = raws1[f"g{c.sep.guitar_sha[:16]}"].get("notes") or []
+            if not guitar_only_arm or I.sort_mt3(mask) != I.sort_mt3(guitar_only):
+                vid = _mask_vid(c.sep.guitar_sha, mask)
                 views2[vid] = _view(vid, c.sep.guitar_mono, c.sep.guitar_sha, mask)
+            if extra_ok(w, c):
+                for arm in extra_arms:
+                    am = extra_mask(arm, mask)
+                    c.masks[arm] = am
+                    if I.sort_mt3(am) != I.sort_mt3(mask):
+                        vid = _mask_vid(c.sep.guitar_sha, am)
+                        views2[vid] = _view(vid, c.sep.guitar_mono, c.sep.guitar_sha, am)
     raws2: dict[str, dict] = {}
     if views2:
         say(f"MuScriptor 2차(제품 마스크가 기타만이 아닌 조건): 보기 {len(views2)}개")
@@ -1098,11 +1283,15 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     for w in windows:
         for c in w.conds:
             mask = c.masks["production"]
-            if I.sort_mt3(mask) == I.sort_mt3(guitar_only):
+            if guitar_only_arm and I.sort_mt3(mask) == I.sort_mt3(guitar_only):
                 c.notes["production"] = c.notes["guitar_only"]
             else:
-                vid = f"m{c.sep.guitar_sha[:12]}{hashlib.sha256('+'.join(mask).encode()).hexdigest()[:6]}"
-                c.notes["production"] = raws2[vid].get("notes") or []
+                c.notes["production"] = raws2[_mask_vid(c.sep.guitar_sha, mask)].get("notes") or []
+            for arm in extra_arms:
+                if arm in c.masks:
+                    am = c.masks[arm]
+                    c.notes[arm] = (c.notes["production"] if I.sort_mt3(am) == I.sort_mt3(mask)
+                                    else raws2[_mask_vid(c.sep.guitar_sha, am)].get("notes") or [])
 
     # ---- 4b. decoder null (diagnostic, added after the first full run): the base guitar view + inaudible noise ----
     if args.get("null", True):
@@ -1121,7 +1310,8 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
             if not path.is_file():
                 write_mono_f32(path, y, SR)
             nc = CondRun(w.item, Condition(NULL_COND, base.cond.categories), base.sha, base.n, sep=base.sep,
-                         masks=dict(base.masks), instrumentation=base.instrumentation)
+                         masks={a: m for a, m in base.masks.items() if a in ARMS},
+                         instrumentation=base.instrumentation)
             for mask in {tuple(m) for m in nc.masks.values()}:
                 vid = _null_vid(sha, list(mask))
                 views3[vid] = _view(vid, path, sha, list(mask))
@@ -1157,9 +1347,12 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
             cmix = A.band_energy(sum(mono[k] for k in c.cond.categories if k in mono))
             common = {"item": w.item, "group": w.song.group, "scenario": c.cond.name, "section": w.choice.wid,
                       "rung": rung}
-            for arm in ARMS:
+            for arm in arms_all:
+                if arm not in c.notes:
+                    continue
                 est = _arrays(c.notes[arm], lat)
-                s = score(ref, est, cb, floor=floor, minutes=w.minutes, mix=cmix)
+                s = score(ref, est, cb, floor=floor, minutes=w.minutes, mix=cmix,
+                          dropped=_arrays_non_guitar(c.notes[arm], lat))
                 scores[(w.item, c.cond.name, arm)] = s
                 prf_f1 = 2 * s.tp / (2 * s.tp + s.fp + s.fn) if (2 * s.tp + s.fp + s.fn) else 1.0
                 rows.append(_row(system=arm, metric="note_f1_onset50", value=prf_f1, tp=s.tp, fp=s.fp, fn=s.fn,
@@ -1177,6 +1370,9 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
                     rows.append(_row(system=arm, metric=f"fn_cause:{k}", value=v, **common))
                 for k, v in sorted(s.fp_dominant.items()):
                     rows.append(_row(system=arm, metric=f"fp_dominant:{k}", value=v, **common))
+                for k, v in sorted(s.drop_dominant.items()):
+                    rows.append(_row(system=arm, metric=f"drop_dominant:{k}", value=v, **common))
+                rows.append(_row(system=arm, metric="drop_matched_ref", value=s.drop_ref, **common))
             import soundfile as sf
 
             gsep, _sr = sf.read(str(c.sep.guitar_mono), dtype="float32")
@@ -1189,14 +1385,15 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
         w.cat_audio = None  # free the window's audio
 
     # ---- 6. statistics and outputs ----
-    summary: dict[str, Any] = {"suite": SUITE, "code_version": CODE_VERSION, "rung": rung, "arms": list(ARMS),
+    summary: dict[str, Any] = {"suite": SUITE, "code_version": CODE_VERSION, "rung": rung, "arms": list(arms_all),
+                               "levels": levels,
                                "n_windows": len(windows), "n_songs": len({w.song.track_id for w in windows}),
                                "windows": plan["windows"], "skipped": skipped, "unknown_stem_names": unknown,
                                "gpu": {k: round(v, 1) for k, v in gpu.items()}, "sep": sep_info,
                                "gpu_estimate_min": plan["gpu_estimate_min"]}
     summary["conditions"] = {}
     summary["deltas"] = {}
-    for arm in ARMS:
+    for arm in arms_all:
         names = sorted({c.cond.name for w in windows for c in w.conds}, key=cond_order)
         summary["conditions"][arm] = {cn: pooled(scores, windows, cn, arm, n=n_boot, seed=seed) for cn in names}
         summary["deltas"][arm] = category_deltas(scores, windows, arm=arm, n=n_boot, seed=seed)
@@ -1204,14 +1401,15 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     summary["fp_cause_matrix"] = _cause_matrix(scores, windows, "production", "fp")
     summary["fn_cause_matrix"] = _cause_matrix(scores, windows, "production", "fn")
     summary["fp_cause_vs_dominant"] = _cause_vs_dominant(scores)
-    summary["per_window"] = _per_window(scores, windows, leaks)
+    summary["per_window"] = _per_window(scores, windows, leaks, arms_all)
+    summary["discrimination"] = discrimination(scores, arms_all)
     summary["masks"] = {f"{w.item}|{c.cond.name}": {"production": c.masks["production"],
                                                      "present": [k for k, v in (c.instrumentation or {}).get(
                                                          "classes", {}).items() if v.get("present")]}
                         for w in windows for c in w.conds}
     summary["null"] = _null_spread(scores, windows)
     summary["ranking"] = fix_first(summary)
-    for arm in ARMS:
+    for arm in arms_all:
         for cond, d in summary["deltas"][arm].items():
             for name in STATS_MAIN:
                 rows.append(_row(system=arm, item="*", group="*", scenario=cond, metric=f"delta_{name}",
@@ -1310,8 +1508,34 @@ def _cause_vs_dominant(scores: Mapping[tuple[str, str, str], Score]) -> dict[str
     return out
 
 
+def discrimination(scores: Mapping[tuple[str, str, str], Score], arms: Sequence[str]) -> dict[str, Any]:
+    """{arm: {condition: {category: {dropped, kept_fp, rate}}}} pooled over windows (E37 "구분률"): of the output
+    notes no reference matches whose loudest sound is that category, the share MuScriptor labelled non-guitar (kept
+    out of the guitar tab) rather than guitar (an FP). Plus ``_guitar_dropped``: notes labelled non-guitar that match a
+    reference (true guitar) note."""
+    tot: dict[tuple[str, str], list[Counter]] = defaultdict(lambda: [Counter(), Counter(), Counter()])
+    for (_item, cond, arm), s in scores.items():
+        if arm in arms:
+            t = tot[(arm, cond)]
+            t[0].update(s.drop_dominant)
+            t[1].update(s.fp_dominant)
+            t[2]["ref"] += s.drop_ref
+    out: dict[str, dict[str, Any]] = {}
+    for (arm, cond), (dd, fd, rr) in sorted(tot.items(), key=lambda kv: (kv[0][0], cond_order(kv[0][1]))):
+        row: dict[str, Any] = {}
+        for k in sorted(set(dd) | set(fd)):
+            if k in T.GUITAR or k in (A.UNKNOWN, "", "none"):
+                continue
+            n = dd[k] + fd[k]
+            row[k] = {"dropped": dd[k], "kept_fp": fd[k], "rate": dd[k] / n if n else None}
+        row["_guitar_dropped"] = rr["ref"]
+        out.setdefault(arm, {})[cond] = row
+    return out
+
+
 def _per_window(scores: Mapping[tuple[str, str, str], Score], windows: Sequence[WindowRun],
-                leaks: Mapping[tuple[str, str], Mapping[str, Mapping[str, float]]]) -> list[dict[str, Any]]:
+                leaks: Mapping[tuple[str, str], Mapping[str, Mapping[str, float]]],
+                arms: Sequence[str] = ARMS) -> list[dict[str, Any]]:
     out = []
     for w in windows:
         d: dict[str, Any] = {"item": w.item, "song": w.song.track_id, "title": w.song.title, "group": w.song.group,
@@ -1319,8 +1543,10 @@ def _per_window(scores: Mapping[tuple[str, str, str], Score], windows: Sequence[
                              "n_ref": len(w.ref_notes), "conditions": {}}
         for c in w.conds:
             cd = {}
-            for arm in ARMS:
-                s = scores[(w.item, c.cond.name, arm)]
+            for arm in arms:
+                s = scores.get((w.item, c.cond.name, arm))
+                if s is None:
+                    continue
                 f1 = 2 * s.tp / (2 * s.tp + s.fp + s.fn) if (2 * s.tp + s.fp + s.fn) else 1.0
                 from bandscribe.amt import instruments as I
 

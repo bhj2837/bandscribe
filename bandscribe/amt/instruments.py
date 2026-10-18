@@ -18,6 +18,9 @@ token is forbidden), and the conditioning string is built in list order. So:
   added notes on SC. ``guitar+present+strings`` keeps that variant for E3b; it never adds ``orchestral_harp``
   (plucked, the most guitar-like class) or ``contrabass`` (guitar's low register). Brass/winds stay out of every
   mask: each extra class is one more sink a real guitar note can be mislabelled into.
+  Correction (2026-10-18): the 怪獣の花唄 / 青と夏 inputs behind both notes above were guitar-removed backings, not
+  the originals (docs/PROGRESS.md "Facts worth keeping"), so they are not evidence either way; E37 measures strings and
+  brass/winds on multitracks.
 
 The class and family tables are ``bandscribe.schema.instrumentation.MT3_GROUPS`` / ``FAMILIES`` (P0).
 """

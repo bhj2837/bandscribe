@@ -349,6 +349,84 @@ part = "moosmusic_bigdummyshake"
 song = "moosmusic_bigdummyshake"
 title = "Moosmusic - Big Dummy Shake (Indie Pop/Rock; ElecGtr1-7 + Rhodes)"
 
+# E37 (2026-10-18): strings / brass-winds songs, picked by data/tmp/m10/ms21_select.py's fixed rule (MS21 annotation: Clean = 1, pop/rock genres, the 4 songs with the most string files and the 4 with the most brass/wind files that have a direct MTK URL).
+[[cambridge_mt.files]]
+name = "BenCarrigan_WellTalkAboutItAllTonight_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK008/BenCarrigan_WellTalkAboutItAllTonight_Full.zip"
+bytes = 586168285
+md5 = ""
+required = false
+extract = true
+part = "bencarrigan_welltalkaboutitalltonight"
+song = "bencarrigan_welltalkaboutitalltonight"
+title = "Ben Carrigan - We'll Talk About It All Tonight (Orchestral Indie Pop; ElecGtr + Violin1-2, Viola, Cello, Trumpet/FrenchHorn samples)"
+
+[[cambridge_mt.files]]
+name = "BenCarrigan_HeyCarrieAnne_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK008/BenCarrigan_HeyCarrieAnne_Full.zip"
+bytes = 223016308
+md5 = ""
+required = false
+extract = true
+part = "bencarrigan_heycarrieanne"
+song = "bencarrigan_heycarrieanne"
+title = "Ben Carrigan - Hey Carrie Anne (Orchestral Indie Pop; ElecGtr1-2 + Violin1-2, Viola, Cello)"
+
+[[cambridge_mt.files]]
+name = "DunningKruger_JapanSong_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK005/DunningKruger_JapanSong_Full.zip"
+bytes = 447184579
+md5 = ""
+required = false
+extract = true
+part = "dunningkruger_japansong"
+song = "dunningkruger_japansong"
+title = "Dunning Kruger - Japan Song (Indie Rock; ElecGtr1-6 + Cellos)"
+
+[[cambridge_mt.files]]
+name = "EJRios_Echo_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK015/EJRios_Echo_Full.zip"
+bytes = 340983134
+md5 = ""
+required = false
+extract = true
+part = "ejrios_echo"
+song = "ejrios_echo"
+title = "E J Rios - Echo (Dark Electro-Pop; ElecGtr1-6 + Violins, Cellos, StringsPizz, Synths)"
+
+[[cambridge_mt.files]]
+name = "MR1103_Flags_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK001/MR1103_Flags_Full.zip"
+bytes = 802725803
+md5 = ""
+required = false
+extract = true
+part = "flags_54"
+song = "flags_54"
+title = "Flags - 54 (Indie Rock; ElecGtr1-3 + Trumpet x5, Tuba, Synths)"
+
+[[cambridge_mt.files]]
+name = "TimTaler_Stalker_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK006/TimTaler_Stalker_Full.zip"
+bytes = 283888873
+md5 = ""
+required = false
+extract = true
+part = "timtaler_stalker"
+song = "timtaler_stalker"
+title = "Tim Taler - Stalker (Art-Punk; ElecGtr1-10 + SampleBrass1-3)"
+
+[[cambridge_mt.files]]
+name = "PabloMartin_Progresivo1ElVuelo_Full.zip"
+url = "https://mtkdata.cambridgemusictechnology.co.uk/MTK009/PabloMartin_Progresivo1ElVuelo_Full.zip"
+bytes = 649960984
+md5 = ""
+required = false
+extract = true
+part = "pablomartin_progresivo1elvuelo"
+song = "pablomartin_progresivo1elvuelo"
+title = "Pablo Martin - Progresivo 1 El Vuelo (Instrumental Progressive Metal; ElecGtr + Tuba, OboeBassoon, Strings)"
+
 [medleydb]
 title = "MedleyDB 1.0 (audio)"
 tier = "B"

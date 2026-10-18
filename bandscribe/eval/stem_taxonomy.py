@@ -61,7 +61,11 @@ _DRUMS = {"kick", "kik", "snare", "snr", "hat", "hats", "hihat", "hh", "tom", "t
           "ohs", "room", "rooms", "cymbal", "cymbals", "crash", "ride", "drum", "drums", "kit", "perc", "percussion",
           "tamb", "tambourine", "shaker", "shakers", "clap", "claps", "handclap", "handclaps", "cowbell", "conga",
           "congas", "bongo", "bongos", "woodblock", "maracas", "triangle", "djembe", "cajon", "timbale", "timbales",
-          "trigger", "sample", "samples", "stick", "sticks", "snap", "snaps", "fingersnap"}
+          "trigger", "stick", "sticks", "snap", "snaps", "fingersnap", "tambo", "timp", "timpani", "drumkit", "break",
+          "breaks", "anvil", "rde"}  # "rde": PabloMartin's 18_Rde2.wav, between 17_Ride1 and 19_Cymbal1
+# "sample(s)" names a drum sample only when nothing else in the name says what was sampled (2026-10-18, E37:
+# SampleBrass01, TrumpetSamples, ViolinSamples, SampleChoir were filed as drums): checked after every tonal rule.
+_DRUMS_WEAK = {"sample", "samples"}
 _VOCALS = {"vox", "vocal", "vocals", "voc", "voice", "voices", "bv", "bvs", "bvox", "choir", "harmony", "harmonies",
            "adlib", "adlibs", "whisper", "singer", "sing", "chant", "chants"}
 _STRINGS = {"string", "strings", "violin", "violins", "viola", "violas", "cello", "cellos", "fiddle", "orchestra",
@@ -132,6 +136,8 @@ def categorize(name: str) -> str:
         return "synth_lead"
     if ts & _SYNTH:
         return "synth_other"
+    if ts & _DRUMS_WEAK and not ts & _OTHER_TONAL:
+        return "drums"
     return "other"
 
 

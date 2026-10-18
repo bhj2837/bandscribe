@@ -36,7 +36,8 @@ def cause_ko(k: str) -> str:
 
 def cond_ko(c: str) -> str:
     if c.startswith("+"):
-        return f"+{T.label_ko(c[1:])}"
+        cat, _, lvl = c.partition("@")
+        return f"+{T.label_ko(cat[1:])}" + (f" {lvl} dB" if lvl else "")
     return {"base": "기본(기타·드럼·베이스·보컬)", "full": "전체 믹스", "guitar_alone": "기타만",
             "base_null": "기본 + 들리지 않는 잡음(null)"}.get(c, c)
 
@@ -140,7 +141,7 @@ def sections(s: Mapping[str, Any]) -> list[tuple[str, str, list[str], list[list[
 
     rows = []
     for cond, d in deltas.items():
-        cat = cond[1:] if cond.startswith("+") else cond
+        cat = cond.partition("@")[0][1:] if cond.startswith("+") else cond
         lk = leak.get(cat) or {}
         rows.append([cond_ko(cond), f"{d['n_items']}({d['n_groups']}곡)", _ci(d["fp_per_min"]), _ci(d["fn_per_min"]),
                      _ci(d.get("fp_per_active_min")), _ci(d.get("fn_per_active_min")),
@@ -211,12 +212,12 @@ def sections(s: Mapping[str, Any]) -> list[tuple[str, str, list[str], list[list[
         full = (conds.get("full") or {}).get(arm) or {}
         adds = []
         for cn, cd in conds.items():
-            if cn.startswith("+"):
+            if cn.startswith("+") and arm in cd:
                 d = cd[arm]
-                adds.append(f"{T.label_ko(cn[1:])}: F1 {_f(100 * (d['f1'] - base.get('f1', float('nan'))), 1, signed=True)}, "
+                adds.append(f"{cond_ko(cn)[1:]}: F1 {_f(100 * (d['f1'] - base.get('f1', float('nan'))), 1, signed=True)}, "
                             f"FP {_f(d['fp_per_min'] - base.get('fp_per_min', float('nan')), 1, signed=True)}/분")
         masks = sorted({"+".join(m for m in cd[arm]["mask"] if "guitar" not in m) or "기타만"
-                        for cd in conds.values()})
+                        for cd in conds.values() if arm in cd})
         rows.append([w["song"], f"{_f(w['start_s'], 0)}–{_f(w['end_s'], 0)} s", ", ".join(T.label_ko(c) for c in w["present"]),
                      str(w["n_ref"]), _f(100 * base.get("f1", float("nan")), 1), _f(100 * full.get("f1", float("nan")), 1),
                      _f(base.get("fp_per_min"), 1), _f(full.get("fp_per_min"), 1), _f(base.get("fn_per_min"), 1),
@@ -229,7 +230,7 @@ def sections(s: Mapping[str, Any]) -> list[tuple[str, str, list[str], list[list[
     for w in s.get("per_window") or []:
         for cn, cd in w["conditions"].items():
             pm = [m for m in cd["production"]["mask"] if "guitar" not in m]
-            if not pm:
+            if not pm or "guitar_only" not in cd:
                 continue
             p, g = cd["production"], cd["guitar_only"]
             rows.append([w["song"], cond_ko(cn), "+".join(pm), str(p.get("non_guitar_dropped", "–")),
@@ -239,6 +240,33 @@ def sections(s: Mapping[str, Any]) -> list[tuple[str, str, list[str], list[list[
     out.append(("제품 마스크가 기타만이 아닌 조건", "편성 추정이 건반·신스 클래스를 마스크에 넣은 조건. 같은 기타 뷰를 기타만 마스크(왼쪽)와 "
                 "제품 마스크(오른쪽)로 전사한 값. 빠진 음 = 비기타 클래스로 표시되어 guitar_all 에서 빠진 음 수.",
                 ["곡", "조건", "추가된 클래스", "빠진 음", "F1 기타만 → 제품", "FP/분", "FN/분"], rows))
+
+    lv_rows = []
+    for w in s.get("windows") or []:
+        for cat, lg in (w.get("levels") or {}).items():
+            lv_rows.append([w["item"].split(":")[1], T.label_ko(cat), _f(lg.get("level_db"), 1), _f(lg.get("gain_db"), 1),
+                            "예" if lg.get("capped") else ""])
+    if lv_rows:
+        out.append(("음량 단계 (E37)", "구간마다 그 소리의 원래 음량(기타 합 대비 dB, 둘 다 소리 나는 100 ms 프레임의 평균 전력)과 "
+                    "0 dB 로 맞추는 이득. 각 단계 조건은 이 이득에 단계(dB)를 더한 크기로 그 소리 하나만 기본 조건에 더한다. "
+                    "이득은 최대 +30 dB(넘으면 '상한').",
+                    ["곡", "소리", "원래 음량 dB", "0 dB 이득", "상한"], lv_rows))
+    disc = s.get("discrimination") or {}
+    d_rows = []
+    for arm in sorted(disc, key=lambda a: (a != "production", a)):
+        for cond, row in disc[arm].items():
+            for cat, v in row.items():
+                if cat.startswith("_") or not (v.get("dropped") or v.get("kept_fp")):
+                    continue
+                d_rows.append([arm, cond_ko(cond), T.label_ko(cat), str(v["dropped"]), str(v["kept_fp"]),
+                               _f(100 * v["rate"], 1) if v.get("rate") is not None else "–"])
+            if row.get("_guitar_dropped"):
+                d_rows.append([arm, cond_ko(cond), "(참 기타 음을 비기타로 표시)", str(row["_guitar_dropped"]), "", ""])
+    if d_rows:
+        out.append(("구분률 (E37)", "참조와 맞지 않는 출력 음 중 그 음높이 대역에서 가장 큰 소리가 그 범주인 음: 전사기가 비기타로 표시해 "
+                    "기타 탭에서 빠진 수(빠짐)와 기타로 남아 가짜 음이 된 수(남음). 구분률 = 빠짐 / (빠짐 + 남음). 마지막 줄은 "
+                    "참 기타 음인데 비기타로 표시돼 빠진 수(손해).",
+                    ["경로", "조건", "소리", "빠짐", "남음", "구분률 %"], d_rows))
 
     rows = []
     for cat in T.CATEGORIES + ("guitar",):

@@ -873,6 +873,59 @@ def run_e3c(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
     return rows
 
 
+# E37 (docs/decisions.md, 2026-10-18): the distractor machinery with a level sweep. Tonal categories only (effects and
+# unknown stems never get a level condition or choose a window), one window per song, the extra guitar-pass masks on
+# the windows with strings or brass/winds, no guitar-only arm (one transcription per condition instead of two).
+E37_LEVELS = (-6.0, 0.0, 6.0)
+E37_CATS = ("keys_piano", "keys_epiano", "organ", "synth_pad", "synth_lead", "synth_other", "strings", "brass_winds")
+E37_F1_DROP = -3.0  # points; a category whose 0 dB condition costs this much (CI excluding 0, >= 2 songs) is flagged
+E37_MIN_GROUPS = 2
+
+
+def e37_flags(summary: Mapping[str, Any], *, level: str = "+0") -> dict[str, Any]:
+    """The registration's rule on a distractor summary: per category, the production arm's F1 delta of its
+    ``+<category>@<level>`` condition; flagged when the point is <= E37_F1_DROP, the CI excludes 0 and it rests on at
+    least E37_MIN_GROUPS songs."""
+    out: dict[str, Any] = {}
+    for cond, d in ((summary.get("deltas") or {}).get("production") or {}).items():
+        cat, _, lv = cond.partition("@")
+        if not cat.startswith("+") or lv != level:
+            continue
+        f1 = d.get("f1") or {}
+        lo, hi = (f1.get("ci") or [None, None])[:2]
+        pt = f1.get("delta")
+        flagged = (pt is not None and hi is not None and pt <= E37_F1_DROP and hi < 0
+                   and int(d.get("n_groups") or 0) >= E37_MIN_GROUPS)
+        out[cat[1:]] = {"delta_f1": pt, "ci": [lo, hi], "n_groups": d.get("n_groups"), "flagged": bool(flagged)}
+    return out
+
+
+def run_e37(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
+    """E37: guitar-tab damage per sound category at levels against the guitar (distractor machinery). Returns the
+    per-window F1 rows of every condition and arm; writes ``e37_flags.json`` (the registration's rule)."""
+    import csv
+
+    from bandscribe import atomic
+    from bandscribe.eval import distractors as D
+
+    sub = Path(out_dir) / "distractors"
+    sub.mkdir(parents=True, exist_ok=True)
+    s = D.run(sub, cfg, {"levels": list(args.get("levels") or E37_LEVELS), "level_cats": list(E37_CATS),
+                         "arms": list(D.EXTRA_ARMS), "guitar_only_arm": False, "max_windows": 1, "null": True,
+                         "gpu_budget_min": float(args.get("gpu_budget_min", 240.0)),
+                         **({"songs": args["songs"]} if args.get("songs") else {}),
+                         **({"allow_over_budget": True} if args.get("allow_over_budget") else {})},
+              progress=lambda m: log.info("E37: %s", m))
+    atomic.write_json(Path(out_dir) / "e37_flags.json", e37_flags(s))
+    rows: list[dict] = []
+    with open(sub / "metrics.csv", encoding="utf-8", newline="") as f:
+        for r in csv.DictReader(f):
+            if r.get("item") == "*" or r.get("metric") != "note_f1_onset50":
+                continue
+            rows.append({k: _num(v) for k, v in r.items() if k != "suite"})
+    return rows
+
+
 EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E1": run_e1,
     "E2": run_e2,
@@ -880,6 +933,7 @@ EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E3b": lambda out_dir, cfg, args: run_e3(out_dir, cfg, {**args, "presence": "sampled",
                                                              "policies": args.get("policies") or E3B_POLICIES}),
     "E3c": run_e3c,
+    "E37": run_e37,
     "E23": run_e23,
     "E24-sep": run_e24_sep,
     "E24-amt": run_e24_amt,

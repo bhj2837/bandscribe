@@ -91,3 +91,14 @@ def test_every_stem_name_on_disk_is_classified():
     cats = {T.categorize(n) for n in names}
     # the distractor set covers these categories (registry.toml, 2026-10-04)
     assert {"synth_pad", "synth_lead", "keys_epiano", "keys_piano", "organ", "strings", "sfx"} <= cats
+
+
+def test_sample_names_the_sampled_instrument_first():
+    # 2026-10-18 (E37): "sample(s)" is a drum word only when the name says nothing else
+    assert T.categorize("37_SampleBrass01.wav") == "brass_winds"
+    assert T.categorize("37_TrumpetSamples.wav") == "brass_winds"
+    assert T.categorize("13_ViolinSamples.wav") == "strings"
+    assert T.categorize("40_SampleChoir.wav") == "vocals"
+    assert T.categorize("06_SnareSample.wav") == "drums" and T.categorize("03_KickSample.wav") == "drums"
+    assert T.categorize("12_Sample3.wav") == "drums"
+    assert T.categorize("04_Timp.wav") == "drums" and T.categorize("15_Break01.wav") == "drums"

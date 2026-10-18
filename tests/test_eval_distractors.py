@@ -338,3 +338,95 @@ def test_registry_entry_and_cli_routing():
         pytest.skip("distractors 는 이미 결정됨")
     with pytest.raises(experiments.ExperimentStateError, match="--suite distractors"):
         experiments.run_experiment("distractors", {}, dry_run=True)
+
+
+# ------------------------------------------------------------------------------- E37: level sweep and mask arms
+
+
+def test_relative_level_and_level_gains_with_cap():
+    t = np.arange(4 * SR) / SR
+    g = np.column_stack([_tone(220, t, 0.2)] * 2)
+    x = np.column_stack([_tone(440, t, 0.1)] * 2)
+    assert D.relative_level_db(x, g) == pytest.approx(-6.02, abs=0.05)
+    assert D.relative_level_db(np.zeros_like(x), g) is None
+    quiet = x * 10 ** (-33 / 20)  # -39 dB against the guitar (-56 dBFS, still sounding): the 0 dB gain is capped
+    lg = D.level_gains({"guitar_electric": g, "strings": x, "brass_winds": quiet, "drums": x}, ["strings", "brass_winds"])
+    assert lg["strings"]["gain_db"] == pytest.approx(6.02, abs=0.05) and not lg["strings"]["capped"]
+    assert lg["brass_winds"]["gain_db"] == D.MAX_LEVEL_GAIN_DB and lg["brass_winds"]["capped"]
+    assert "drums" not in lg
+
+
+def test_level_conditions_names_gains_and_audio():
+    gains = {"strings": {"gain_db": 6.0}}
+    conds = D.level_conditions(["guitar_electric", "drums", "strings", "synth_pad"], ["strings", "synth_pad"],
+                               [-6.0, 0.0, 6.0], gains)
+    names = [c.name for c in conds]
+    assert names == ["base", "+strings@-6", "+strings@+0", "+strings@+6"]  # synth_pad has no measured level
+    c0 = conds[2]
+    assert c0.categories == ("guitar_electric", "drums", "strings")
+    assert dict(c0.gains)["strings"] == pytest.approx(10 ** (6 / 20))
+    n = 100
+    cat = {"guitar_electric": np.full((n, 2), 0.1), "drums": np.zeros((n, 2)), "strings": np.full((n, 2), 0.05)}
+    x = D.condition_audio(cat, np.ones(n), c0.categories, dict(c0.gains))
+    assert x[0, 0] == pytest.approx(0.1 + 0.05 * 10 ** (6 / 20), rel=1e-5)
+    assert sorted(["+strings@+6", "base", "+strings@-6", "+keys_piano@+0", "+strings@+0"], key=D.cond_order) == \
+        ["base", "+keys_piano@+0", "+strings@-6", "+strings@+0", "+strings@+6"]
+    assert D.split_cond("+strings@+0") == ("+strings", "+0") and D.level_tag(-6) == "-6"
+
+
+def test_extra_masks():
+    prod = ["clean_electric_guitar", "distorted_electric_guitar", "electric_piano"]
+    s = D.extra_mask("strings", prod)
+    assert "violin" in s and "electric_piano" in s and "trumpet" not in s and "orchestral_harp" not in s
+    sw = D.extra_mask("strings_winds", prod)
+    assert {"violin", "trumpet", "tenor_sax"} <= set(sw)
+    with pytest.raises(D.DistractorError):
+        D.extra_mask("all", prod)
+
+
+def make_orch_song(root: Path, dur: float = 40.0) -> D.SongInfo:
+    n = int(dur * SR)
+    t = np.arange(n) / SR
+    g = np.zeros(n)
+    for k in range(int(dur * 2)):
+        a = int(k * 0.5 * SR)
+        z = min(n, a + int(0.4 * SR))
+        g[a:z] += _tone(110 * 2 ** ((k % 5) / 12), t[: z - a], 0.2) * np.exp(-np.arange(z - a) / SR * 4)
+    stems = {"01_Bass.wav": _tone(55, t, 0.1), "02_ElecGtr1.wav": g, "03_LeadVox.wav": _tone(330, t, 0.05),
+             "04_Violins.wav": _tone(523.25, t, 0.02), "05_Trumpet.wav": _tone(440, t, 0.03) * (t > 10)}
+    files = []
+    for name, x in stems.items():
+        p = root / "orch" / name
+        _write(p, x)
+        files.append(D.StemFile(p, name, T.categorize(name)))
+    return D.SongInfo("cambridge_mt", "testsong_orch", "testorch", "Test - Orch", files)
+
+
+def test_run_with_levels_and_extra_arms(fake_env, monkeypatch):
+    song = make_orch_song(fake_env.tmp / "data")
+    assert set(song.categories()) >= {"strings", "brass_winds"}
+    monkeypatch.setattr(D, "load_songs", lambda dataset="cambridge_mt", only=None: [song])
+    run_dir = fake_env.tmp / "lv"
+    run_dir.mkdir()
+    s = D.run(run_dir, {}, {"cache_root": fake_env.cache, "window_s": 15.0, "gpu_budget_min": 1000, "max_windows": 1,
+                            "levels": "-6,0,6", "arms": "strings,strings_winds", "guitar_only_arm": False})
+    assert s["arms"] == ["production", "strings", "strings_winds"] and s["levels"] == [-6.0, 0.0, 6.0]
+    w = s["windows"][0]
+    assert set(w["levels"]) == set(w["present"]) == {"strings", "brass_winds"}
+    assert w["levels"]["strings"]["level_db"] < 0
+    names = set(s["conditions"]["production"])
+    assert {"base", "+strings@-6", "+strings@+0", "+strings@+6", "+brass_winds@+6", D.NULL_COND} <= names
+    assert "full" not in names
+    # extra arms only on base and the 0 dB conditions; no guitar-only views at all
+    ids = [v["id"] for call in fake_env.gpu.ms_calls for v in call]
+    assert not any(i.startswith("g") for i in ids)
+    assert {k for k, v in s["conditions"]["strings"].items() if v} == {"base", "+strings@+0", "+brass_winds@+0"}
+    masks = [v["instruments"] for call in fake_env.gpu.ms_calls for v in call if v["id"].startswith("m")]
+    assert any("trumpet" in m for m in masks) and any("violin" in m and "trumpet" not in m for m in masks)
+    # the 0 dB gain puts the strings at the guitar's level: +6 dB condition is 12 dB above the -6 dB one
+    gd = w["gains_db"]
+    assert gd["+strings@+6"]["strings"] - gd["+strings@-6"]["strings"] == pytest.approx(12.0)
+    assert "deltas" in s and "+strings@+0" in s["deltas"]["production"]
+    assert "discrimination" in s and "production" in s["discrimination"]
+    md = (run_dir / "report.md").read_text(encoding="utf-8")
+    assert "음량 단계 (E37)" in md and "현악 +0 dB" in md
