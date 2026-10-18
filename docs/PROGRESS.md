@@ -1,5 +1,10 @@
 # bandscribe progress / handoff
 
+**Resume here (2026-10-18, paused by the user):** E37 is half run - see "E37 (in progress)" just below. Its GPU cache
+fill is done for 5 of 9 song chunks; `bash /d/bandscribe/data/tmp/m10/e37_resume.sh` finishes the rest (about 1 h of
+GPU, waits for League of Legends) and then runs the official `bandscribe eval exp E37` (CPU). Nothing of E37 has been
+read yet: the registration in `docs/decisions.md` stands as written.
+
 Last updated: 2026-10-17 (**M7c done**: Role and Player views (exported to `tab/views/` and switchable in the
 viewer, with N / idle / unison settings), part count switch and section reassignment in the viewer (a switch takes
 about 1 s - M7a's k7 met through the viewer), see "M7c" below and `docs/acceptance/M7c.md`. Before it the
@@ -51,6 +56,45 @@ fixes).
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## E37 (in progress, 2026-10-18): keys, synths, strings and brass at J-pop levels
+
+Why: the user's newer songs (Mrs. GREEN APPLE, Vaundy, King Gnu) carry keys / strings / synths about as loud as the
+guitar (separated piano+other vs guitar −7 to +1 dB, `data/tmp/m10/arrangement.py`), while the six sheet songs
+(Kessoku Band) have almost none (−24 to −79 dB). The 2026-10-04 distractor run used each multitrack's own balance:
+piano −30 to −10 dB, strings −32 to −16 dB, no brass at all (`data/tmp/m10/distr_levels.py`). Licensed band scores
+for those songs exist (Yamaha ぷりんと楽譜 / Fairy, with TAB and keyboard parts) but **are not sold outside Japan**
+(site FAQ), so the measurement is done on multitracks instead.
+
+- **Registration:** `docs/decisions.md` E37 (committed 47af085 before any GPU work). Levels −6 / 0 / +6 dB against
+  the guitar sum per category; arms production / `strings` / `strings_winds` (the last two on base and the 0 dB
+  strings / brass conditions only); "discrimination" = share of distractor-dominated output notes labelled
+  non-guitar; decoder null. Rule: a category with ΔF1 ≤ −3 points at 0 dB (CI < 0, ≥ 2 songs) gets an E38 fix.
+- **Code:** `bandscribe/eval/distractors.py` (`levels`, `level_cats`, `arms`, `guitar_only_arm`, `level_gains`,
+  `level_conditions`, `extra_mask`, `discrimination`), report tables in `distractor_report.py`, runner
+  `run_e37` / `e37_flags` in `bandscribe/amt/experiments.py`. `stem_taxonomy`: "Sample(s)" no longer forces drums
+  (SampleBrass, TrumpetSamples, ViolinSamples) - no existing song changed.
+- **Data:** 7 Cambridge-MT songs added (optional registry parts, 3.33 GB, user-approved, picked by the fixed rule in
+  `data/tmp/m10/ms21_select.py` from the MS21 annotation CSV): Ben Carrigan ×2, Dunning Kruger, E J Rios, Flags,
+  Tim Taler, Pablo Martin. Their `lines.yaml` are unreviewed drafts (fine for E37: it categorises stems by name).
+- **Plan** (`data/tmp/m10/e37_plan.py`, before GPU): 17 windows, 122 conditions; windows per category: piano 7,
+  electric piano 2, organ 3, synth pad 3, synth lead 3, other synth 5, strings 7, brass/winds 5.
+- **Done:** chunks 1-5 cached (`data/tmp/m10/e37_chunks.log`: 42.4 + 14.4 + 13.6 + 18.5 + 28.7 min). Left: chunk 6
+  (JamesElder, Secretariat; stopped two minutes in), 7 (Flags, Tim Taler), 8 (Jokers, Mu), 9 (Zeno).
+- **Resume:** `bash /d/bandscribe/data/tmp/m10/e37_resume.sh` (skips done chunks, starts `lol_guard.ps1`, then the
+  official run). Afterwards: record the result under E37, write the flags (`e37_flags.json`) into the next step.
+
+Also from this session (2026-10-18):
+
+- **New originals processed** (all guitar stems −18 to −21 dB, so originals): 青と夏 f-250b3e07683d2d1a (185.5 BPM),
+  怪獣の花唄 f-07f21d0ec2cb1bb4 (150), 逆光 f-abd70434e91c65ba (144.8, Eb standard - matches the band score's
+  "half step down"), lulu. f-12befe96300880e4 (user: 88 BPM; the tracker had 175), 狭心症 f-5959ab5fa06d86ad (user:
+  68 BPM; the tracker had 136). Tempo hints and real titles are in each job's `hints.toml`.
+- **lulu.'s bass is broken after 2:30:** MuScriptor emitted 10,965 notes of 10 ms at MIDI 59-85 on the bass stem
+  (83 % of its bass notes) while the F0 trackers see a normal bass near C2. Nothing in the pipeline catches a burst
+  of tiny notes; a guard would be its own experiment.
+- **Test suite:** the default run includes `network` and `gpu` marked tests (a YouTube clip download, the CUDA self
+  test). Run `-m "not network and not gpu"` while GPU work is running or without network consent.
 
 ## M10 interim (2026-10-18): confidence and the review queue
 
@@ -874,6 +918,9 @@ mask the backing used:
   - S7's bleed penalty (M6) needs the full-length piano+other pass (eval or on-demand).
 
 ## Priority for the next session
+
+- **After E37 (2026-10-18):** finish E37 (above), then by its rule either an E38 fix for the flagged sound(s) or the
+  note clean-up experiment (splits / octaves, judged on the six sheet songs). lulu.'s tiny-note burst needs a guard.
 
 - **After M10 interim (2026-10-18):** the largest error class is octave/duplicate chord tones (30 % of the notes
   against the sheets); with six sheet songs a note clean-up experiment can now be judged. M10's edit learning waits
