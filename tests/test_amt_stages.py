@@ -563,7 +563,7 @@ def test_muscriptor_stages_forward_the_workers_warnings(job, monkeypatch):
 
 def test_stage_code_versions_were_bumped_for_the_profile_change():
     assert {n: S.STAGES[n]["code_version"] for n in ("amt_ms1", "instr", "amt_gtr", "s35", "notes")} == {
-        "amt_ms1": "3", "instr": "4", "amt_gtr": "2", "s35": "4", "notes": "5"}
+        "amt_ms1": "3", "instr": "4", "amt_gtr": "2", "s35": "4", "notes": "6"}  # notes 6: bass bleed (M8, E30b)
 
 
 def test_load_presence_falls_back_to_an_m2_full_pass(tmp_path):

@@ -88,6 +88,7 @@ AMT_DEFAULTS: dict[str, Any] = {
     "amt.bp_melodia_trick": True,
     "amt.bp_threads": 4,
     "amt.silence_gate_db": -50.0,  # 2026-10-05, bandscribe.amt.silence
+    "amt.bass_bleed": True,  # 2026-10-18, E30b (bandscribe.amt.bleed)
     "instr.threshold": 0.5,
     "instr.guitar_threshold": 0.15,
     "instr.guitar_stem_active_ratio": 0.05,
@@ -861,7 +862,27 @@ def _only(doc: Mapping[str, Any], classes: tuple[str, ...]) -> dict[str, Any]:
 
 def notes_params(cfg: Any) -> dict[str, Any]:
     return {"silence_gate_db": float(amt_value(cfg, "amt.silence_gate_db")),
-            "silence_window_s": list(SG.DEFAULT_WINDOW_S)}
+            "silence_window_s": list(SG.DEFAULT_WINDOW_S), "bass_bleed": bool(amt_value(cfg, "amt.bass_bleed"))}
+
+
+BLEED_FILE = "bleed.json"
+
+
+def bass_bleed(notes: list[dict[str, Any]], f0_dir: Path | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(kept, removed) by the ``bass`` rule of ``bandscribe.amt.bleed`` with the bass_f0 stage's pyin track (CREPE if
+    pyin is missing); no track -> nothing removed."""
+    from bandscribe.amt import bleed as BL
+    from bandscribe.bass import f0 as F0
+
+    if f0_dir is None or not (Path(f0_dir) / "f0.npz").is_file():
+        return notes, []
+    tr = F0.load_npz(Path(f0_dir) / "f0.npz")
+    name = "pyin" if "pyin" in tr.hz else next(iter(tr.hz), None)
+    if name is None:
+        return notes, []
+    idx = set(BL.bass_flags(notes, tr.hz[name], tr.conf[name], tr.hop_s))
+    return ([n for i, n in enumerate(notes) if i not in idx],
+            [{**n, "why": "bass"} for i, n in enumerate(notes) if i in idx])
 
 
 def run_notes(ctx: Any) -> None:
@@ -886,6 +907,11 @@ def run_notes(ctx: Any) -> None:
     kept, gate_gtr = SG.gate(guitar_all["notes"], energy, str(gtr.get("view") or ""), fps, gate_db=gate_db,
                              window_s=window)
     guitar_all["notes"] = list(kept)
+    bled: list[dict[str, Any]] = []
+    if ctx.params.get("bass_bleed"):  # M8 (E30b): low notes the bass put into the guitar stem
+        guitar_all["notes"], bled = bass_bleed(guitar_all["notes"], dd.get("bass_f0"))
+    atomic.write_json(out_dir / BLEED_FILE, {"format": "bandscribe.bleed/1", "rules": ["bass"] if
+                                             ctx.params.get("bass_bleed") else [], "notes": bled})
     validate_noteset(guitar_all)
     atomic.write_json(out_dir / "guitar_all.json", guitar_all)
 
@@ -945,6 +971,7 @@ def run_notes(ctx: Any) -> None:
         "guitar_classes": {c: counts[c] for c in I.GUITAR_CLASSES if c in counts},
         "non_guitar_dropped": dropped,
         "silence_gate": {"db": gate_db, "window_s": list(window), "guitar_all": gate_gtr, "bass_raw": gate_bass},
+        "bleed": {"bass": len(bled)},
         "files": files,
         "basic_pitch": not bp_skipped(dd["amt_bp"]),
         "s35": s35.get("format"),
@@ -973,6 +1000,6 @@ STAGES: dict[str, dict] = {
                 "models": ms_models},
     "s35": {"run": run_s35, "code_version": "4", "params": lambda cfg: {}, "device": "cpu",
             "models": lambda cfg: {}},
-    "notes": {"run": run_notes, "code_version": "5", "params": notes_params, "device": "cpu",
+    "notes": {"run": run_notes, "code_version": "6", "params": notes_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

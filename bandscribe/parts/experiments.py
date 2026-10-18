@@ -36,4 +36,10 @@ def _run_e30(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
     return run_e30(out_dir, cfg, args, **kw)
 
 
-EXPERIMENTS = {"E25": _run_e25, "E27": _run_e27, "E28": _run_e28, "E29": _run_e29, "E30": _run_e30}
+def _run_e30b(out_dir: Path, cfg: Any, args: dict, **kw: Any) -> list[dict]:
+    from bandscribe.parts.eval_e30 import run_e30b
+
+    return run_e30b(out_dir, cfg, args, **kw)
+
+
+EXPERIMENTS = {"E25": _run_e25, "E27": _run_e27, "E28": _run_e28, "E29": _run_e29, "E30": _run_e30, "E30b": _run_e30b}

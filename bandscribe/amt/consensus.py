@@ -9,7 +9,8 @@ taken off its onsets). Two notes are the same when they have the same pitch and 
   the bars really are the same guitar music before they vote.
 - **Added:** a note position that ``o`` lacks and at least ``max(2, ceil(add_frac x voters))`` voters hold (two
   voters at least) is added to ``o`` at the voters' median position and length, with their most common
-  instrument (``added: "repeat"``, ``support`` = holders / voters).
+  instrument (``added: "repeat"``, ``support`` = holders / voters), unless ``o`` already has that pitch within
+  ``dup_s`` of it.
 - **Lone:** a note of ``o`` that none of its (two or more) voters holds is a variation: DESIGN keeps it and only
   marks it (``lone`` indices) for the review queue and the confidence model (M10).
 
@@ -25,7 +26,8 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-DEFAULTS: dict[str, Any] = {"min_occurrences": 3, "min_notes": 3, "sim_min": 0.7, "add_frac": 1.0, "tol_beats": 0.125}
+DEFAULTS: dict[str, Any] = {"min_occurrences": 3, "min_notes": 3, "sim_min": 0.7, "add_frac": 1.0, "tol_beats": 0.125,
+                            "dup_s": 0.05}
 ADDED = "repeat"
 
 
@@ -128,6 +130,12 @@ def consensus(notes: Sequence[Mapping[str, Any]], grid: Mapping[str, Any], repea
                     inst = Counter(x[4] for x in by_voter.values()).most_common(1)[0][0]
                     on = bm.time(c["p0"] + pos) + c["off"]
                     off_s = bm.time(c["p0"] + pos + dur) + c["off"]
+                    # review 2026-10-18: a note the occurrence already has within dup_s (the matching tolerance of
+                    # the evaluation) is not missing - the beat tolerance alone let 24 % of E29's additions double one
+                    lo = bisect.bisect_left(onsets, on - float(p["dup_s"]))
+                    hi = bisect.bisect_right(onsets, on + float(p["dup_s"]))
+                    if any(int(notes[j]["pitch"]) == pitch for j in order[lo:hi]):
+                        continue
                     placed.append((None, pitch, pos))
                     note = {"onset_s": round(on, 6), "offset_s": round(max(off_s, on + 0.01), 6), "pitch": pitch,
                             "added": ADDED, "support": round(len(by_voter) / len(voters), 3)}

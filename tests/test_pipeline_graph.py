@@ -20,11 +20,11 @@ EXPECTED = {
     "instr": {"amt_ms1", "stems", "sections", "grid"},
     "amt_gtr": {"stems", "instr"},
     "s35": {"instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"},
-    "notes": {"amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"},  # stems: energy.npz for the silence gate
+    "bass_f0": {"stems"},  # M5 F0 tracks; M8: notes reads them (bass bleed, E30b)
+    "notes": {"amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems", "bass_f0"},  # stems: the silence gate
 }
-M2_STAGES = set(EXPECTED)
-EXPECTED.update({  # M5 bass: F0 tracks (GPU worker) and the clean-up of the gated pass-1 bass
-    "bass_f0": {"stems"},
+M2_STAGES = set(EXPECTED)  # `--until notes` (bass_f0 since M8)
+EXPECTED.update({  # M5 bass: the clean-up of the gated pass-1 bass
     "bass": {"notes", "bass_f0", "stems", "sep", "grid"},
 })
 EXPECTED.update({  # M6 router; M7a note signatures and the Part view (quant reads the guitar notes with their line)
@@ -67,7 +67,7 @@ def test_acyclic_and_gpu_order(monkeypatch):
     order = topo_order(stages)  # raises CycleError on a cycle
     assert set(order) == M2_STAGES
     gpu = [n for n in order if n in GPU]
-    assert gpu == ["beats", "sep", "amt_ms1", "amt_gtr"]
+    assert gpu == ["beats", "sep", "amt_ms1", "amt_gtr", "bass_f0"]
     for st in stages:
         for d in st.deps:
             assert order.index(d) < order.index(st.name)

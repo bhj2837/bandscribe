@@ -186,10 +186,21 @@ def candidates(dirs: Mapping[str, Path], kept: Mapping[str, Sequence[Mapping[str
               "Basic Pitch 만 들은 음"),
              ("bass", dirs.get("amt_ms1"), "bass_mono__muscriptor.json", "muscriptor", 1e-3, "베이스 정리가 뺀 음"),
              ("bass", dirs.get("amt_bp"), "bass_mono__basicpitch.json", "basicpitch", MATCH_S, "Basic Pitch 만 들은 음"))
+    bled: set[tuple[int, int]] = set()  # M8 (E30b): notes the bass-bleed rule moved out of guitar_all
+    nd = dirs.get("notes")
+    if nd is not None and (nd / "bleed.json").is_file():
+        try:
+            bled = {(int(n["pitch"]), round(float(n["onset_s"]) * 1000)) for n in
+                    atomic.read_json(nd / "bleed.json").get("notes") or []}
+        except (OSError, ValueError, KeyError):
+            bled = set()
     for tid, d, name, src, tol, why in plans:
         for n in _unkept(_raw_notes(d, name), kept.get(tid) or [], tol):
+            key = (int(n["pitch"]), round(float(n["onset_s"]) * 1000))
             out.append({"track": tid, "pitch": int(n["pitch"]), "on": round(float(n["onset_s"]), 4),
-                        "off": round(float(n["offset_s"]), 4), "src": src, "why": why})
+                        "off": round(float(n["offset_s"]), 4), "src": src,
+                        "why": "베이스 블리드 의심(E2 아래, 베이스와 같은 음이름)" if tid == "guitar_all" and
+                        src == "muscriptor" and key in bled else why})
     return out
 
 

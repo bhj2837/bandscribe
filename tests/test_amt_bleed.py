@@ -57,3 +57,39 @@ def test_pooled_precision_and_the_hold_rule():
     assert E30.decide(rows, "vocal")["verdict"] == "PASS"
     rows[0]["vocal"]["false"] = 1  # 19 / 30
     assert E30.decide(rows, "vocal")["verdict"] == "FAIL"
+
+
+def test_e30b_drops_a_reference_ghost_an_octave_below_but_keeps_a_real_low_note():
+    sr = 44100
+    t = np.arange(int(2.0 * sr)) / sr
+    x = np.zeros_like(t)
+    a = t < 1.0  # 0-1 s: an A2 alone (its transcription also wrote A1 under it: a ghost)
+    x[a] = 0.3 * np.sin(2 * np.pi * 110.0 * t[a])
+    b = t >= 1.0  # 1-2 s: a real D2 with its octave
+    x[b] = 0.3 * np.sin(2 * np.pi * 73.42 * t[b]) + 0.3 * np.sin(2 * np.pi * 146.83 * t[b])
+    notes = [{"onset_s": 0.0, "offset_s": 0.9, "pitch": 33}, {"onset_s": 0.0, "offset_s": 0.9, "pitch": 45},
+             {"onset_s": 1.0, "offset_s": 1.9, "pitch": 38}, {"onset_s": 1.01, "offset_s": 1.9, "pitch": 50}]
+    assert E30.ghost_notes(notes, x.astype(np.float32), sr) == {0}
+
+
+def test_the_notes_stage_moves_bass_bleed_out_and_the_viewer_names_it(tmp_path):
+    from bandscribe.amt import stage as S
+    from bandscribe.bass import f0 as F0
+    from bandscribe.tab import viewer_media as VM
+
+    f, c = track([(0.0, 3.0, 26)])  # the bass holds D1
+    F0.save_npz(tmp_path / "f0.npz", F0.F0Track(hz={"pyin": f}, conf={"pyin": c}, hop_s=HOP))
+    notes = [note(1.0, 1.5, 38), note(1.0, 1.5, 50)]
+    kept, removed = S.bass_bleed(notes, tmp_path)
+    assert [n["pitch"] for n in kept] == [50] and removed[0]["pitch"] == 38 and removed[0]["why"] == "bass"
+    assert S.bass_bleed(notes, None) == (notes, [])
+    nd, gd = tmp_path / "notes", tmp_path / "amt_gtr"
+    (nd).mkdir()
+    (gd / "raw").mkdir(parents=True)
+    import json
+
+    (nd / "bleed.json").write_text(json.dumps({"notes": removed}), encoding="utf-8")
+    raw = {"notes": [{**n, "instrument": "distorted_electric_guitar"} for n in notes]}
+    (gd / "raw" / "guitar_mono__muscriptor.json").write_text(json.dumps(raw), encoding="utf-8")
+    cands = VM.candidates({"notes": nd, "amt_gtr": gd}, {"guitar_all": kept})
+    assert [x["pitch"] for x in cands] == [38] and "베이스 블리드" in cands[0]["why"]

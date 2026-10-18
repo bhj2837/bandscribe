@@ -115,6 +115,7 @@ bp_melodia_trick = true
 bp_threads = 4                                     # onnxruntime intra-op threads (pinned: output must not depend on core count)
 silence_gate_db = -50.0                            # notes: drop guitar/bass notes starting where their stem is this far below the
                                                    # mix's loud level (p95); MuScriptor writes notes over silent stems. -200 = off
+bass_bleed = true                                  # notes: a guitar note under E2 on the bass's pitch class -> notes/bleed.json (E30b)
 
 [instr]
 threshold = 0.5                                    # E3

@@ -160,3 +160,102 @@ def run_e30(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], No
         split: {rule: decide([r for r in per if r["split"] == split], rule) for rule in RULES}
         for split in ("test", "dev")})
     return [r for r in rows_out if r["value"] is not None]
+
+
+# ------------------------------------------------------------------------------------------------ E30b
+
+GHOST_BELOW = 40
+GHOST_ONSET_S = 0.05
+GHOST_DB = 20.0
+GHOST_SPAN_S = 0.15
+NFFT, HOP = 8192, 1024
+
+
+def band_power(x: np.ndarray, sr: int, onset_s: float, midi: float) -> float:
+    """Power of the fundamental's band (+-50 cents, the nearest bin always in) over ``GHOST_SPAN_S`` from the onset:
+    Hann ``NFFT`` frames every ``HOP`` samples."""
+    f0 = 440.0 * 2 ** ((midi - 69) / 12)
+    freqs = np.fft.rfftfreq(NFFT, 1.0 / sr)
+    band = (freqs >= f0 * 2 ** (-0.5 / 12)) & (freqs <= f0 * 2 ** (0.5 / 12))
+    band[int(np.argmin(np.abs(freqs - f0)))] = True
+    win = np.hanning(NFFT)
+    a = int(onset_s * sr)
+    tot = 0.0
+    for s in range(a, a + int(GHOST_SPAN_S * sr) + 1, HOP):
+        seg = x[s:s + NFFT]
+        if len(seg) < NFFT:
+            seg = np.pad(seg, (0, NFFT - len(seg)))
+        tot += float(np.sum(np.abs(np.fft.rfft(seg * win))[band] ** 2))
+    return tot
+
+
+def ghost_notes(notes: Sequence[Mapping[str, Any]], x: np.ndarray, sr: int) -> set[int]:
+    """Indices of a take's notes under E2 that are the transcriber's octave-below ghosts (E30b's rule)."""
+    out = set()
+    for i, n in enumerate(notes):
+        p = int(n["pitch"])
+        if p >= GHOST_BELOW:
+            continue
+        on = float(n["onset_s"])
+        ups = [m for m in notes if int(m["pitch"]) == p + 12 and abs(float(m["onset_s"]) - on) <= GHOST_ONSET_S]
+        if not ups:
+            continue
+        low = band_power(x, sr, on, p)
+        high = band_power(x, sr, float(ups[0]["onset_s"]), p + 12)
+        if high > 0 and 10 * np.log10(max(low, 1e-30) / high) < -GHOST_DB:
+            out.add(i)
+    return out
+
+
+def run_e30b(out_dir: Path, cfg: Any, args: dict, *, progress: Callable[[str], None] | None = None) -> list[dict]:
+    import soundfile as sf
+
+    from bandscribe.parts import eval as PE
+    from bandscribe.parts import eval_e29 as E29
+    from bandscribe.parts import eval_track as ET
+    from bandscribe.router import split_eval as SE
+
+    items = [*ET.load_items(), *ET.load_items(pattern="*.d1.json")]
+    refs: dict[str, dict[str, list]] = {}
+    removed: dict[str, dict[str, int]] = {}
+    tracks: dict[str, dict] = {}
+    per, rows_out = [], []
+    for it in items:
+        song = it["song"]
+        if song not in tracks:
+            tracks[song] = f0_tracks(song, progress)
+            refs[song], removed[song] = {}, {}
+        need = [t for t in sorted(it["takes"]) if t not in refs[song]]
+        if need:
+            raw = E29.take_notes(song, need, cfg)
+            for t in need:
+                x, sr = sf.read(str(ET.cache_dir() / "work" / song / f"take{t}_mono.wav"), dtype="float32")
+                g = ghost_notes(raw[t], x, sr)
+                refs[song][t] = [n for i, n in enumerate(raw[t]) if i not in g]
+                removed[song][t] = len(g)
+                if progress:
+                    progress(f"E30b: {song} 테이크 {t}: 저음 유령 {len(g)}개 뺌")
+        by_line: dict[str, list] = {}
+        for t, line in it["takes"].items():
+            by_line.setdefault(line, []).extend(refs[song][t])
+        active = {ln for ln, ns in by_line.items() if len(ns) >= PE.MIN_REF_NOTES}
+        truth = [t & active for t in SE.match(it["sys"], by_line)]
+        ref = E29.union_ref([refs[song][t] for t in sorted(it["takes"])])
+        base = 100.0 * E29.note_f1(ref, it["sys"]).f1
+        idx = flags("bass", it["sys"], tracks[song]["bass"])
+        drop = set(idx)
+        kept = [n for i, n in enumerate(it["sys"]) if i not in drop]
+        r = {"song": song, "scenario": it["scenario"], "split": it["split"], "sys_notes": len(it["sys"]),
+             "bass": {"flagged": len(idx), "false": sum(1 for i in idx if not truth[i]),
+                      "false_e30": sum(1 for i in idx if not it["truth"][i]),
+                      "f1_diff": round(100.0 * E29.note_f1(ref, kept).f1 - base, 4)}}
+        per.append(r)
+        if idx:
+            rows_out.append({"system": "bass", "dataset": "cambridge_mt", "item": f"{song}:{it['scenario']}",
+                             "group": song, "scenario": it["scenario"], "section": it["split"], "line": "full",
+                             "metric": "precision", "value": round(r["bass"]["false"] / len(idx), 4)})
+    atomic.write_json(Path(out_dir) / "e30b_items.json", per)
+    atomic.write_json(Path(out_dir) / "e30b_decision.json", {
+        "removed_ref_notes": removed,
+        **{split: decide([r for r in per if r["split"] == split], "bass") for split in ("test", "dev")}})
+    return rows_out

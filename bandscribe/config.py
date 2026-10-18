@@ -226,6 +226,9 @@ class AmtCfg(_Section):
     # notes stage: drop guitar/bass notes that start where their stem is this far below the mix's loud level
     # (p95 of its 10 Hz frames); MuScriptor writes notes over silent stems (bandscribe.amt.silence). -200 = off.
     silence_gate_db: float = Field(-50.0, ge=-200.0, le=0.0)
+    # notes stage (M8, E30b): a guitar note under E2 on the bass f0's pitch class is bass bleed - moved to
+    # notes/bleed.json (the viewer offers it back as a candidate). E30b: 0.975 precision on the Tier B test songs.
+    bass_bleed: bool = True
 
     @field_validator("bp_min_note_frames", mode="before")
     @classmethod

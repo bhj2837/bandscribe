@@ -102,3 +102,11 @@ def test_e29_reference_union_and_decision_rules():
     assert E29.decide(rows)["verdict"] == "PASS"
     rows[0]["consensus"]["f1"] = 40.0  # one song loses 10 points: the mean falls under +2
     assert E29.decide(rows)["verdict"] == "FAIL"
+
+
+def test_a_note_already_there_within_50_ms_is_not_added_again():
+    """Review 2026-10-18: the beat tolerance (here 1/16 beat = 31 ms) must not let a near note count as missing."""
+    late = [dict(n, onset_s=n["onset_s"] + 0.04, offset_s=n["offset_s"] + 0.04) if n["pitch"] == 45 else n
+            for n in occurrence(3)]
+    notes = occurrence(1) + late + occurrence(5)
+    assert C.consensus(notes, grid(), rmap([1, 3, 5]), {"tol_beats": 0.0625})["added"] == []

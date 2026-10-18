@@ -43,10 +43,11 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("instr", ("amt_ms1", "stems", "sections", "grid"), "bandscribe.amt.stage"),
     ("amt_gtr", ("stems", "instr"), "bandscribe.amt.stage"),
     ("s35", ("instr", "vocal", "resid1", "amt_ms1", "amt_gtr", "amt_bp"), "bandscribe.amt.stage"),
-    # notes reads the stems' energy.npz for its silence gate (2026-10-05); quant reads the gated bass from notes
-    ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems"), "bandscribe.amt.stage"),
-    # M5: bass F0 tracks (GPU worker + pyin) and the S11 clean-up of the gated pass-1 bass (drums stem for kicks)
+    # M5: bass F0 tracks (GPU worker + pyin); M8: notes reads them for the bass-bleed rule (E30b)
     ("bass_f0", ("stems",), "bandscribe.bass.stage"),
+    # notes reads the stems' energy.npz for its silence gate (2026-10-05); quant reads the gated bass from notes
+    ("notes", ("amt_gtr", "amt_ms1", "amt_bp", "grid", "s35", "stems", "bass_f0"), "bandscribe.amt.stage"),
+    # M5: the S11 clean-up of the gated pass-1 bass (drums stem for kicks)
     ("bass", ("notes", "bass_f0", "stems", "sep", "grid"), "bandscribe.bass.stage"),
     # M6 (CPU): stereo image of the separated guitar stem per window -> scenario label. M7a (CPU): each guitar
     # note's stereo signature, then the part count and each note's part (Part view v0); quant reads them from parts
