@@ -102,6 +102,9 @@ def test_cambridge_real():
     tracks = {t.track_id: t for t in datasets.iter_tracks("cambridge_mt")}
     assert datasets.track_ids("cambridge_mt") == list(tracks)
     assert len(tracks) >= 4
+    # E37's songs (2026-10-18) were picked for their strings / brass, not for two guitar parts
+    e37 = {"bencarrigan_welltalkaboutitalltonight", "bencarrigan_heycarrieanne", "dunningkruger_japansong", "ejrios_echo",
+           "flags_54", "timtaler_stalker", "pablomartin_progresivo1elvuelo"}
     for t in tracks.values():
-        assert sum(1 for ln in t.lines if ln.kind == "guitar") >= 2
+        assert sum(1 for ln in t.lines if ln.kind == "guitar") >= (1 if t.track_id in e37 else 2)
         assert "guitar" in t.families_present
