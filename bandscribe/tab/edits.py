@@ -825,23 +825,35 @@ SCORE_FILES = ("tab/score.gp5", "tab/score.gp", *(f"tab/views/{v}.gp5" for v in 
 def export(base: Base, state: State, h: str) -> dict[str, Any]:
     """Write the edited score over the job's ``export/`` score files (alphaTex, GP5, text tabs, quantised MIDI,
     score.json, tab.json) and record them in ``export.json``: as made from the edit log, or, with no edit in
-    effect, as the run's own files again. Every file is written aside first; the GP5 (the file another program may
-    hold open) replaces its old copy first, so a refusal leaves the old export whole."""
+    effect, as the run's own files again. Every file is written aside first. Then every old file moves out of the
+    way (a GP5 / .gp another program holds open refuses here) and only when all moved do the new ones go in; a
+    refusal puts the old ones back, so the export is always whole - old or new (review 2026-10-18: before, only the
+    first file was protected)."""
     out = base.job_dir / "export"
     out.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=".edits-", dir=out))
     try:
         T.write_score(tmp, song_key=base.song_key, meta=base.meta, title=base.title, quant=state.quant,
                       tab=state.tab, grid=state.grid, sections=state.sections, params=base.score_params,
-                      job_dir=base.job_dir)
+                      job_dir=base.job_dir, stems_dir=T.stems_dir_of(base.job_dir, base.keys.get("score")))
         atomic.write_json(tmp / "tab" / "tab.json", state.tab)
         made = [r for r in SCORE_FILES if (tmp / r).is_file()]
-        for rel in made:  # SCORE_FILES lists the GP5 first
+        old = tmp / ".old"
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for k, rel in enumerate(SCORE_FILES):  # files another program may hold open come first
+                if (out / rel).is_file():
+                    aside = old / f"{k}"
+                    aside.parent.mkdir(parents=True, exist_ok=True)
+                    atomic._replace(str(out / rel), aside)
+                    moved.append((aside, out / rel))
+        except OSError:
+            for aside, dst in reversed(moved):
+                atomic._replace(str(aside), dst)
+            raise
+        for rel in made:
             (out / rel).parent.mkdir(parents=True, exist_ok=True)
             atomic._replace(str(tmp / rel), out / rel)
-        for rel in SCORE_FILES:
-            if rel not in made and (out / rel).is_file():  # e.g. no fretted track left: no GP5
-                (out / rel).unlink()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     exp_path = out / "export.json"
@@ -929,8 +941,9 @@ class _JobLock:
 
 
 class _Exporter:
-    """Writes the latest edited score to ``export/`` in the background (writing GP5, MIDI and score.json takes
-    ~1 s on a 3.5 min song; the page should not wait for it). Bursts of edits are written once."""
+    """Writes the latest edited score to ``export/`` in the background (GP5, MIDI and score.json ~1 s on a 3.5 min
+    song, the .gp another ~2-3 s through Node - plus ~2.5 s the first time its MP3 backing is encoded; the page
+    should not wait for it). Bursts of edits are written once."""
 
     DEBOUNCE_S = 0.3
 

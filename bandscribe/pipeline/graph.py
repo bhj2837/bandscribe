@@ -60,7 +60,7 @@ STAGE_TABLE: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("tuning", ("notes", "bass", "grid", "sections"), "bandscribe.tab.stage"),
     ("quant", ("notes", "bass", "parts", "grid", "sections"), "bandscribe.tab.stage"),
     ("tab", ("quant", "a4", "tuning"), "bandscribe.tab.stage"),
-    ("score", ("tab", "quant", "grid", "sections"), "bandscribe.tab.stage"),
+    ("score", ("tab", "quant", "grid", "sections", "stems"), "bandscribe.tab.stage"),  # M9: the .gp's no-guitar backing
 )
 
 NAMES: tuple[str, ...] = tuple(n for n, _, _ in STAGE_TABLE)

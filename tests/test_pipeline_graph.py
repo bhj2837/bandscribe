@@ -37,7 +37,7 @@ EXPECTED.update({  # M3 (CPU only)
     "tuning": {"notes", "bass", "grid", "sections"},  # the song's tuning without the parts (2026-10-17, --parts)
     "quant": {"notes", "bass", "parts", "grid", "sections"},  # the bass from the bass stage (M5), guitar from parts
     "tab": {"quant", "a4", "tuning"},
-    "score": {"tab", "quant", "grid", "sections"},
+    "score": {"tab", "quant", "grid", "sections", "stems"},  # M9: the .gp's no-guitar backing
 })
 GPU = {"beats", "sep", "amt_ms1", "amt_gtr", "bass_f0"}
 

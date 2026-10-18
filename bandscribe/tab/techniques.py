@@ -91,5 +91,5 @@ def bends(notes: Sequence[Mapping[str, Any]], hz: np.ndarray, vprob: np.ndarray,
         cls = next(c for c, lim in CLASSES if rise < lim)
         out.append({"i": i, "rise_cents": round(rise, 1), "class": cls, "release": release,
                     "start_pitch": round(start, 2), "top_pitch": round(top, 2),
-                    "top_s": round(on + float(p["start_s"]) + k_top * hop_s, 3)})
+                    "top_s": round((a + k_top) * hop_s, 3)})
     return out
