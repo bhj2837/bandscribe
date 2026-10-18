@@ -61,8 +61,9 @@ Report: `docs/acceptance/M10.md`.
 - **E35 note confidence** on the six Tier A songs (leave one song out): AUC 0.557, capture of wrong notes in the
   lowest 20 % 0.234 (random 0.20, the queue's part sort 0.235) → rejected. ECE 0.045 only because every note gets
   about the error rate.
-- **Why:** of the 39 % "wrong" notes against the sheets, 30 points are the same pitch class as a sheet note in that
-  bar (octave or extra chord tones), 9 points another pitch class. Octave/duplicate choice is the transcription's
+- **Why:** of the 39 % "wrong" notes against the sheets, 16 points are a pitch the bar has but more times than the
+  sheet (a split note, or strums the sheet writes fewer of), 13 points the right pitch class in another octave, 9
+  points another pitch class. Octave/duplicate choice is the transcription's
   and the note clean-up's job, not a confidence model's.
 - **E36 part confidence** on the whole-song Tier B remixes: the posterior is overconfident (mean 0.998 vs 0.838
   right, ECE 0.161); a spatial-feature model gets ECE 0.108 but AUC 0.48 across songs → rejected.
