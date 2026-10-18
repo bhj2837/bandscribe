@@ -43,12 +43,34 @@ fixes).
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
 | M4b A/B mixer + review tools | ✅ WebAudio engine in `bandscribe view` (recordings + per-track tab synth via alphaTab audio export, A/B hold key, mixer, sound position, 50-100 % slowdown with an own pitch shifter, loop, count-in), CQT piano roll with unkept candidates, part band, review queue; E26 (edit anchors after upstream changes) 0.94; acceptance `docs/acceptance/M4b.md`: **3 pass** |
+| M9 chords, GP7, techniques | ✅ chord chart `export/chords/` (E31: 54 % on seisyun complex, under 70 %: chart only, names in the score by `tab.chords_in_score`), `tab/score.gp` (Gp7Exporter, backing MP3 + a sync point per beat: 0 ms beat drift on Tier A), bend rule (E32: 0 of 16 bends found - all inside chords; not wired); acceptance `docs/acceptance/M9.md`: **1 pass / 2 fail / 1 n/a** |
 | M8 narrow mixes + S7 (interim) | ⏸ three negative results, nothing on by default: E10 (repetition-subtraction lead view) rejected by its ceiling (+0.004 vs +0.05), E29 repeat consensus rejected (−0.02 points), E30 bleed flags held / rejected (vocal precision 0.56 on 18 notes, bass 0.70); safety net and keys bleed wait for GPU (user's call); interim report `docs/acceptance/M8.md`: **0 pass / 3 fail / 1 blocked / 2 n/a**, no tag yet |
 | M7c Role / Player views + part UI | ✅ `parts/views.py` (section roles, Role view, Player view: per-section DP, no two simultaneous parts per player, `Gtr extra (overdub)`, idle / unison policies, markers), `tab/views/` export + `score.json` roles, viewer: view switch, part count switch (`parts_k`, ~1 s), Ctrl+Shift+1-4/0 to the end of the section (`part_span`); acceptance `docs/acceptance/M7c.md`: **4 pass** |
 | M7b identity tracking | ✅ `parts/track.py` (window layers, links, Viterbi over relabellings, repeat-map window pairs; off by default), repeat links `rep` + `part` edit (Shift+1-4/0, spreads to repeats), whole-song Tier B data (`parts/eval_track.py`, 24 remixes), E27 rejected (no note changed); acceptance `docs/acceptance/M7b.md`: **3 pass / 1 fail / 1 n/a** |
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## M9 (2026-10-18): chord chart, Guitar Pro 7/8 with the backing, bends
+
+Code: `bandscribe/tab/chords.py` (per-beat pitch-class templates + bass bonus + Viterbi change cost, bass cross-check,
+text chart), `tab/stage.py` (`write_chords`, `write_gp7`, `gp7_sync_points`, `gp7_drift`, `backing_audio`; score code
+8), `node/bandscribe_score.mjs gp7`, `bandscribe/tab/techniques.py` (bend rule, not wired). Config `[tab]
+chords_in_score = false`, `gp7_backing = "original"`. Report: `docs/acceptance/M9.md`.
+
+- **Ground truth from the user's PDFs:** `data/tmp/sheets_sc/pdf_marks.py` reads every word above the staves with
+  its bar and position (pdfium's own reading order keeps "Bbmaj7" whole; split names are joined in the scorer):
+  189 chord names (Ele. Guitar 1), 16 distinct bends, 24 slides, 50 H/P, 10 P.M. (Ele. Guitar 2).
+- **E31 chords:** 0.543 root + class (root 0.623) - under DESIGN's 0.70. The same recogniser on the PDF's own notes
+  gives 0.601: the recogniser (guitar voicings without the root, tension chords) is the main limit, not the
+  transcription. The chart is written anyway with a header saying how far to trust it.
+- **GP7:** alphaTab 1.8.4 writes `BackingTrack` + `SyncPoint`s; the export embeds the recording as MP3 (libsndfile;
+  cached in the job's `cache/gp7`) and replaces the alphaTex's per-bar sync points by one per grid beat, so the
+  reloaded file puts every beat on the recording (0 ms; per bar it was up to 49 ms). Not opened in Guitar Pro 8 (not
+  installed). The file holds the recording: personal use.
+- **E32 bends:** none found - every marked bend sits inside two strumming guitars, where pyin on either stem channel
+  is unvoiced (8 % / 1 % voiced over the song). Next: partial tracking around each note's pitch, judged against the f0
+  of the clean Tier B lead takes.
 
 ## M8 interim (2026-10-17): narrow mixes, repeat consensus, bleed
 
