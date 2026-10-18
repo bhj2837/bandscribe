@@ -43,6 +43,7 @@ fixes).
 | M5 bass | ✅ `bass_f0` (CREPE + PESTO worker, pyin) and `bass` stages, E13 (only the merges adopted: one note + slide for a glide written as a staircase), techniques; acceptance `docs/acceptance/M5.md`: **4 pass / 1 fail / 3 blocked** (contamination) (tag `m5`) |
 | M6 router + part split | ✅ `router` and `split` stages (CPU), E6 (router thresholds, GO), E22 (held) / E22b (P split adopted, A held), parts `Gtr 1 (L)` / `Gtr 2 (R)` fretted; acceptance `docs/acceptance/M6.md`: **7 pass / 2 fail / 1 blocked** after the 2026-10-11 follow-up (E6b, E7; tag `m6` = 5 / 3 / 2) |
 | M4b A/B mixer + review tools | ✅ WebAudio engine in `bandscribe view` (recordings + per-track tab synth via alphaTab audio export, A/B hold key, mixer, sound position, 50-100 % slowdown with an own pitch shifter, loop, count-in), CQT piano roll with unkept candidates, part band, review queue; E26 (edit anchors after upstream changes) 0.94; acceptance `docs/acceptance/M4b.md`: **3 pass** |
+| M10 calibration (interim) | ⏸ the measurable parts fail: note confidence (E35, AUC 0.56, queue capture 0.234 ≈ random) and part confidence (E36, ECE 0.108, AUC 0.48); edit learning and edit time need the user's edits; acceptance `docs/acceptance/M10.md`: **0 pass / 2 fail / 2 blocked / 2 n/a** |
 | M9 chords, GP7, techniques | ✅ chord chart `export/chords/` (E31: 54 % on seisyun complex, under 70 %: chart only, names in the score by `tab.chords_in_score`), `tab/score.gp` (Gp7Exporter, backing MP3 + a sync point per beat; written notes vs detected onsets 9-17 ms median, 44-57 ms max with quantisation), bend rule (E32: 0 of 16 bends found - all inside chords; not wired); acceptance `docs/acceptance/M9.md`: **1 pass / 2 fail / 1 n/a** |
 | M8 narrow mixes + S7 | ✅ closed without the GPU items (user, 2026-10-18): **bass bleed on** (E30b: 0.975 precision after the review found ghost notes in E30's truth; `[amt] bass_bleed`, notes -> `bleed.json`, viewer candidates); E10 rejected by its ceiling, E29 repeat consensus rejected (+0.11 with the review's duplicate fix), vocal bleed held; acceptance `docs/acceptance/M8.md`: **0 pass / 2 fail / 1 held / 1 blocked / 2 n/a** |
 | M7c Role / Player views + part UI | ✅ `parts/views.py` (section roles, Role view, Player view: per-section DP, no two simultaneous parts per player, `Gtr extra (overdub)`, idle / unison policies, markers), `tab/views/` export + `score.json` roles, viewer: view switch, part count switch (`parts_k`, ~1 s), Ctrl+Shift+1-4/0 to the end of the section (`part_span`); acceptance `docs/acceptance/M7c.md`: **4 pass** |
@@ -50,6 +51,22 @@ fixes).
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## M10 interim (2026-10-18): confidence and the review queue
+
+Code (experimental, not wired): `bandscribe/tab/confidence.py` (note features, a standardised logistic model, ECE,
+queue capture), `bandscribe/parts/confidence.py` (part features); runners `data/tmp/m10/e35.py`, `e36.py`.
+Report: `docs/acceptance/M10.md`.
+
+- **E35 note confidence** on the six Tier A songs (leave one song out): AUC 0.557, capture of wrong notes in the
+  lowest 20 % 0.234 (random 0.20, the queue's part sort 0.235) → rejected. ECE 0.045 only because every note gets
+  about the error rate.
+- **Why:** of the 39 % "wrong" notes against the sheets, 30 points are the same pitch class as a sheet note in that
+  bar (octave or extra chord tones), 9 points another pitch class. Octave/duplicate choice is the transcription's
+  and the note clean-up's job, not a confidence model's.
+- **E36 part confidence** on the whole-song Tier B remixes: the posterior is overconfident (mean 0.998 vs 0.838
+  right, ECE 0.161); a spatial-feature model gets ECE 0.108 but AUC 0.48 across songs → rejected.
+- **Blocked on the user:** silver data and edit-time comparisons need real edits in the viewer.
 
 ## M9 (2026-10-18): chord chart, Guitar Pro 7/8 with the backing, bends
 
@@ -857,8 +874,9 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After M9 (2026-10-18):** next by DESIGN's order is M10 (edit feedback, calibration, review queue by expected
-  error). Open from M9: chords (E31, 54 %: needs bass in the histogram + tension templates, judged on another song's
+- **After M10 interim (2026-10-18):** the largest error class is octave/duplicate chord tones (30 % of the notes
+  against the sheets); with six sheet songs a note clean-up experiment can now be judged. M10's edit learning waits
+  for the user's edits; M11 (YouTube) is optional. Open from M9: chords (E31, 54 %: needs bass in the histogram + tension templates, judged on another song's
   chords), bends in chords (E32: partial tracking, judged on the clean Tier B lead takes' f0).
 - **After M7c (2026-10-17):** by DESIGN's order the next milestone is M8 (narrow mixes: the B route, repetition
   subtraction, safety net; optional voters). Same-position count: the width evidence
