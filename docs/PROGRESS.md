@@ -133,7 +133,7 @@ vocal f0 by pyin), `amt/stage.py` `bass_bleed` (notes stage, on), runners `bands
   - E30b drops a take's low note when it has an octave partner and a fundamental 20 dB weaker. With that it scores
     0.975 → `[amt] bass_bleed = true`: the notes stage (now after `bass_f0`) moves the flagged notes to
     `notes/bleed.json`, and the viewer lists them as "베이스 블리드 의심" candidates.
-  - Tier A: KH 4, AZ 5, the others 0.
+  - Tier A: AZ 4, KH 5, the others 0 (corrected 2026-10-18: the two job ids were swapped at first).
   - The vocal rule stays off: 18 test notes, 0.56.
 - **Explored, not registered:** octave ghosts looked 97 % false on dev, but 3,869 of the 4,026 came from moosmusic.
   Read precision per song.
@@ -941,6 +941,14 @@ mask the backing used:
    shortage is the rung ladder with the shared-usage / load-spill checks (review fix 10).
 
 ## Facts worth keeping
+
+- **Two of the user's D:\backing files are guitar-removed, not originals (found 2026-10-18):** `푸름과 여름.wav` (job
+  f-8eafb8187d7fe235, "aotonat") and `괴수의 꽃노래.wav` (job f-e064a271b0834683, "KH") have a separated guitar
+  stem at −38.5 / −35.5 dB - like the guitar-removed `*_backing.mp4` (−36.6 to −56.2 dB) and unlike the originals
+  (SC.mp3, AIZO.mp3, AZ.mp3 and the five Kessoku Band songs: −18 to −25 dB). Every number from those two jobs
+  (tempo hint, bleed shares, guitar note counts, the E3/presence notes) describes a backing's guitar residue. Their
+  originals are needed. Job ids: f-cc5cb9e81a50d3a4 = AZ.mp3, f-e064a271b0834683 = 괴수의 꽃노래.wav (KH),
+  f-93e11bb95a10b9fc = AIZO.mp3, f-bd0dc18775389993 = SC.mp3.
 
 - The Claude desktop app sandbox redirects `%APPDATA%`/`%LOCALAPPDATA%` writes, so everything lives under the project
   folder (`D:\bandscribe` on the dev PC). Use uv only through `tools\uvw.cmd`.
