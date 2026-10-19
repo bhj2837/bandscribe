@@ -1,9 +1,8 @@
 # bandscribe progress / handoff
 
-**Resume here (2026-10-18, paused by the user):** E37 is half run - see "E37 (in progress)" just below. Its GPU cache
-fill is done for 5 of 9 song chunks; `bash /d/bandscribe/data/tmp/m10/e37_resume.sh` finishes the rest (about 1 h of
-GPU, waits for League of Legends) and then runs the official `bandscribe eval exp E37` (CPU). Nothing of E37 has been
-read yet: the registration in `docs/decisions.md` stands as written.
+**Latest (2026-10-19): E37 done** - strings and "other synth" hurt the guitar tab at J-pop levels, the transcriber
+never labels such notes non-guitar, and widening the mask makes things worse. Next: E38, a stem-energy bleed rule
+for strings / synths / piano. See "E37" just below.
 
 Last updated: 2026-10-17 (**M7c done**: Role and Player views (exported to `tab/views/` and switchable in the
 viewer, with N / idle / unison settings), part count switch and section reassignment in the viewer (a switch takes
@@ -57,7 +56,7 @@ fixes).
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
 
-## E37 (in progress, 2026-10-18): keys, synths, strings and brass at J-pop levels
+## E37 (2026-10-18/19): keys, synths, strings and brass at J-pop levels
 
 Why: the user's newer songs (Mrs. GREEN APPLE, Vaundy, King Gnu) carry keys / strings / synths about as loud as the
 guitar (separated piano+other vs guitar −7 to +1 dB, `data/tmp/m10/arrangement.py`), while the six sheet songs
@@ -79,10 +78,26 @@ for those songs exist (Yamaha ぷりんと楽譜 / Fairy, with TAB and keyboard 
   Tim Taler, Pablo Martin. Their `lines.yaml` are unreviewed drafts (fine for E37: it categorises stems by name).
 - **Plan** (`data/tmp/m10/e37_plan.py`, before GPU): 17 windows, 122 conditions; windows per category: piano 7,
   electric piano 2, organ 3, synth pad 3, synth lead 3, other synth 5, strings 7, brass/winds 5.
-- **Done:** chunks 1-5 cached (`data/tmp/m10/e37_chunks.log`: 42.4 + 14.4 + 13.6 + 18.5 + 28.7 min). Left: chunk 6
-  (JamesElder, Secretariat; stopped two minutes in), 7 (Flags, Tim Taler), 8 (Jokers, Mu), 9 (Zeno).
-- **Resume:** `bash /d/bandscribe/data/tmp/m10/e37_resume.sh` (skips done chunks, starts `lol_guard.ps1`, then the
-  official run). Afterwards: record the result under E37, write the flags (`e37_flags.json`) into the next step.
+- **Run:** 9 GPU chunks (about 3 h 6 min over two evenings, `data/tmp/m10/e37_chunks.log`; paused by the user after
+  chunk 5 and resumed with `data/tmp/m10/e37_resume.sh`), then `bandscribe eval exp E37` from the caches:
+  `data/runs/20261019-211741_fb7a7c2_exp-e37`. Table: `data/tmp/m10/e37_table.py`.
+- **Results** (production arm, base F1 78.9; ΔF1 points at 0 dB against the guitar, song-block 95 % CI):
+  - **strings −3.2 [−6.0, −1.1]** (6 songs; −0.6 / −3.2 / −6.6 at −6 / 0 / +6 dB; FP and FN both rise; null 0) and
+    **other synth −14.1 [−24.4, −0.8]** (5 songs; Pablo Martin −32, Flags −11 are real, James Elder −16 sits on an
+    unstable decoder) meet the registration's rule → E38 targets.
+  - piano −4.3 [−12.9, +1.1]: not met, but three songs lose 11–33 points (Hey Carrie Anne, JetB, Tim Taler).
+  - brass/winds −2.4 [−7.1, +0.1], organ +3.0, synth pad +1.9 (−8.7 at +6 dB), synth lead −0.2. Electric piano
+    +12.2 is Mu's decoder instability (its null moves FP by −242/min), not a gain.
+  - **Discrimination 0 % for every category:** MuScriptor never labelled a distractor-dominated note non-guitar in
+    the production arm (piano 183, other synth 359, strings 119 notes kept as guitar). Only the separation stands
+    between those sounds and the tab.
+  - **A wider mask is not the fix:** `strings_winds` looks better only against its own base (+6.1); its absolute F1
+    is 58.9 at base and 62.4 with strings (production 78.9 / 75.0) - it relabels real guitar notes as brass (296
+    in the strings condition). `strings` is lower than production too. The registration's arm rule compared each
+    arm with its own base; that flaw is written down in the record.
+- **Next (E38, not registered yet):** a stem-energy bleed rule like E30b - flag a guitar note when the piano+other
+  stem is louder than the guitar stem in that note's pitch band - for strings, synths and piano, judged on these
+  windows (dev / test split by song) and checked on the six sheet songs for regressions.
 
 Also from this session (2026-10-18):
 
@@ -919,8 +934,8 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After E37 (2026-10-18):** finish E37 (above), then by its rule either an E38 fix for the flagged sound(s) or the
-  note clean-up experiment (splits / octaves, judged on the six sheet songs). lulu.'s tiny-note burst needs a guard.
+- **After E37 (2026-10-19):** E38 (stem-energy bleed rule for strings / synths / piano, see "E37"), then the note
+  clean-up experiment (splits / octaves, judged on the six sheet songs). lulu.'s tiny-note burst needs a guard.
 
 - **After M10 interim (2026-10-18):** the largest error class is octave/duplicate chord tones (30 % of the notes
   against the sheets); with six sheet songs a note clean-up experiment can now be judged. M10's edit learning waits
