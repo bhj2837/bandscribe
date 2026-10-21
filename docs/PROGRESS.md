@@ -1,6 +1,9 @@
 # bandscribe progress / handoff
 
-**Latest (2026-10-21): E38 rejected** - a stem-energy bleed rule (piano+other stem louder than the guitar stem in a
+**Latest (2026-10-21): E39 and E40 adopted** - note clean-up at the quant stage's input: same-pitch duplicates
+within a part (`[tab] dedupe_s = 0.03`) and notes shorter than 50 ms, guitar and bass (`[tab] min_dur_s = 0.05`).
+Unplayable notes in 怪獣の花唄's Gtr 1 fell from 2,080 to 88 and lulu.'s bass from 12,027 notes to 1,738. See "Note
+clean-up (E39 / E40)" below. Before it, **E38 rejected** - a stem-energy bleed rule (piano+other stem louder than the guitar stem in a
 note's band) removes more real guitar notes than fake ones at every threshold, because the separation puts much of
 the guitar into the "other" stem. Before it **E37 (2026-10-19)**: strings and "other synth" hurt the guitar tab at
 J-pop levels and the transcriber never labels such notes non-guitar. See "E37 / E38" just below.
@@ -56,6 +59,27 @@ fixes).
 | M7a Part view v0 | ✅ `notesig` and `parts` stages (replace `split`), part count (spatial streams in 2+ windows), per-note part posteriors, `gtr_1`..`gtr_4` fretted with per-part tunings, `All guitars (reference)` / `Unassigned (review)` staffs, `--parts auto\|1-4`; E25 (settings chosen on dev); acceptance `docs/acceptance/M7a.md`: **3 pass / 4 fail** |
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
+
+## Note clean-up (E39 / E40, 2026-10-21): duplicates within a part, tiny-note bursts
+
+Code: `bandscribe/tab/cleanup.py` (`dedupe_within_line`, `drop_short`), applied in `tab/stage.py` `quant_tracks`
+(guitar and bass) when `[tab] dedupe_s` / `min_dur_s` are on (both on by default now; `quant_params` adds a
+`cleanup` key only when on, so the quant key changes once). Evaluation `data/tmp/m10/e39_e40.py` (CPU), results in
+`docs/decisions.md` E39 / E40.
+
+- **Diagnosis first (dev items only, `data/tmp/m10/cleanup_diag*.py`):** on the whole-song Tier B remixes, notes
+  under 50 ms were 100 % false but sat almost all in moosmusic (53-83 % of its notes: a MuScriptor degeneration
+  like lulu.'s bass, not leakage as M8 thought); same-pitch restarts within 20 ms were 93 % false - one guitar note
+  emitted under two classes (acoustic + clean electric). Octave errors had no simple symbolic tell.
+- **E39 (dedupe within a part, 30 ms):** Tier B per-part F1 +1.90 [+0.14, +4.68], 7,270 notes removed costing 2
+  part matches; sheet songs per-part bar F1 mean +0.29 (HBT +1.38), none worse than −0.04 → adopted.
+- **E40 (drop < 50 ms, guitar and bass):** Tier B merged F1 +3.46 [−0.03, +10.38] (moosmusic 12.7 → 51.5), 5,918
+  removed costing 17 matches; sheet songs within ±0.1 → adopted.
+- **Effect on the J-pop jobs (rerun 2026-10-21, CPU, about a minute each):** unplayable notes dropped from the tab
+  怪獣の花唄 2,080 / 46 → 88 / 3, 逆光 251 / 143 → 111 / 42, 青と夏 97 / 29 → 18 / 7, lulu. 19 / 60 → 4 / 29,
+  狭心症 unchanged (131 / 5); lulu.'s bass 12,027 → 1,738 notes. Other jobs pick the clean-up up on their next run.
+- Still open from the M10 diagnosis: octave errors (13 % of the notes against the sheets) and splits the sheets
+  write as one note.
 
 ## E37 / E38 (2026-10-18/21): keys, synths, strings and brass at J-pop levels
 
@@ -941,9 +965,9 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After E38 (2026-10-21):** the energy route for keys / strings bleed failed (see "E37 / E38"). Options: the note
-  clean-up experiment (splits / octaves, judged on the six sheet songs; CPU), a piano+other transcription vote for
-  keys / strings bleed (GPU per song), or a guard against lulu.'s tiny-note burst.
+- **After E39 / E40 (2026-10-21):** duplicates and tiny-note bursts are cleaned (adopted). Left: octave errors (no
+  symbolic tell found on dev; needs audio evidence), keys / strings bleed (a piano+other transcription vote, GPU per
+  song - the energy route E38 failed), and re-running the sheet songs' M9 table with the clean-up on.
 
 - **After M10 interim (2026-10-18):** the largest error class is octave/duplicate chord tones (30 % of the notes
   against the sheets); with six sheet songs a note clean-up experiment can now be judged. M10's edit learning waits

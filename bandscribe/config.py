@@ -302,6 +302,11 @@ class TabCfg(_Section):
     # M9: the Guitar Pro 7/8 file (tab/score.gp, alphaTab's Gp7Exporter) embeds a backing track - the "original"
     # recording, the "no_guitar" practice mix, or "none" (no audio). Personal use: the file holds the recording.
     gp7_backing: str = Field("original", pattern="^(original|no_guitar|none)$")
+    # M10 note clean-up at the quant stage's input (bandscribe.tab.cleanup): same-pitch notes starting within
+    # dedupe_s in one part are one note (E39); notes shorter than min_dur_s are dropped, guitar and bass (E40).
+    # 0 = off.
+    dedupe_s: float = Field(0.03, ge=0.0, le=0.2)
+    min_dur_s: float = Field(0.05, ge=0.0, le=0.2)
 
 
 class BassCfg(_Section):

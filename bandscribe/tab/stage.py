@@ -94,10 +94,17 @@ def run_a4(ctx: Any) -> None:
 
 
 def quant_params(cfg: Any) -> dict[str, Any]:
-    return dict(Q.DEFAULT_PARAMS)
+    """The quantiser's params plus, when on, the M10 note clean-up (E39 / E40) - left out when off so an old
+    quantisation keeps its key."""
+    p = dict(Q.DEFAULT_PARAMS)
+    clean = {"dedupe_s": float(_cfg_get(cfg, "tab.dedupe_s", 0.0)), "min_dur_s": float(_cfg_get(cfg, "tab.min_dur_s", 0.0))}
+    if any(v > 0 for v in clean.values()):
+        p["cleanup"] = clean
+    return p
 
 
-def quant_tracks(dep_dirs: Mapping[str, Path]) -> dict[str, list[dict[str, Any]]]:
+def quant_tracks(dep_dirs: Mapping[str, Path], cleanup: Mapping[str, float] | None = None
+                 ) -> dict[str, list[dict[str, Any]]]:
     """{track id: notes} the quantiser reads: guitar classes of the guitar pass (notes stage, without the notes over
     a silent stem; from the parts stage when there is one, M7a: the same notes with their ``line``) and the bass
     stage's cleaned bass (M5; without a ``bass`` dep - a run from before M5 - the gated pass-1 bass of the notes
@@ -113,6 +120,12 @@ def quant_tracks(dep_dirs: Mapping[str, Path]) -> dict[str, list[dict[str, Any]]
     else:
         bass_path = Path(dep_dirs["notes"]) / BASS_RAW
         bass = (atomic.read_json(bass_path).get("notes") or []) if bass_path.is_file() else []
+    if cleanup:  # M10 (E39 / E40): short notes out of both, then duplicates within a part
+        from bandscribe.tab import cleanup as CL
+
+        gtr = CL.drop_short(gtr, float(cleanup.get("min_dur_s", 0.0)))[0]
+        bass = CL.drop_short(bass, float(cleanup.get("min_dur_s", 0.0)))[0]
+        gtr = CL.dedupe_within_line(gtr, float(cleanup.get("dedupe_s", 0.0)))[0]
     return {"guitar_all": gtr, BASS: bass}
 
 
@@ -131,7 +144,7 @@ def run_quant(ctx: Any) -> None:
     dd = {k: Path(v) for k, v in ctx.dep_dirs.items()}
     grid = atomic.read_json(dd["grid"] / "grid.json")
     sections = atomic.read_json(dd["sections"] / "sections.json").get("sections") or []
-    doc = Q.quantize(quant_tracks(dd), grid, sections, dict(ctx.params))
+    doc = Q.quantize(quant_tracks(dd, ctx.params.get("cleanup")), grid, sections, dict(ctx.params))
     meta = parts_meta(dd)
     if meta is not None:
         doc["parts"] = meta
@@ -165,8 +178,8 @@ def run_tuning(ctx: Any) -> None:
     p = dict(ctx.params)
     grid = atomic.read_json(dd["grid"] / "grid.json")
     sections = atomic.read_json(dd["sections"] / "sections.json").get("sections") or []
-    q = Q.quantize(quant_tracks({k: v for k, v in dd.items() if k in ("notes", "bass")}), grid, sections,
-                   dict(p["quant"]))
+    q = Q.quantize(quant_tracks({k: v for k, v in dd.items() if k in ("notes", "bass")}, p["quant"].get("cleanup")),
+                   grid, sections, dict(p["quant"]))
     tun, fake = song_tuning(q, p)
     atomic.write_json(Path(ctx.out_dir) / TUNING_JSON, {"format": TUNING_FORMAT, "tuning": tun,
                                                         "fake_low_guitar_notes": len(fake)})

@@ -153,6 +153,8 @@ guitar_tuning = "auto"          # auto = tuning search; or e.g. "E standard", "E
 bass_tuning = "auto"
 chords_in_score = false         # M9: chord names in the score too (E31: 54 % on seisyun complex; the chart is always written)
 gp7_backing = "original"        # M9: tab/score.gp backing track: original | no_guitar | none (the file holds the recording: personal use)
+dedupe_s = 0.03                 # M10 (E39): same-pitch notes starting within this many s in one part are one note (0 = off)
+min_dur_s = 0.05                # M10 (E40): guitar and bass notes shorter than this are dropped (0 = off)
 
 [bass]                         # M5: clean-up of the pass-1 bass with the F0 tracks (E13, 2026-10-08)
 anchor = false                 # octave / semitone fixes when two of CREPE, PESTO, pyin agree (E13: no gain)
