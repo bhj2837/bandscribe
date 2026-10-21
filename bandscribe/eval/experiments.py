@@ -38,7 +38,7 @@ from bandscribe.eval.runs import METRIC_COLUMNS
 log = logging.getLogger(__name__)
 
 SEP_IDS = frozenset({"stereo-preservation"})
-AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E37", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
+AMT_IDS = frozenset({"E1", "E2", "E3", "E3b", "E3c", "E37", "E38", "E23", "E24-sep", "E24-amt", "latency", "gate-m2"})
 TAB_IDS = frozenset({"E12", "E12b", "E26"})
 BASS_IDS = frozenset({"E13"})
 ROUTER_IDS = frozenset({"E6", "E6b", "E7", "E22", "E22b"})

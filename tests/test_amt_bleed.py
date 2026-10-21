@@ -93,3 +93,18 @@ def test_the_notes_stage_moves_bass_bleed_out_and_the_viewer_names_it(tmp_path):
     (gd / "raw" / "guitar_mono__muscriptor.json").write_text(json.dumps(raw), encoding="utf-8")
     cands = VM.candidates({"notes": nd, "amt_gtr": gd}, {"guitar_all": kept})
     assert [x["pitch"] for x in cands] == [38] and "베이스 블리드" in cands[0]["why"]
+
+
+def test_stem_ratio_and_flags():
+    # E38: a note is flagged when the piano+other stem is louder than the guitar stem in its pitch band
+    from bandscribe.amt import bleed as BL
+
+    sr = 44100
+    t = np.arange(3 * sr) / sr
+    guitar = 0.3 * np.sin(2 * np.pi * 440.0 * t)                       # A4 in the guitar stem
+    other = 0.3 * np.sin(2 * np.pi * 523.25 * t) + 0.01 * np.sin(2 * np.pi * 440.0 * t)  # C5, a little A4 leak
+    notes = [{"onset_s": 1.0, "offset_s": 1.4, "pitch": 69}, {"onset_s": 1.0, "offset_s": 1.4, "pitch": 72}]
+    r = BL.stem_ratio_db(notes, guitar, other, sr)
+    assert r[0] < -20 and r[1] > 20
+    assert BL.stem_flags(r) == [1] and BL.stem_flags(r, {"threshold_db": -40}) == [0, 1]
+    assert len(BL.stem_ratio_db([], guitar, other, sr)) == 0

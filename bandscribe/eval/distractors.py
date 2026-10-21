@@ -464,6 +464,11 @@ def level_conditions(song_categories: Sequence[str], present: Sequence[str], lev
     return out
 
 
+def stem_arm(threshold_db: float) -> str:
+    """Arm name of the E38 stem-energy bleed rule at a threshold (``stem+6``)."""
+    return f"stem{level_tag(threshold_db)}"
+
+
 def extra_mask(arm: str, production: Sequence[str]) -> list[str]:
     """The guitar-pass mask of an extra arm: the production mask plus bowed strings (+ brass and winds)."""
     from bandscribe.amt import instruments as I
@@ -709,6 +714,7 @@ class CondRun:
     masks: dict[str, list[str]] = field(default_factory=dict)        # arm -> mask
     notes: dict[str, list[dict]] = field(default_factory=dict)       # arm -> raw notes (all classes)
     instrumentation: dict[str, Any] | None = None
+    stem_ratio: dict[int, float] = field(default_factory=dict)       # E38: production note index -> other/guitar dB
 
 
 @dataclass
@@ -1129,6 +1135,12 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
         raise DistractorError(f"알 수 없는 arm: {bad} (가능: {', '.join(EXTRA_ARMS)})")
     guitar_only_arm = bool(args.get("guitar_only_arm", True))
     arms_all = [a for a in ARMS if a != "guitar_only" or guitar_only_arm] + list(extra_arms)
+    # E38: the stem-energy bleed rule on the production notes, one arm per threshold (CPU, after the transcriptions)
+    bleed_db = args.get("bleed_db") or []
+    if isinstance(bleed_db, str):
+        bleed_db = [v for v in bleed_db.split(",") if v.strip()]
+    bleed_db = [float(v) for v in bleed_db]
+    arms_all += [stem_arm(t) for t in bleed_db]
     arm_level = level_tag(float(args.get("arm_level", 0.0)))
 
     def extra_ok(w: WindowRun, c: CondRun) -> bool:
@@ -1292,6 +1304,26 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
                     am = c.masks[arm]
                     c.notes[arm] = (c.notes["production"] if I.sort_mt3(am) == I.sort_mt3(mask)
                                     else raws2[_mask_vid(c.sep.guitar_sha, am)].get("notes") or [])
+
+    # ---- 4a. E38: stem-energy bleed arms (production notes minus the flagged guitar notes) ----
+    if bleed_db:
+        import soundfile as sf
+
+        from bandscribe.amt import bleed as BL
+
+        say(f"스템 에너지 블리드 규칙: 문턱 {', '.join(level_tag(t) for t in bleed_db)} dB")
+        for w in windows:
+            for c in w.conds:
+                prod = c.notes["production"]
+                gi = [i for i, n in enumerate(prod) if n.get("instrument") in I.GUITAR_CLASSES]
+                g, _ = sf.read(str(c.sep.guitar_mono), dtype="float32")
+                o, _ = sf.read(str(c.sep.piano_other_mono), dtype="float32")
+                r = BL.stem_ratio_db([prod[i] for i in gi], g, o, SR)
+                c.stem_ratio = {gi[k]: float(r[k]) for k in range(len(gi))}
+                for t in bleed_db:
+                    drop = {gi[k] for k in BL.stem_flags(r, {"threshold_db": t})}
+                    c.notes[stem_arm(t)] = [n for i, n in enumerate(prod) if i not in drop]
+                    c.masks[stem_arm(t)] = list(c.masks["production"])
 
     # ---- 4b. decoder null (diagnostic, added after the first full run): the base guitar view + inaudible noise ----
     if args.get("null", True):

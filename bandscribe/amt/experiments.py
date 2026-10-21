@@ -926,6 +926,47 @@ def run_e37(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
     return rows
 
 
+# E38 (docs/decisions.md, 2026-10-21): the stem-energy bleed rule (amt.bleed.stem_*) on E37's windows, from E37's caches
+# (CPU only). Thresholds chosen on the dev songs, confirmed on the test songs; songs alternate by sorted track id.
+E38_THRESHOLDS = (-3.0, 0.0, 3.0, 6.0, 10.0)
+E38_DEV = ("bencarrigan_heycarrieanne", "dunningkruger_japansong", "flags_54", "jetb_tothewolves", "mistrusted_polemic",
+           "mu_toobright", "rememberdecember_cunexttime", "signejakobsen_whathaveyoudone", "zeno_signs")
+E38_TEST = ("bencarrigan_welltalkaboutitalltonight", "ejrios_echo", "jameselder_englishactor", "jokers_seaofleaves",
+            "moosmusic_bigdummyshake", "pablomartin_progresivo1elvuelo", "secretariat_overthetop", "timtaler_stalker")
+
+
+def e38_scenario(name: str) -> bool:
+    """The conditions E38 is judged on: base and every category at 0 dB against the guitar (J-pop level)."""
+    return name == "base" or name.endswith("@+0")
+
+
+def run_e38(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
+    """E38: production vs the stem-energy bleed rule at each threshold, per window and condition (base and the 0 dB
+    conditions), with ``section`` = dev / test by song. Same windows and transcriptions as E37 (its caches)."""
+    import csv
+
+    from bandscribe.eval import distractors as D
+
+    sub = Path(out_dir) / "distractors"
+    sub.mkdir(parents=True, exist_ok=True)
+    D.run(sub, cfg, {"levels": list(E37_LEVELS), "level_cats": list(E37_CATS), "guitar_only_arm": False,
+                     "max_windows": 1, "null": False, "bleed_db": list(args.get("thresholds") or E38_THRESHOLDS),
+                     "gpu_budget_min": float(args.get("gpu_budget_min", 10.0)),
+                     **({"allow_over_budget": True} if args.get("allow_over_budget") else {})},
+          progress=lambda m: log.info("E38: %s", m))
+    split = {**{s: "dev" for s in E38_DEV}, **{s: "test" for s in E38_TEST}}
+    rows: list[dict] = []
+    with open(sub / "metrics.csv", encoding="utf-8", newline="") as f:
+        for r in csv.DictReader(f):
+            if r.get("item") == "*" or r.get("metric") != "note_f1_onset50" or not e38_scenario(r.get("scenario", "")):
+                continue
+            song = str(r.get("item", "")).split(":")[1] if ":" in str(r.get("item", "")) else ""
+            if song not in split:
+                continue
+            rows.append({**{k: _num(v) for k, v in r.items() if k != "suite"}, "section": split[song]})
+    return rows
+
+
 EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E1": run_e1,
     "E2": run_e2,
@@ -934,6 +975,7 @@ EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
                                                              "policies": args.get("policies") or E3B_POLICIES}),
     "E3c": run_e3c,
     "E37": run_e37,
+    "E38": run_e38,
     "E23": run_e23,
     "E24-sep": run_e24_sep,
     "E24-amt": run_e24_amt,

@@ -430,3 +430,16 @@ def test_run_with_levels_and_extra_arms(fake_env, monkeypatch):
     assert "discrimination" in s and "production" in s["discrimination"]
     md = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "음량 단계 (E37)" in md and "현악 +0 dB" in md
+
+
+def test_run_with_stem_bleed_arms(fake_env):
+    run_dir = fake_env.tmp / "stem"
+    run_dir.mkdir()
+    s = D.run(run_dir, {}, {"cache_root": fake_env.cache, "window_s": 15.0, "gpu_budget_min": 1000, "max_windows": 1,
+                            "levels": "0", "guitar_only_arm": False, "null": False, "bleed_db": "0,6"})
+    assert s["arms"] == ["production", "stem+0", "stem+6"]
+    for arm in ("stem+0", "stem+6"):
+        c = s["conditions"][arm]["base"]
+        p = s["conditions"]["production"]["base"]
+        assert c["tp"] + c["fp"] <= p["tp"] + p["fp"]  # the rule only removes notes
+    assert D.stem_arm(-3) == "stem-3"

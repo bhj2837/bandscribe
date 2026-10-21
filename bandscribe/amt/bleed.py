@@ -9,6 +9,10 @@ viewer offers it back as a candidate (``tab/viewer_media.candidates``).
   equals the sung note (E30's dev search: 0.70 precision without it, 0.84 with it).
 - ``bass``: a note under E2 whose pitch class the bass f0 holds for ``frac`` of the voiced frames of its first
   ``span_s`` (DESIGN: "E2 미만이면서 같은 pitch class의 베이스 음과 겹치는 음").
+- ``stem`` (E38): in the note's pitch band at its start, the separated piano+other stem is at least ``threshold_db``
+  louder than the separated guitar stem - keys, strings or synths that leaked into the guitar stem (E37: the
+  transcriber never labels them non-guitar). The band energy is ``eval.attribution``'s: power within +-50 cents of the
+  f0 (plus the 2nd harmonic below MIDI 52) over ``[onset, onset + clip(duration, 50 ms, 500 ms)]``.
 """
 
 from __future__ import annotations
@@ -21,6 +25,8 @@ import numpy as np
 VOCAL_DEFAULTS: dict[str, Any] = {"head_s": 0.3, "head_frac": 0.9, "full_frac": 0.8, "cents": 50.0, "vprob_min": 0.5,
                                   "arrive_s": 0.06, "pre_s": [0.15, 0.06]}
 BASS_DEFAULTS: dict[str, Any] = {"below_midi": 40, "span_s": 0.2, "frac": 0.5, "conf_min": 0.5}
+STEM_DEFAULTS: dict[str, Any] = {"threshold_db": 6.0}
+STEM_EPS = 1e-20
 VOCAL_F0 = {"sr": 16000, "hop": 160, "frame_length": 1024, "fmin_hz": 80.0, "fmax_hz": 1000.0}
 
 
@@ -86,3 +92,28 @@ def bass_flags(notes: Sequence[Mapping[str, Any]], hz: np.ndarray, conf: np.ndar
         if len(seg) and float(np.mean(np.mod(np.round(seg), 12) == int(n["pitch"]) % 12)) >= float(p["frac"]):
             out.append(i)
     return out
+
+
+def stem_ratio_db(notes: Sequence[Mapping[str, Any]], guitar: np.ndarray, other: np.ndarray,
+                  sr: int = 44100) -> np.ndarray:
+    """Per note: 10 log10(other / guitar) of the two mono stems' band energy at the note (see ``stem`` above)."""
+    from bandscribe.eval.attribution import band_energy
+
+    if not len(notes):
+        return np.zeros(0)
+    bg, bo = band_energy(np.asarray(guitar, dtype=np.float64), int(sr)), band_energy(np.asarray(other, dtype=np.float64),
+                                                                                       int(sr))
+    out = np.empty(len(notes))
+    for i, n in enumerate(notes):
+        on = float(n["onset_s"])
+        off = float(n.get("offset_s") if n.get("offset_s") is not None else on)
+        eg = bg.note(on, off, int(round(float(n["pitch"]))))
+        eo = bo.note(on, off, int(round(float(n["pitch"]))))
+        out[i] = 10.0 * np.log10((eo + STEM_EPS) / (eg + STEM_EPS))
+    return out
+
+
+def stem_flags(ratios_db: Sequence[float], params: Mapping[str, Any] | None = None) -> list[int]:
+    """Indices whose ``stem_ratio_db`` is at least the threshold."""
+    p = {**STEM_DEFAULTS, **(params or {})}
+    return [i for i, r in enumerate(ratios_db) if float(r) >= float(p["threshold_db"])]

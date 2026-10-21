@@ -1510,3 +1510,30 @@
     (그 음 대역에서 piano+other 스템이 기타 스템보다 크면 감점, 베이스 블리드 E30b 와 같은 방식)을 사전 등록해 잰다. 피아노는 곡에 따라
     큰 손해(−11 ~ −33점)가 나므로 같은 실험에 함께 넣는다. 한계: 합성 믹스, 곡당 75 s 한 구간, 참조가 MuScriptor 파생, 디코더 불안정 곡
     (Mu, James Elder) 포함.
+
+## E38
+- 제목: 스템 에너지 블리드 감점 — 기타 음의 음높이 대역에서 분리된 piano+other 스템이 기타 스템보다 크면 그 음을 뺀다 (E37 후속)
+- 상태: 사전 등록
+- 질문: E37 에서 현악(0 dB −3.2점)·기타 신스(−14.1점)가 기타 탭을 망쳤고, 전사기는 그 음을 한 번도 비기타로 표시하지 않았으며(구분률 0 %)
+  마스크를 넓히면 진짜 기타 음을 잃었다. 분리된 두 스템의 대역 에너지 비로 그런 음을 거르면 F1 이 오르는가, 진짜 기타 음을 잃지 않는가?
+- 선택지: `production`(지금) | `stem<T>`(production 음 중 기타 클래스 음에서 10·log10(E_other / E_guitar) ≥ T dB 인 음을 뺀다;
+  T ∈ {−3, 0, +3, +6, +10}). E = `eval.attribution` 의 대역 에너지(±50 cents f0 대역, MIDI 52 미만은 2배음 대역 더함, STFT 8192/1024,
+  [onset, onset + clip(길이, 50 ms, 500 ms)] 평균), 신호 = 그 조건의 분리 결과 `guitar_mono` 와 `piano_other_mono`
+  (파이프라인 `stems` 단계의 보기와 같은 것). 코드 `bandscribe/amt/bleed.py` `stem_ratio_db` / `stem_flags`.
+- 주 지표: 기타 onset F1(`note_f1_onset50`, 참조 = 참 기타 스템 합의 MuScriptor 전사), E37 과 같은 창·같은 전사(캐시, GPU 0).
+  판정 조건 = `base` 와 범주마다 0 dB 조건(J-pop 수준), 창 17개.
+- 데이터 분할(결과 보기 전 고정): 곡 이름 순으로 번갈아 dev 9곡(Hey Carrie Anne, Dunning Kruger, Flags, JetB, Mistrusted, Mu, Remember
+  December, Signe Jakobsen, Zeno) / test 8곡(We'll Talk About It All Tonight, E J Rios, James Elder, Jokers, Moosmusic, Pablo Martin,
+  Secretariat, Tim Taler). 현악 dev 4·test 3, 기타 신스 dev 2·test 3, 피아노 dev 4·test 3.
+- 분석·결정 규칙: dev 에서 풀링 F1 이 가장 높은 문턱 하나를 고르고(동점이면 production), test 에서 그 하나만 production 과 곡 블록 쌍
+  부트스트랩(10,000회, seed 20260930)으로 비교한다. **채택** = CI 하한 > 0 이고 Δ ≥ +1.0점이며 조건별(시나리오) 부분집합 중 CI 상한이
+  −2점 아래인 것이 없음(DESIGN 8.1, `stats.decide`). 추가 가드(실제 곡): 고른 문턱에서 정답 악보 6곡(봇치)의 합친 기타 마디 F1(M9 Tier A
+  측정, `data/tmp/m10/e38_tiera.py`)이 평균 1점 넘게 떨어지거나 한 곡이라도 3점 넘게 떨어지면 채택하지 않고 판단 보류(기본 끔, 곡별 옵션).
+  채택되면 `[amt] stem_bleed` 를 켜고 `notes` 단계가 표시된 음을 `bleed.json` 으로 옮긴다(베이스 블리드와 같은 방식, 뷰어 후보로 되살림).
+- 함께 보고: 문턱별 dev/test F1, 조건별 Δ, 지운 음 수, J-pop 원곡 7곡(정답 없음)에서 문턱별로 지워질 기타 음 비율(서술).
+- 한계: 합성 믹스, 곡당 75 s 한 구간, 참조가 MuScriptor 파생, 디코더가 흔들리는 곡(Mu, James Elder) 포함, 정답 악보 6곡은 건반·현악이
+  거의 없어 "진짜 음을 잃지 않는가"만 본다.
+- 판정 설정: `rule=superiority; metric=note_f1_onset50; baseline=production; mde=1.0; split_col=section; select=dev; split=test; subset_col=scenario`
+- 비용: CPU 수 분(E37 캐시). GPU 0.
+- 실행 명령: `bandscribe eval exp E38`, 그다음 `data/tmp/m10/e38_tiera.py`
+- 결과:
