@@ -1,8 +1,9 @@
 # bandscribe progress / handoff
 
-**Latest (2026-10-19): E37 done** - strings and "other synth" hurt the guitar tab at J-pop levels, the transcriber
-never labels such notes non-guitar, and widening the mask makes things worse. Next: E38, a stem-energy bleed rule
-for strings / synths / piano. See "E37" just below.
+**Latest (2026-10-21): E38 rejected** - a stem-energy bleed rule (piano+other stem louder than the guitar stem in a
+note's band) removes more real guitar notes than fake ones at every threshold, because the separation puts much of
+the guitar into the "other" stem. Before it **E37 (2026-10-19)**: strings and "other synth" hurt the guitar tab at
+J-pop levels and the transcriber never labels such notes non-guitar. See "E37 / E38" just below.
 
 Last updated: 2026-10-17 (**M7c done**: Role and Player views (exported to `tab/views/` and switchable in the
 viewer, with N / idle / unison settings), part count switch and section reassignment in the viewer (a switch takes
@@ -56,7 +57,7 @@ fixes).
 
 All work is on **`main`**; milestones are tags (`m0`, `m1a`, `m2`, `m3`, `m4a`, `m5`, `m6`, `m7a`, `m4b`, `m7b`).
 
-## E37 (2026-10-18/19): keys, synths, strings and brass at J-pop levels
+## E37 / E38 (2026-10-18/21): keys, synths, strings and brass at J-pop levels
 
 Why: the user's newer songs (Mrs. GREEN APPLE, Vaundy, King Gnu) carry keys / strings / synths about as loud as the
 guitar (separated piano+other vs guitar −7 to +1 dB, `data/tmp/m10/arrangement.py`), while the six sheet songs
@@ -95,9 +96,15 @@ for those songs exist (Yamaha ぷりんと楽譜 / Fairy, with TAB and keyboard 
     is 58.9 at base and 62.4 with strings (production 78.9 / 75.0) - it relabels real guitar notes as brass (296
     in the strings condition). `strings` is lower than production too. The registration's arm rule compared each
     arm with its own base; that flaw is written down in the record.
-- **Next (E38, not registered yet):** a stem-energy bleed rule like E30b - flag a guitar note when the piano+other
-  stem is louder than the guitar stem in that note's pitch band - for strings, synths and piano, judged on these
-  windows (dev / test split by song) and checked on the six sheet songs for regressions.
+- **E38 (2026-10-21), rejected:** `amt.bleed.stem_ratio_db` / `stem_flags` (not wired) scored as `stem<T>` arms on
+  E37's windows (CPU, `data/runs/20261021-193533_e5ba017_exp-e38`). Pooled F1 dev: production 74.3 vs 65.5-71.1 for
+  T = −3..+10 dB; test 77.0 vs at best 76.0. At 0 dB, strings: 1,524 real notes lost vs 410 fakes removed; piano
+  1,086 vs 433; even base 475 vs 253. The SW separation leaves much of the guitar in piano+other, so "other is louder
+  in this band" is not evidence of bleed. Sheet songs unaffected (≤ 0.2 % removed); on the J-pop originals T = 0
+  would have removed 38 % (青と夏), 27 % (lulu.), 19 % (狭心症) of the guitar notes - mostly real ones by the Tier B result.
+- **Left for keys / strings / synths:** a second opinion that is not energy - transcribe the piano+other stem with a
+  keys / strings mask over the whole song (GPU per song) and penalise only a guitar note with a non-guitar note at the
+  same time and pitch - or another separation model. Each needs its own registration.
 
 Also from this session (2026-10-18):
 
@@ -934,8 +941,9 @@ mask the backing used:
 
 ## Priority for the next session
 
-- **After E37 (2026-10-19):** E38 (stem-energy bleed rule for strings / synths / piano, see "E37"), then the note
-  clean-up experiment (splits / octaves, judged on the six sheet songs). lulu.'s tiny-note burst needs a guard.
+- **After E38 (2026-10-21):** the energy route for keys / strings bleed failed (see "E37 / E38"). Options: the note
+  clean-up experiment (splits / octaves, judged on the six sheet songs; CPU), a piano+other transcription vote for
+  keys / strings bleed (GPU per song), or a guard against lulu.'s tiny-note burst.
 
 - **After M10 interim (2026-10-18):** the largest error class is octave/duplicate chord tones (30 % of the notes
   against the sheets); with six sheet songs a note clean-up experiment can now be judged. M10's edit learning waits
