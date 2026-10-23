@@ -77,9 +77,18 @@ Code: `bandscribe/tab/cleanup.py` (`dedupe_within_line`, `drop_short`), applied 
   removed costing 17 matches; sheet songs within ±0.1 → adopted.
 - **Effect on the J-pop jobs (rerun 2026-10-21, CPU, about a minute each):** unplayable notes dropped from the tab
   怪獣の花唄 2,080 / 46 → 88 / 3, 逆光 251 / 143 → 111 / 42, 青と夏 97 / 29 → 18 / 7, lulu. 19 / 60 → 4 / 29,
-  狭心症 unchanged (131 / 5); lulu.'s bass 12,027 → 1,738 notes. Other jobs pick the clean-up up on their next run.
-- Still open from the M10 diagnosis: octave errors (13 % of the notes against the sheets) and splits the sheets
-  write as one note.
+  狭心症 unchanged (131 / 5); lulu.'s bass 12,027 → 1,738 notes. The six sheet songs, AIZO and AZ were rerun on
+  2026-10-23: merged guitar bar F1 against the sheets SC 73.9 → 74.0, GKA 60.6, ANB 64.1 → 64.2, SNN 71.5 → 71.7,
+  HBT 68.6 → 71.5, HNN 59.1 → 59.2; bass unchanged (`data/tmp/m9/tiera_table.json`, before:
+  `data/tmp/m10/tiera_table_before_cleanup.json`).
+- **Octave errors, explored 2026-10-23 (not registered; dev items only, `data/tmp/m10/octave_diag.py`):** on the
+  separated guitar stem, a sub-octave ghost's odd harmonics (q, q+19, q+28 against q+12, q+24, q+31) look like a
+  real low note's (median −0.1 vs −0.8 dB; best precision 0.20 against a 0.23 base rate), and a lone wrong-octave
+  note shows no tell either (precision 0.02-0.05). With E35's Basic Pitch agreement also uninformative, octave
+  errors are not fixable by a note rule on these signals; they would need a better transcriber or a pitch tracker on
+  a cleaner single-guitar view. Counts on dev: upper note of an octave pair false 2,105 (of 6,244), lower 1,376 (of
+  5,908), lone wrong octave 599.
+- Still open from the M10 diagnosis: splits the sheets write as one note.
 
 ## E37 / E38 (2026-10-18/21): keys, synths, strings and brass at J-pop levels
 
