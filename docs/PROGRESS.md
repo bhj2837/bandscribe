@@ -1,6 +1,8 @@
 # bandscribe progress / handoff
 
-**Latest (2026-10-21): E39 and E40 adopted** - note clean-up at the quant stage's input: same-pitch duplicates
+**Latest (2026-10-23): E41 rejected** - the piano+other transcription vote also removes more real guitar notes than
+bleed (arrangements double the guitar); keys / strings bleed needs a better separation, not a note rule. Before it,
+**E39 and E40 adopted (2026-10-21)** - note clean-up at the quant stage's input: same-pitch duplicates
 within a part (`[tab] dedupe_s = 0.03`) and notes shorter than 50 ms, guitar and bass (`[tab] min_dur_s = 0.05`).
 Unplayable notes in 怪獣の花唄's Gtr 1 fell from 2,080 to 88 and lulu.'s bass from 12,027 notes to 1,738. See "Note
 clean-up (E39 / E40)" below. Before it, **E38 rejected** - a stem-energy bleed rule (piano+other stem louder than the guitar stem in a
@@ -135,9 +137,16 @@ for those songs exist (Yamaha ぷりんと楽譜 / Fairy, with TAB and keyboard 
   1,086 vs 433; even base 475 vs 253. The SW separation leaves much of the guitar in piano+other, so "other is louder
   in this band" is not evidence of bleed. Sheet songs unaffected (≤ 0.2 % removed); on the J-pop originals T = 0
   would have removed 38 % (青と夏), 27 % (lulu.), 19 % (狭心症) of the guitar notes - mostly real ones by the Tier B result.
-- **Left for keys / strings / synths:** a second opinion that is not energy - transcribe the piano+other stem with a
-  keys / strings mask over the whole song (GPU per song) and penalise only a guitar note with a non-guitar note at the
-  same time and pitch - or another separation model. Each needs its own registration.
+- **E41 (2026-10-23), rejected:** the second opinion that is not energy - the piano+other stem transcribed over the
+  whole window with the keys+guitar mask, a guitar note dropped when a non-guitar note of the same pitch starts
+  within 30/50 ms (`amt.bleed.vote_flags`, not wired; `data/runs/20261023-205003_3b771bd_exp-e41`, GPU 27 min + 17
+  min guard). Dev: production 74.3 vs 72.3-73.4; test 77.0 vs at best 75.2. At 0 dB, piano: 523 real notes lost vs
+  141 fakes removed; strings 188 vs 37. Arrangements double the guitar: keys and strings play the same pitches at
+  the same time, so a coincidence is not evidence of bleed.
+- **Conclusion for keys / strings / synths:** two note-level rules (energy, transcription vote) failed for the same
+  reason. What is left is upstream: a separation that keeps those sounds out of the guitar stem (another model,
+  judged on E37's windows - the distractor machinery compares separators), or a transcriber that tells timbres
+  apart. Both need downloads and their own registration.
 
 Also from this session (2026-10-18):
 
