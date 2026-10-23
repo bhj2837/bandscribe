@@ -1141,6 +1141,16 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
         bleed_db = [v for v in bleed_db.split(",") if v.strip()]
     bleed_db = [float(v) for v in bleed_db]
     arms_all += [stem_arm(t) for t in bleed_db]
+    # E41: the piano+other transcription vote; specs "30", "50", "50o" (tolerance in ms, "o" = octave too). The
+    # piano+other view is transcribed over the whole window (not the presence samples) on base and the arm-level
+    # conditions only.
+    po_vote = args.get("po_vote") or []
+    if isinstance(po_vote, str):
+        po_vote = [v.strip() for v in po_vote.split(",") if v.strip()]
+    arms_all += [f"vote{v}" for v in po_vote]
+
+    def po_ok(c: CondRun) -> bool:
+        return bool(po_vote) and (c.cond.name == "base" or not levels or split_cond(c.cond.name)[1] == arm_level)
     arm_level = level_tag(float(args.get("arm_level", 0.0)))
 
     def extra_ok(w: WindowRun, c: CondRun) -> bool:
@@ -1190,6 +1200,7 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
     est = estimate_gpu_s(windows, sep_cached=sep_cached, ref_fresh=ref_fresh, null=bool(args.get("null", True)))
     est += sum(c.n for w in windows for c in w.conds if extra_ok(w, c) and c.sha not in sep_cached) / SR \
         * EST_MS_S_PER_S * len(extra_arms)
+    est += sum(c.n for w in windows for c in w.conds if po_ok(c)) / SR * EST_MS_S_PER_S  # E41 (upper bound: cache ignored)
     while est / 60.0 > budget_min and any(w.choice.wid == "w2" for w in windows):
         drop = [w for w in windows if w.choice.wid == "w2"][-1]
         windows.remove(drop)
@@ -1248,6 +1259,9 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
             if segs:
                 pid = f"p{c.sep.piano_other_sha[:16]}"
                 views1[pid] = _view(pid, c.sep.piano_other_mono, c.sep.piano_other_sha, po_mask, segs)
+            if po_ok(c):  # E41: the whole window
+                fid = f"f{c.sep.piano_other_sha[:16]}"
+                views1[fid] = _view(fid, c.sep.piano_other_mono, c.sep.piano_other_sha, po_mask)
     say(f"MuScriptor 1차: 보기 {len(views1)}개(참조 {len(ref_views)}개)")
     t0 = time.perf_counter()
     raws1, info1 = _ms(list(views1.values()), params, cfg, work_dir=run_dir / "work" / "ms1" / "_worker",
@@ -1324,6 +1338,24 @@ def run(run_dir: Path, cfg: Any, args: Mapping[str, Any] | None = None,
                     drop = {gi[k] for k in BL.stem_flags(r, {"threshold_db": t})}
                     c.notes[stem_arm(t)] = [n for i, n in enumerate(prod) if i not in drop]
                     c.masks[stem_arm(t)] = list(c.masks["production"])
+
+    if po_vote:  # ---- 4a'. E41: piano+other transcription vote arms ----
+        from bandscribe.amt import bleed as BL
+
+        for w in windows:
+            for c in w.conds:
+                if not po_ok(c):
+                    continue
+                other = [n for n in (raws1.get(f"f{c.sep.piano_other_sha[:16]}") or {}).get("notes") or []
+                         if n.get("instrument") not in I.GUITAR_CLASSES]
+                prod = c.notes["production"]
+                gi = [i for i, n in enumerate(prod) if n.get("instrument") in I.GUITAR_CLASSES]
+                for spec in po_vote:
+                    tol = float(spec.rstrip("o")) / 1000.0
+                    flagged = BL.vote_flags([prod[i] for i in gi], other, tol_s=tol, octave=spec.endswith("o"))
+                    drop = {gi[k] for k in flagged}
+                    c.notes[f"vote{spec}"] = [n for i, n in enumerate(prod) if i not in drop]
+                    c.masks[f"vote{spec}"] = list(c.masks["production"])
 
     # ---- 4b. decoder null (diagnostic, added after the first full run): the base guitar view + inaudible noise ----
     if args.get("null", True):

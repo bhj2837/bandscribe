@@ -443,3 +443,17 @@ def test_run_with_stem_bleed_arms(fake_env):
         p = s["conditions"]["production"]["base"]
         assert c["tp"] + c["fp"] <= p["tp"] + p["fp"]  # the rule only removes notes
     assert D.stem_arm(-3) == "stem-3"
+
+
+def test_run_with_po_vote_arms(fake_env):
+    run_dir = fake_env.tmp / "vote"
+    run_dir.mkdir()
+    s = D.run(run_dir, {}, {"cache_root": fake_env.cache, "window_s": 15.0, "gpu_budget_min": 1000, "max_windows": 1,
+                            "levels": "0", "guitar_only_arm": False, "null": False, "po_vote": "50,50o"})
+    assert s["arms"] == ["production", "vote50", "vote50o"]
+    # the whole-window piano+other views were requested (ids "f...", no segments)
+    fviews = [v for call in fake_env.gpu.ms_calls for v in call if v["id"].startswith("f")]
+    assert fviews and all(not v.get("segments") for v in fviews)
+    for arm in ("vote50", "vote50o"):
+        c, p = s["conditions"][arm]["base"], s["conditions"]["production"]["base"]
+        assert c["tp"] + c["fp"] <= p["tp"] + p["fp"]

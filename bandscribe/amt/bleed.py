@@ -12,7 +12,11 @@ viewer offers it back as a candidate (``tab/viewer_media.candidates``).
 - ``stem`` (E38): in the note's pitch band at its start, the separated piano+other stem is at least ``threshold_db``
   louder than the separated guitar stem - keys, strings or synths that leaked into the guitar stem (E37: the
   transcriber never labels them non-guitar). The band energy is ``eval.attribution``'s: power within +-50 cents of the
-  f0 (plus the 2nd harmonic below MIDI 52) over ``[onset, onset + clip(duration, 50 ms, 500 ms)]``.
+  f0 (plus the 2nd harmonic below MIDI 52) over ``[onset, onset + clip(duration, 50 ms, 500 ms)]``. Rejected (E38):
+  the separation leaves much of the guitar in piano+other, so it removes more real notes than bleed.
+- ``vote`` (E41): the piano+other stem transcribed with the keys/synth/strings (+ guitar) mask has a non-guitar note
+  of the same pitch (or, with ``octave``, one octave away) starting within ``tol_s`` of the guitar note - a second
+  opinion from the stem where those sounds belong, not an energy comparison.
 """
 
 from __future__ import annotations
@@ -117,3 +121,29 @@ def stem_flags(ratios_db: Sequence[float], params: Mapping[str, Any] | None = No
     """Indices whose ``stem_ratio_db`` is at least the threshold."""
     p = {**STEM_DEFAULTS, **(params or {})}
     return [i for i, r in enumerate(ratios_db) if float(r) >= float(p["threshold_db"])]
+
+
+def vote_flags(guitar_notes: Sequence[Mapping[str, Any]], other_notes: Sequence[Mapping[str, Any]], *, tol_s: float,
+               octave: bool = False) -> list[int]:
+    """Indices of ``guitar_notes`` with an ``other_notes`` note (the caller passes only the non-guitar ones) of the same
+    pitch - or +-12 with ``octave`` - whose onset is within ``tol_s``."""
+    import bisect
+
+    by: dict[int, list[float]] = {}
+    for n in other_notes:
+        by.setdefault(int(round(float(n["pitch"]))), []).append(float(n["onset_s"]))
+    for v in by.values():
+        v.sort()
+    out = []
+    for i, n in enumerate(guitar_notes):
+        p = int(round(float(n["pitch"])))
+        t = float(n["onset_s"])
+        for q in ((p, p - 12, p + 12) if octave else (p,)):
+            ts = by.get(q)
+            if not ts:
+                continue
+            k = bisect.bisect_left(ts, t - tol_s)
+            if k < len(ts) and ts[k] <= t + tol_s:
+                out.append(i)
+                break
+    return out

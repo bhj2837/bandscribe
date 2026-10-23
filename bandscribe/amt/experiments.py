@@ -967,6 +967,37 @@ def run_e38(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
     return rows
 
 
+# E41 (docs/decisions.md, 2026-10-23): the piano+other transcription vote (amt.bleed.vote_flags) on E37's windows; the
+# whole-window piano+other transcriptions are new (GPU), the rest comes from E37's caches. Same split as E38.
+E41_SPECS = ("30", "50", "50o")
+
+
+def run_e41(out_dir: Path, cfg: Any, args: dict) -> list[dict]:
+    """E41: production vs the vote arms per window and condition (base and the 0 dB conditions), dev / test by song."""
+    import csv
+
+    from bandscribe.eval import distractors as D
+
+    sub = Path(out_dir) / "distractors"
+    sub.mkdir(parents=True, exist_ok=True)
+    D.run(sub, cfg, {"levels": list(E37_LEVELS), "level_cats": list(E37_CATS), "guitar_only_arm": False,
+                     "max_windows": 1, "null": False, "po_vote": list(args.get("specs") or E41_SPECS),
+                     "gpu_budget_min": float(args.get("gpu_budget_min", 60.0)),
+                     **({"songs": args["songs"]} if args.get("songs") else {}),
+                     **({"allow_over_budget": True} if args.get("allow_over_budget") else {})},
+          progress=lambda m: log.info("E41: %s", m))
+    split = {**{s: "dev" for s in E38_DEV}, **{s: "test" for s in E38_TEST}}
+    rows: list[dict] = []
+    with open(sub / "metrics.csv", encoding="utf-8", newline="") as f:
+        for r in csv.DictReader(f):
+            if r.get("item") == "*" or r.get("metric") != "note_f1_onset50" or not e38_scenario(r.get("scenario", "")):
+                continue
+            song = str(r.get("item", "")).split(":")[1] if ":" in str(r.get("item", "")) else ""
+            if song in split:
+                rows.append({**{k: _num(v) for k, v in r.items() if k != "suite"}, "section": split[song]})
+    return rows
+
+
 EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E1": run_e1,
     "E2": run_e2,
@@ -976,6 +1007,7 @@ EXPERIMENTS: dict[str, Callable[[Path, Any, dict], list[dict]]] = {
     "E3c": run_e3c,
     "E37": run_e37,
     "E38": run_e38,
+    "E41": run_e41,
     "E23": run_e23,
     "E24-sep": run_e24_sep,
     "E24-amt": run_e24_amt,

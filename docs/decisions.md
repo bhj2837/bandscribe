@@ -1607,3 +1607,25 @@
   - (c) 정답 악보 6곡: 합친 기타 마디 F1 Δ −0.01 ~ +0.04, 베이스 마디 F1 Δ −0.03 ~ +0.09 — 충족.
   - **채택:** `[tab] min_dur_s = 0.05` 기본 켬(기타·베이스, `quant` 단계 입구).
   - J-pop 원곡: **lulu. 베이스 12,027음 중 10,289음 제거**(2:30 이후 폭주), 기타는 곡마다 0–18음.
+
+## E41
+- 제목: 건반·현악 블리드 — piano+other 스템을 따로 전사해 같은 시각·같은 음높이의 비기타 음이 있으면 기타 음을 뺀다 (E38 후속)
+- 상태: 사전 등록
+- 질문: E38 의 에너지 비는 SW 가 기타를 piano+other 에도 넣어서 실패했다. 그 스템을 건반·신스·현악(+기타) 마스크로 전사하면 새어 든 기타는
+  기타 클래스로 남고 건반·현악은 비기타 클래스로 나올 것이다. 기타 패스의 음 중 그 비기타 음과 같은 시각·같은 음높이인 음을 빼면 F1 이 오르는가?
+- 선택지: `production` | `vote30` | `vote50` | `vote50o` (`bandscribe/amt/bleed.py` `vote_flags`: piano+other 전체 구간 전사에서 기타 클래스가 아닌
+  음 중 같은 음높이(`o` 는 ±12 도) 이고 onset 이 30 / 50 ms 안인 것이 있으면 production 의 그 기타 음을 뺀다). piano+other 전사 = 파이프라인의
+  보기(`piano_other_mono`)와 마스크(`amt.piano_other_instruments` = keys+guitar: 건반·신스·현악 + 기타 클래스), 단 표본 구간이 아니라 창 전체.
+- 주 지표·데이터·분할·분석: E38 과 같다(E37 창 17개, base 와 0 dB 조건, dev 9곡 / test 8곡, `note_f1_onset50`, dev 최적 하나를 test 에서 확인,
+  곡 블록 쌍 부트스트랩 10,000회).
+- 결정 규칙: E38 과 같다 — test 에서 CI 하한 > 0, Δ ≥ +1.0점, 조건별 부분집합 CI 상한 < −2 없음이면 채택 후보. 추가 가드(실제 곡,
+  `data/tmp/m10/e41_real.py`, 같은 piano+other 전체 전사): 고른 규칙에서 정답 악보 6곡의 합친 기타 마디 F1 이 평균 1점 넘게 떨어지거나 한 곡이라도
+  3점 넘게 떨어지면 판단 보류(기본 끔). 채택되면 파이프라인에 piano+other 전곡 전사(곡당 GPU 약 2분)와 `notes` 단계의 표시(`bleed.json`, 뷰어
+  후보)를 넣는다 — 그 구현은 별도 작업.
+- 함께 보고: 지운 음 수와 그중 진짜 음, 조건별 Δ, 범주별(현악·기타 신스·피아노) Δ, J-pop 원곡 7곡에서 지워질 기타 음 비율(서술).
+- 한계: E38 과 같다. 전사기가 piano+other 의 기타 소리를 비기타로 부를 때 진짜 음을 잃는다(그게 측정 대상).
+- 판정 설정: `rule=superiority; metric=note_f1_onset50; baseline=production; mde=1.0; split_col=section; select=dev; split=test; subset_col=scenario`
+- 비용: GPU 약 30분(Tier B 52개 조건 × 75 s piano+other 전사) + 약 25분(가드: 정답 악보 6곡·J-pop 7곡의 piano+other 전곡 전사). 사용자 승인
+  2026-10-23.
+- 실행 명령: `bandscribe eval exp E41`, 그다음 `data/tmp/m10/e41_real.py`
+- 결과:

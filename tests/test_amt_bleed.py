@@ -108,3 +108,14 @@ def test_stem_ratio_and_flags():
     assert r[0] < -20 and r[1] > 20
     assert BL.stem_flags(r) == [1] and BL.stem_flags(r, {"threshold_db": -40}) == [0, 1]
     assert len(BL.stem_ratio_db([], guitar, other, sr)) == 0
+
+
+def test_vote_flags():
+    from bandscribe.amt import bleed as BL
+
+    g = [{"onset_s": 1.00, "pitch": 64}, {"onset_s": 2.00, "pitch": 60}, {"onset_s": 3.00, "pitch": 55}]
+    other = [{"onset_s": 1.02, "pitch": 64}, {"onset_s": 2.10, "pitch": 60}, {"onset_s": 3.01, "pitch": 67}]
+    assert BL.vote_flags(g, other, tol_s=0.03) == [0]
+    assert BL.vote_flags(g, other, tol_s=0.12) == [0, 1]
+    assert BL.vote_flags(g, other, tol_s=0.03, octave=True) == [0, 2]
+    assert BL.vote_flags(g, [], tol_s=0.05) == []
