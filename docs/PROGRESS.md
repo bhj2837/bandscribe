@@ -147,6 +147,10 @@ for those songs exist (Yamaha ぷりんと楽譜 / Fairy, with TAB and keyboard 
   reason. What is left is upstream: a separation that keeps those sounds out of the guitar stem (another model,
   judged on E37's windows - the distractor machinery compares separators), or a transcriber that tells timbres
   apart. Both need downloads and their own registration.
+- **Separator survey (2026-10-23):** the MVSEP guitar leaderboard still has BS-RoFormer SW (the one we use) first at
+  9.01 dB SDR; the next entries (Logic Pro 11.2 9.00, unreleased test checkpoints 8.93-9.00, MLSLABS WCJ 8.89,
+  xlance `bs_gtr` 8.60 - SW-derived) are within 0.1-0.4 dB, mostly not public. No public separator would keep keys /
+  strings out of the guitar stem noticeably better, so this line stops here; see `docs/acceptance/M10.md`.
 
 Also from this session (2026-10-18):
 
