@@ -1,6 +1,13 @@
 # bandscribe progress / handoff
 
-**Latest (2026-10-23): E41 rejected** - the piano+other transcription vote also removes more real guitar notes than
+**Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
+checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of
+4-bar part phrases are practisable with light edits (6 % by the strict test); rhythm strums match the sheet exactly 10 % of the time;
+nothing measured what the player reads (string agreement 0.583, tuning+capo 13/18); no truth for the owner's J-pop songs; several silent
+failures. The review also found two bugs in the E39/E40 wiring (the editor skipped the clean-up; the clean-up shifted quant's note index),
+fixed in `2276733`. The plan: phase 0 backups and checks, phase 1 visible warnings / tempo question / library / sheet evaluation in git,
+phase 2 section-first fixing tools, phase 3 E45/E44/E46 and the first J-pop measurement. Evidence: `data/tmp/midterm/`.
+Before it, **E41 rejected (2026-10-23)** - the piano+other transcription vote also removes more real guitar notes than
 bleed (arrangements double the guitar); keys / strings bleed needs a better separation, not a note rule. Before it,
 **E39 and E40 adopted (2026-10-21)** - note clean-up at the quant stage's input: same-pitch duplicates
 within a part (`[tab] dedupe_s = 0.03`) and notes shorter than 50 ms, guitar and bass (`[tab] min_dur_s = 0.05`).
