@@ -31,6 +31,32 @@ def _dur(v: Any) -> str:
     return f"{int(m)}:{s:04.1f}" if m else f"{s:.1f} s"
 
 
+def stage_rates(jobs_root: Path) -> dict[str, float]:
+    """Seconds per second of audio of each stage, from the finished runs on this PC (mid-term plan 1-7 ETA). The 75th
+    percentile: a stage that reused its inner caches finishes in a moment and would make the estimate too short."""
+    rates: dict[str, list[float]] = {}
+    for job in sorted(Path(jobs_root).glob("*")) if Path(jobs_root).is_dir() else []:
+        try:
+            song = float(json.loads((job / "input" / "meta.json").read_text(encoding="utf-8")).get("duration_s") or 0)
+        except (OSError, ValueError, TypeError):
+            continue
+        if song <= 0:
+            continue
+        for man in job.glob("stages/*/*/manifest.json"):
+            try:
+                d = json.loads(man.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            dur = d.get("duration_s")
+            if isinstance(dur, (int, float)) and dur > 0:
+                rates.setdefault(str(d.get("stage") or man.parent.parent.name), []).append(float(dur) / song)
+    return {k: sorted(v)[int(0.75 * (len(v) - 1))] for k, v in rates.items() if len(v) >= 2}
+
+
+def _about(seconds: float) -> str:
+    return f"약 {max(1, round(seconds / 60))}분" if seconds >= 90 else f"약 {max(1, round(seconds))}초"
+
+
 # Mid-term plan 1-6: settings that belong to the song, so the CLI keeps them in the job's hints.toml (given once with a
 # flag or --set, used on every later run of that song; nobody edits the file by hand).
 SONG_KEYS: tuple[str, ...] = ("grid.tempo_bpm", "tab.guitar_parts", "tab.guitar_tuning", "tab.bass_tuning",
@@ -281,9 +307,13 @@ def run_cmd(
     except Exception as e:
         fail(f"실행 계획을 만들지 못했습니다: {str(e) or type(e).__name__}")
 
+    song_s = float((job.meta or {}).get("duration_s") or 0)
+    rates = stage_rates(Path(job.job_dir).parent) if song_s > 0 else {}
+    est = {it.stage: rates[it.stage] * song_s for it in items if not it.cached and it.stage in rates}
+    todo = [it for it in items if not it.cached and it.key]
     if dry_run:
         t = Table(title="실행 계획 (--dry-run)", title_justify="left")
-        for col in ("단계", "키", "캐시/실행", "장치"):
+        for col in ("단계", "키", "캐시/실행", "장치", "예상"):
             t.add_column(col)
         for it in items:
             if it.missing_models:
@@ -294,8 +324,11 @@ def run_cmd(
                 state = "캐시"
             else:
                 state = "실행(강제)" if it.forced else "실행"
-            t.add_row(it.stage, it.key12 or "-", state, _DEVICE_KO.get(it.device, it.device))
+            t.add_row(it.stage, it.key12 or "-", state, _DEVICE_KO.get(it.device, it.device),
+                      _about(est[it.stage]) if it.stage in est else "")
         out.print(t)
+        if est:
+            out.print(f"실행할 단계 {len(todo)}개, 모두 {_about(sum(est.values()))} (이 PC 의 지난 실행 기준)")
         return
 
     saved = []
@@ -316,7 +349,8 @@ def run_cmd(
     def progress(event: str, info: dict) -> None:
         stage = info.get("stage", "")
         if event == "stage_start":
-            err.print(f"▶ {escape(stage)} 실행 중... ({_DEVICE_KO.get(info.get('device'), '')})")
+            hint = f", 보통 {_about(est[stage])}" if stage in est else ""
+            err.print(f"▶ {escape(stage)} 실행 중... ({_DEVICE_KO.get(info.get('device'), '')}{hint})")
         elif event == "stage_done":
             err.print(f"  {escape(stage)} 완료 ({_dur(info.get('duration_s'))})")
         elif event in ("vram_wait", "stage_degraded_cache", "model_missing", "warning"):
@@ -342,6 +376,8 @@ def run_cmd(
             fail(f"실행 실패: {str(e) or type(e).__name__}\n(끝난 단계는 캐시에 남아 있습니다. 로그: {paths.LOGS})")
         raise AssertionError("unreachable")  # fail() always exits
 
+    if todo and est:
+        err.print(f"실행할 단계 {len(todo)}개, 모두 {_about(sum(est.values()))} 예상(이 PC 의 지난 실행 기준)")
     if not no_ask and _is_tty() and tempo_question_due(items, cfg):  # plan 1-6: beats + grid first, then ask
         pre = forced & {"beats", "grid"}
         grid_dir = run_until("grid", cfg, pre)["grid"]

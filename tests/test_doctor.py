@@ -192,6 +192,9 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     cfg = {"youtube": {"enabled": True, "cookies": False}, "doctor": {"min_free_disk_gb": 60, "min_node_major": 22},
            "gpu": {"vram_margin_gb": 0.7, "target_reserved_gb": 4.5, "insufficient_vram_policy": "wait"},
            "consent": {"youtube": "2026-09-30 사용자 동의"}}
+    # mid-term plan 1-1: a healthy machine backed up a week ago, SW checkpoint included
+    (data / "backup.json").write_text(json.dumps({"date": "2026-09-23 10:00", "dest": "E:/bk", "sw_sha256": "ab" * 32}),
+                                      encoding="utf-8")
     return SimpleNamespace(gpu=gpu, sysmon=sysmon, runner=runner, modules=modules, which=which, disk=disk,
                            cfg=cfg, data=data, exe=exe, conf=conf, gpu_py=gpu_py)
 
@@ -305,7 +308,7 @@ def test_all_ok(env: SimpleNamespace) -> None:
     assert names == ["gpu.venv", "gpu.cuda", "gpu.capability", "gpu.fp16_matmul", "gpu.autocast_conv", "gpu.launcher",
                      "ffmpeg", "ffmpeg.features", "node", "disk.free", "disk.cache_paths",
                      "nvml", "gpu.budget", "pdh", "youtube", "ytdlp", "ytdlp.freshness", "ytdlp.conf", "global_python",
-                     "gpu.vram_table", "models.present", "node.alphatab"]
+                     "gpu.vram_table", "models.present", "node.alphatab", "backup.recent"]
     json.dumps(report.to_dict(), ensure_ascii=False)  # --json must be serialisable
 
     (name, request, work_dir, kw) = env.gpu.calls[0]

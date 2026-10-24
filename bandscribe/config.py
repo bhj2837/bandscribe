@@ -412,6 +412,15 @@ class DoctorCfg(_Section):
     min_node_major: int = Field(22, ge=0)
 
 
+class BackupCfg(_Section):
+    """Mid-term plan 1-1 (``bandscribe backup``): where to, and the folders outside the repository to include (the
+    original recordings, the band scores). Set in the user config (data/config.toml), never in a job's hints."""
+
+    dir: str = ""                    # the backup folder; "" = give it on the command line
+    extra: list[str] = Field(default_factory=list)
+    max_age_days: int = Field(14, ge=1)  # doctor warns when the last backup is older
+
+
 class ConsentCfg(_Section):
     """Explicit, dated risk acknowledgements. Only the user config writes these, never the defaults."""
 
@@ -427,6 +436,7 @@ class Config(BaseModel):
     ingest: IngestCfg = Field(default_factory=IngestCfg)
     gpu: GpuCfg = Field(default_factory=GpuCfg)
     doctor: DoctorCfg = Field(default_factory=DoctorCfg)
+    backup: BackupCfg = Field(default_factory=BackupCfg)
     consent: ConsentCfg = Field(default_factory=ConsentCfg)
     # M1a/M2 (M1_M2_SPEC 1.3)
     run: RunCfg = Field(default_factory=RunCfg)

@@ -33,7 +33,7 @@ from bandscribe import __version__, atomic, config, log, paths
 logger = logging.getLogger(__name__)
 
 # Command modules owned by the M1a/M2 work packages (M1_M2_SPEC 1.7), loaded lazily by _RootGroup.
-OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "view", "refresh", "bench", "eval", "gt", "data", "models")
+OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "view", "refresh", "backup", "bench", "eval", "gt", "data", "models")
 
 
 class _RootGroup(TyperGroup):
@@ -319,7 +319,8 @@ def _version_callback(value: bool) -> None:
 
 @app.callback()
 def _root(
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="자세한 로그(DEBUG)를 콘솔에 표시")] = False,
+    verbose: Annotated[bool, typer.Option(
+        "--verbose", "-v", help="자세한 로그(DEBUG)를 콘솔에 표시. 기본은 경고 이상만(진행은 한국어 줄로 나온다)")] = False,
     version: Annotated[
         bool, typer.Option("--version", callback=_version_callback, is_eager=True, help="버전 표시")
     ] = False,
@@ -606,7 +607,8 @@ def main(argv: list[str] | None = None) -> None:
     paths.apply_process_env()
     paths.ensure_dirs()
     config.ensure_user_config()
-    log.setup_logging()
+    # mid-term plan 1-7: the console shows warnings and the commands' own Korean lines; the log file keeps everything
+    log.setup_logging("WARNING")
     logger.debug("bandscribe %s argv=%s", __version__, sys.argv[1:] if argv is None else argv)
     app(args=argv, prog_name="bandscribe")
 

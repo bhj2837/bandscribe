@@ -1068,7 +1068,38 @@ def _check_models(cfg: Any) -> list[Check]:
 # ---------------------------------------------------------------------------------------------
 # Orchestration
 
-GROUPS: tuple[str, ...] = ("gpu", "ffmpeg", "node", "disk", "sysmon", "ytdlp", "global_python", "models")
+def _check_backup(cfg: Any) -> list[Check]:
+    """Mid-term plan 1-1: a recent ``bandscribe backup`` that holds the SW checkpoint (D: is one disk, and the SW
+    checkpoint has no download anywhere). A warning, never a failure."""
+    from bandscribe import backup as B
+
+    max_days = int(_cfg_value(cfg, "backup.max_age_days", 14) or 14)
+
+    def check() -> Check:
+        rec = B.last_backup()
+        if not rec:
+            return Check("backup.recent", False, "백업 기록이 없습니다. `bandscribe backup <다른 디스크의 폴더>` 를 돌리세요.",
+                         False)
+        try:
+            when = date.fromisoformat(str(rec.get("date", ""))[:10])
+        except ValueError:
+            when = None
+        age = (_today() - when).days if when else None
+        data = {"date": rec.get("date"), "dest": rec.get("dest"), "age_days": age, "sw": bool(rec.get("sw_sha256"))}
+        problems = []
+        if age is None or age > max_days:
+            problems.append(f"마지막 백업이 {age if age is not None else '?'}일 전입니다({max_days}일까지)")
+        if not rec.get("sw_sha256"):
+            problems.append(f"SW 체크포인트({B.SW_NAME})가 백업에 없습니다")
+        detail = f"마지막 백업 {rec.get('date')} → {rec.get('dest')}"
+        if problems:
+            detail += " — " + "; ".join(problems) + ". `bandscribe backup` 을 다시 돌리세요."
+        return Check("backup.recent", not problems, detail, False, data)
+
+    return [_one("backup.recent", False, check)]
+
+
+GROUPS: tuple[str, ...] = ("gpu", "ffmpeg", "node", "disk", "sysmon", "ytdlp", "global_python", "models", "backup")
 
 _GROUP_FUNCS: dict[str, Callable[[Any], list[Check]]] = {
     "gpu": _check_gpu,
@@ -1079,6 +1110,7 @@ _GROUP_FUNCS: dict[str, Callable[[Any], list[Check]]] = {
     "ytdlp": _check_ytdlp,
     "global_python": _check_global_python,
     "models": _check_models,
+    "backup": _check_backup,
 }
 
 
@@ -1120,6 +1152,7 @@ def run_doctor(cfg: Any = None, *, skip: Iterable[str] = ()) -> DoctorReport:
     required_of["ytdlp"] = bool(_cfg_value(cfg, "youtube.enabled"))
     required_of["global_python"] = False
     required_of["models"] = False
+    required_of["backup"] = False
 
     results: dict[str, list[Check]] = {}
     # NVML/PDH first so the process list and VRAM budget do not include our own selftest worker.

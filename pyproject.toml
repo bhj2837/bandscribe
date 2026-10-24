@@ -64,4 +64,5 @@ markers = [
     "model(name): needs model <name> recorded in data/models/models.lock.json and present",
     "slow: takes more than a few seconds",
     "network: needs internet access",
+    "smoke: fast subset for the pre-push hook (tests/conftest.py SMOKE_MODULES)",
 ]

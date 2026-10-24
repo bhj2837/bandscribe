@@ -9,6 +9,10 @@ Markers (registered in pyproject.toml):
 - ``model(name)``: model ``name`` is recorded in ``data/models/models.lock.json`` and its file exists.
 - ``network``: internet reachable (``BANDSCRIBE_OFFLINE`` forces "no").
 - ``slow``: runs by default (as in M0); deselect with ``-m "not slow"``.
+- ``smoke`` (mid-term plan 1-1): the fast subset of ``SMOKE_MODULES`` the pre-push hook runs (``-m smoke``).
+
+``gpu`` and ``network`` tests run only with ``--run-gpu`` / ``--run-network`` (plan 1-1): they take the GPU or the
+internet for minutes, so a plain run never starts them by accident.
 
 The default ``pytest -q`` stays green without GPU, network, datasets or models. Resource checks read the real
 ``BANDSCRIBE_ROOT`` layout directly (JSON / file checks) instead of going through bandscribe modules, so a broken module
@@ -94,6 +98,19 @@ def _model_available(name: str) -> bool:
     return (BANDSCRIBE_ROOT / str(entry["path"])).is_file()
 
 
+# Fast modules that cover the CLI, the config, the run flow on fake stages, the song health, the viewer server, the
+# backup and the copyright guard (`pytest -m smoke`, well under 2 minutes; the pre-push hook runs it).
+SMOKE_MODULES = frozenset({
+    "test_repo_guard", "test_config", "test_cli", "test_pipeline_cli", "test_jobs_hints", "test_tab_health",
+    "test_tab_summary", "test_viewer_home", "test_backup", "test_tab_cleanup", "test_datasets_registry",
+})
+
+
+def pytest_addoption(parser):
+    parser.addoption("--run-gpu", action="store_true", default=False, help="run tests marked gpu (CUDA worker)")
+    parser.addoption("--run-network", action="store_true", default=False, help="run tests marked network")
+
+
 def _marker_args(item: pytest.Item, marker: str) -> list[str]:
     names: list[str] = []
     for m in item.iter_markers(marker):
@@ -102,8 +119,13 @@ def _marker_args(item: pytest.Item, marker: str) -> list[str]:
 
 
 def pytest_collection_modifyitems(config, items):
+    run_gpu, run_net = config.getoption("--run-gpu"), config.getoption("--run-network")
     for item in items:
-        if "gpu" in item.keywords and not _gpu_available():
+        if item.path.stem in SMOKE_MODULES:
+            item.add_marker(pytest.mark.smoke)
+        if "gpu" in item.keywords and not run_gpu:
+            item.add_marker(pytest.mark.skip(reason="GPU test: run with --run-gpu"))
+        elif "gpu" in item.keywords and not _gpu_available():
             item.add_marker(pytest.mark.skip(reason="GPU worker env / CUDA not available"))
         if "gpuenv" in item.keywords and not GPU_PYTHON.exists():
             item.add_marker(pytest.mark.skip(reason=f"gpu venv not found: {GPU_PYTHON}"))
@@ -117,5 +139,7 @@ def pytest_collection_modifyitems(config, items):
         for name in _marker_args(item, "model"):
             if not _model_available(name):
                 item.add_marker(pytest.mark.skip(reason=f"model {name!r} not recorded (bandscribe models fetch {name})"))
-        if "network" in item.keywords and not _network_available():
+        if "network" in item.keywords and not run_net:
+            item.add_marker(pytest.mark.skip(reason="network test: run with --run-network"))
+        elif "network" in item.keywords and not _network_available():
             item.add_marker(pytest.mark.skip(reason="network not available"))

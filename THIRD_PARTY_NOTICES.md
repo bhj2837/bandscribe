@@ -23,7 +23,7 @@ repositories, model cards and dataset records. This is a record of what was chec
 | MSST BS-RoFormer model code (vendored) | yes, `bandscribe/third_party/msst/` | MIT (ZFTurbo) + MIT (Phil Wang) | 1 |
 | Python packages (core, gpu, bp310 environments) | no, only the lock files | mostly permissive; LGPL / MPL ones listed | 2 |
 | alphaTab (Node) | no, only `node/package-lock.json` | MPL-2.0 | 2.3 |
-| Model weights | no | per model; one is non-commercial, one unknown | 3 |
+| Model weights | no | per model; MuScriptor and CenterWide non-commercial, SW unknown | 3 |
 | Datasets | no | per dataset; several non-commercial | 4 |
 | yt-dlp, ffmpeg, Node.js, uv, Python | no | Unlicense / GPL / MIT / ... | 5 |
 | Your songs, stems and transcriptions | no (`data/` is git-ignored) | the rightsholders' copyright | 6 |
@@ -91,6 +91,7 @@ onto each user's PC, and the installed copies are git-ignored (`.venv/`, `envs/*
 | certifi (all three envs) | MPL-2.0 | Transitive (requests, httpx / httpcore): CA certificates. Unmodified. | Same as alphaTab. |
 | tqdm (gpu) | MPL-2.0 AND MIT | Transitive (huggingface_hub). Unmodified. | Same as alphaTab. |
 | numpy, scipy | BSD-3-Clause; the wheels bundle OpenBLAS (BSD-3-Clause) and the GCC runtime (libgfortran etc., GPL-3.0-or-later WITH GCC-exception-3.1) | Direct and transitive. | The GCC Runtime Library Exception allows the compiled code to be used and distributed under any licence. |
+| pesto-pitch 2.0.1 (gpu, added 2026-10 for M5) | LGPL-3.0 (package classifier; its checkpoints ship inside the wheel) | The `f0_bass` worker imports it and loads a bundled checkpoint for the bass F0 vote. Unmodified. | Same reasoning as PyGuitarPro. |
 | torch 2.11.0+cu128 (gpu) | BSD-3-Clause; the Windows CUDA wheel bundles NVIDIA's CUDA runtime, cuBLAS and cuDNN DLLs | GPU workers. | NVIDIA's own terms govern redistributing those DLLs. We do not redistribute them: users install the wheel from download.pytorch.org. |
 
 No Python package in any environment is under the GPL or AGPL. GPL text appears only inside numpy and scipy, for
@@ -254,13 +255,15 @@ classifiers). Where those were empty or free text, the package's own licence fil
 Model files live under `data/models/` and `data/hf/`, which are git-ignored. The local
 `data/models/models.lock.json` (also not committed) records the URL, size, sha256 and licence of each file.
 
-- bandscribe downloads only the Beat This! checkpoint itself (`bandscribe models fetch`, which asks first).
+- bandscribe downloads the Beat This! checkpoint itself, and for experiments the CenterWide checkpoints
+  (`bandscribe models fetch`, which asks first).
 - MuScriptor comes through the user's own Hugging Face account.
-- Basic Pitch comes with its wheel.
+- Basic Pitch, torchcrepe and PESTO come with their wheels.
 - The SW checkpoint must be supplied by the user.
 
-No other model is installed or loaded. Other models named in `docs/` were design-research candidates;
-bandscribe does not install or run them.
+No other model is installed or loaded (updated 2026-10-24: sections 3.5-3.7 were missing from the 2026-10-04 scan;
+the package table in 2.2 is from that scan and does not list torchcrepe and pesto-pitch yet). Other models named in
+`docs/` were design-research candidates; bandscribe does not install or run them.
 
 ### 3.1 BS-RoFormer SW (six stems)
 
@@ -313,6 +316,29 @@ bandscribe does not install or run them.
   include its NOTICE file; we do not redistribute it.
 - Cite: Bittner et al., "A Lightweight Instrument-Agnostic Model for Polyphonic Note Transcription and Multipitch
   Estimation", ICASSP 2022.
+
+### 3.5 CREPE through torchcrepe (bass F0, `bass_f0` stage)
+
+- Sources: <https://github.com/maxrmorrison/torchcrepe>, package `torchcrepe` 0.0.24 in the gpu environment; the
+  'full' model weights ship inside the package (`assets/*.pth`).
+- Licence: MIT (package metadata and licence file).
+- Cite: Kim, Salamon, Li and Bello, "CREPE: A Convolutional Representation for Pitch Estimation", ICASSP 2018.
+
+### 3.6 PESTO (bass F0, `bass_f0` stage)
+
+- Sources: <https://github.com/SonyCSLParis/pesto>, package `pesto-pitch` 2.0.1 in the gpu environment; the
+  `mir-1k_g7` checkpoint ships inside the package and is loaded with `weights_only=True`.
+- Licence: LGPL-3.0 (package classifier); see 2.1. Unmodified, not redistributed.
+- Cite: Riou et al., "PESTO: Pitch Estimation with Self-supervised Transposition-equivariant Objective", ISMIR 2023.
+
+### 3.7 CenterWide BS-RoFormer (experiments only)
+
+- Sources: Hugging Face `gilliaan/CenterWide-Models`, pinned revision `74e5bdad` (`v2` and `v3beta` checkpoints and
+  configs, sizes and sha256 in `bandscribe/model_sources.toml`). Run on the vendored MSST code (section 1).
+- Licence: **CC BY-NC-SA 4.0** (model card, checked 2026-10-11): personal, non-commercial use only; never
+  redistributed (`data/` is git-ignored).
+- Used only by the M6 experiments (`bandscribe/router/centre.py`, `views_eval.py`); the default pipeline does not
+  load it.
 
 ## 4. Datasets: not included
 

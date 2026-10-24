@@ -1,0 +1,12 @@
+#!/bin/sh
+# bandscribe pre-push (docs/MIDTERM_REVIEW.md 1-1): the copyright guard and the smoke tests before anything leaves
+# this PC. Enable once per clone:  git config core.hooksPath .githooks
+# GPU and network tests never run here (they need --run-gpu / --run-network).
+root="$(git rev-parse --show-toplevel)" || exit 1
+py="$root/.venv/Scripts/python.exe"
+[ -x "$py" ] || py="$root/.venv/bin/python"
+echo "pre-push: copyright guard + smoke tests (pytest -m smoke)"
+if ! "$py" -m pytest -q -p no:cacheprovider -m smoke; then
+    echo "pre-push: tests failed - nothing was pushed (fix them, or push with --no-verify on purpose)"
+    exit 1
+fi

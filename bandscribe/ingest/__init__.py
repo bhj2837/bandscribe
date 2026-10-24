@@ -163,7 +163,7 @@ def _ingest_youtube(url: str, store: JobStore, cfg: Any) -> IngestResult:
         if rebuilt is not None:
             return rebuilt
 
-    log.info(YOUTUBE_RISK_NOTICE)
+    log.warning(YOUTUBE_RISK_NOTICE)  # shown on the console even at its default level (WARNING)
     audio, info = youtube.download(url, paths.DOWNLOADS / vid, cfg)
     if info.get("id") not in (None, vid):
         raise YoutubeError(f"요청한 동영상({vid})과 받은 동영상({info.get('id')})이 다릅니다.")
