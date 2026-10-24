@@ -27,8 +27,15 @@ sheets` (1-2)** puts the sheet-song measures in tracked code (`bandscribe/eval/s
 parts 55.9 (song mean 55.4), bass 81.5, drifting 68.9 / 85.6, rhythm chords exact / pitch-class set / shape 10.1 /
 22.8 / 36.2 %, lead 3+ notes 12.0 %, string / fret 0.583 / 0.397, downbeats 82.4 %, practisable phrases 26.6 %
 (strict 6.2 %); a snapshot test (in `-m smoke`) fails on a move over 0.5 point. The test seal (1-3): a song's `split` in songs.yaml; test songs only through
-`open_test(<registered experiment>, <view>)`, logged in `data/eval/test_access.log`, 4 distinct views. Open in phase 1:
-committing the split on 11/15 (1-3), the GP library (1-7, lower priority), the owner's check of lulu. / 狭心症 / 怪獣の花唄.
+`open_test(<registered experiment>, <view>)`, logged in `data/eval/test_access.log`, 4 distinct views. Later the same
+day: the failure catalogue replay as a test (`tests/test_health_catalog.py`: 8 / 8 guitar-removed caught, 0 false alarms
+on the 13 valid songs, lulu.'s bass burst window 150-270 s); part names write the guitar type only when 70 % of the
+part's notes agree (parts code 5; SNN, HBT, 逆光 and others lost a type label that rested on 37-59 %); `weak_split`
+health note (smallest part under 20 %: 怪獣の花唄, 狭心症, AIZO); GP5 titles no longer turn into '???' (cp949 kept,
+`[hints] title_ascii`; score code 11); `bandscribe library` (13 songs in `data\library\<title>\`, 0 '?' titles).
+**Phase 1 is done except the split, due 11/15** (1-3). Deferred, with reason: the Korean warning line inside the
+alphaTex / GP header (1-4) - the owner practises in the viewer, which shows the banner, and computing the health
+inside the score stage would tie it to the score cache. Waiting for the owner: the check of lulu. / 狭心症 / 怪獣の花唄.
 Before it, **E41 rejected (2026-10-23)** - the piano+other transcription vote also removes more real guitar notes than
 bleed (arrangements double the guitar); keys / strings bleed needs a better separation, not a note rule. Before it,
 **E39 and E40 adopted (2026-10-21)** - note clean-up at the quant stage's input: same-pitch duplicates
