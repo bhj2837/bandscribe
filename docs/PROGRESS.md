@@ -21,9 +21,13 @@ always a candidate, the hint always lands on it (`tests/test_grid_known_tempo.py
 estimates, `status --songs`, `refresh` (CPU stages only) (1-7). Repository safety (1-1): copyright guard test,
 `-m smoke` (143 tests, 19 s), `.githooks/pre-push`, `--run-gpu` / `--run-network`, `bandscribe backup` + a doctor
 warning (first run to `C:\Users\user\bandscribe_backup\mirror`: 1,851 files, 2.13 GB, 31 s; a rerun copies 0 in 1 s).
-The metrics-and-split rules block heads `docs/decisions.md` (1-3; the split itself is due 11/15). Open in phase
-1: `bandscribe eval sheets` (1-2), the test-access code (1-3), the GP library (1-7, lower priority), the owner's check
-of lulu. / 狭心症 / 怪獣の花唄.
+The metrics-and-split rules block heads `docs/decisions.md` (1-3; the split itself is due 11/15). **`bandscribe eval
+sheets` (1-2)** puts the sheet-song measures in tracked code (`bandscribe/eval/sheets.py`; the extracted sheet JSON and
+`data/eval/sheets/songs.yaml` stay local) and reproduces every number of the review exactly in about 3 s: merged 66.8,
+parts 55.9 (song mean 55.4), bass 81.5, drifting 68.9 / 85.6, rhythm chords exact / pitch-class set / shape 10.1 /
+22.8 / 36.2 %, lead 3+ notes 12.0 %, string / fret 0.583 / 0.397, downbeats 82.4 %, practisable phrases 26.6 %
+(strict 6.2 %); a snapshot test (in `-m smoke`) fails on a move over 0.5 point. Open in phase 1: the test-access code
+(1-3), the GP library (1-7, lower priority), the owner's check of lulu. / 狭心症 / 怪獣の花唄.
 Before it, **E41 rejected (2026-10-23)** - the piano+other transcription vote also removes more real guitar notes than
 bleed (arrangements double the guitar); keys / strings bleed needs a better separation, not a note rule. Before it,
 **E39 and E40 adopted (2026-10-21)** - note clean-up at the quant stage's input: same-pitch duplicates

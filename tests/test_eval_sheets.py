@@ -93,5 +93,15 @@ def test_snapshot_of_the_local_sheet_songs():
             moved[row["song"]] = got
     moved.update({k: doc["pooled"][k]["F1"] for k, v in POOLED.items() if abs(doc["pooled"][k]["F1"] - v) > 0.5})
     assert not moved, f"sheet scores moved by more than 0.5 point: {moved}"
-    assert round(100 * doc["pooled"]["downbeats"]["share"], 1) == 82.4
+    pl = doc["pooled"]
+    assert round(100 * pl["downbeats"]["share"], 1) == 82.4 and round(100 * pl["downbeats_drift"]["share"], 1) == 95.2
+    # chord texture, fretting and phrases (exact counts move with any change; 0.5 point of slack as above)
+    got = {"exact": 100 * pl["texture"]["exact"], "pc_same": 100 * pl["texture"]["pc_same"],
+           "shape_same": 100 * pl["texture"]["shape_same"], "lead_ge3": 100 * pl["texture"]["lead_ge3"],
+           "string": 100 * pl["fretting"]["string"], "fret": 100 * pl["fretting"]["fret"],
+           "practisable": 100 * pl["phrases"]["practisable_share"], "light": 100 * pl["phrases"]["light_share"]}
+    want = {"exact": 10.05, "pc_same": 22.84, "shape_same": 36.21, "lead_ge3": 12.03, "string": 58.27, "fret": 39.69,
+            "practisable": 26.60, "light": 6.19}
+    assert not {k: round(v, 2) for k, v in got.items() if abs(v - want[k]) > 0.5}
+    assert pl["texture"]["rhythm_chords"] == 4247 and pl["phrases"]["phrases"] == 485
     assert sum(Counter(r["part_map"].values()).total() for r in doc["songs"]) == 12

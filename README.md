@@ -490,6 +490,7 @@ bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만
 bandscribe.cmd status --songs                      :: 악보가 있는 곡 목록 (전체 작업: status)
 bandscribe.cmd refresh                             :: 코드·기본값이 바뀐 뒤 모든 곡을 CPU 단계만 다시 (GPU 가 필요한 곡은 건너뜀)
 bandscribe.cmd config show                         :: 지금 적용되는 설정
+bandscribe.cmd eval sheets                         :: 악보곡 채점(사용자 밴드스코어에서 뽑은 JSON, 로컬 전용; 약 3초)
 ```
 
 - `run` 은 마지막에 요약을 보인다: 템포(누가 정했는지, 다른 후보), 박자, 기타·베이스 튜닝과 여유, 파트별 음 수, 점검 경고 수,

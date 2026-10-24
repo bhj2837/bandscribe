@@ -302,9 +302,17 @@ def register(app: typer.Typer) -> None:
                   f"{mn['part_gtr1']:.1f} / {mn['part_gtr2']:.1f} ({mn['parts']:.1f})", f"{mn['bass']:.1f}",
                   f"{mn['bass_drift']:.1f}", "")
         con.print(t)
+        tx, fr, ph = pl["texture"], pl["fretting"], pl["phrases"]
+        con.print(f"리듬 코드 {tx['rhythm_chords']:,}개: 정확 {100 * tx['exact']:.1f} % · 음이름 집합 {100 * tx['pc_same']:.1f} % · "
+                  f"모양 {100 * tx['shape_same']:.1f} %   리드 단음에 3음 이상 {100 * tx['lead_ge3']:.1f} %")
+        con.print(f"음높이가 맞은 {fr['pitch_matched']:,}음: 같은 줄 {fr['string']:.3f} · 같은 줄과 표시 프렛 {fr['fret']:.3f}")
+        con.print(f"연습 가능한 4마디 구절(F1 0.7 이상) {100 * ph['practisable_share']:.1f} % "
+                  f"(파트 1 {100 * ph['practisable_share_gtr1']:.1f} · 파트 2 {100 * ph['practisable_share_gtr2']:.1f}), "
+                  f"엄격 기준 {100 * ph['light_share']:.1f} % — {ph['phrases']}개 중")
         dest = out or SH.songs_file().with_name("sheets_eval.json")
         atomic.write_json(dest, doc)
-        con.print(f"결과: {escape(str(dest))}  (누적 바닥: 합친 66.5 · 파트 55.4 · 베이스 81.3, docs/decisions.md)")
+        con.print(f"결과: {escape(str(dest))}  (누적 바닥: 합친 66.5 · 파트 55.4 · 베이스 81.3 · 구절 24.6 %, "
+                  "docs/decisions.md)")
 
     @ev.command("reftx")
     def reftx_cmd(

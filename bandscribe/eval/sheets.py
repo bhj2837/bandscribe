@@ -17,6 +17,17 @@ the song mean is for reference only.
   The bass is scored at the guitar's offsets.
 - **per part:** each sheet guitar against one of our parts (``line``), the assignment with the best mean F1.
 - **downbeats:** share of sheet bar lines (in our beat range) that fall on one of our bar lines.
+- **string / fret agreement:** among the notes of our fretted parts (export ``tab.json``, onsets from the quant note
+  their ``uid`` names) whose pitch matches the sheet bar's bag, the share also on the sheet's string, and on the
+  sheet's string and written fret (capo and tuning differences show up only in the second).
+- **chord texture** (rhythm part = the sheet guitar with fewer single-note columns): each sheet column of 3 or more
+  sounding pitches, placed by its graphical x phase (``col_beat``) at the drifting offset, against our same-part tab
+  event (one tab event = the part's notes at one gtick): the column onset snaps to the nearest event of either part
+  within 0.375 beat that shares a pitch, then the part's event within 0.125 beat of it. Shares of chords whose event
+  has exactly the sheet's pitches, the same pitch-class set, the same shape class (``shape``). Lead part (songs with
+  ``lead: true``): of the sheet's single-note columns that have such an event, the share where it has 3+ notes.
+- **practisable phrases** (``phrases``): 4-bar phrases of each part, from each rehearsal mark, at the drifting
+  offset; the share with phrase F1 >= 0.7 (the plan's headline) and the strict light-edit share.
 """
 
 from __future__ import annotations
@@ -63,6 +74,7 @@ class Song:
     sheets: Path                 # folder of the extracted JSON (gtr1.json, gtr2.json, bass.json, headers.json, ...)
     sheet_bpm: float | None = None
     tempo_hint: bool = False     # the job was run with the sheet tempo as its hint
+    lead: bool = True            # the sheet has a lead part (HBT: both guitars play rhythm)
 
 
 def load_songs(path: Path | None = None) -> tuple[list[Song], dict[str, str]]:
@@ -83,7 +95,8 @@ def load_songs(path: Path | None = None) -> tuple[list[Song], dict[str, str]]:
     doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     songs = [Song(id=str(s["id"]), title=str(s.get("title") or s["id"]), job=str(s["job"]),
                   sheets=Path(paths.DATA) / str(s["sheets"]), sheet_bpm=s.get("sheet_bpm"),
-                  tempo_hint=bool(s.get("tempo_hint", False))) for s in doc.get("songs") or []]
+                  tempo_hint=bool(s.get("tempo_hint", False)), lead=bool(s.get("lead", True)))
+             for s in doc.get("songs") or []]
     invalid = {str(x["job"]): str(x.get("why") or "") for x in doc.get("invalid") or []}
     bad = [s.id for s in songs if s.job in invalid]
     if bad:
@@ -138,6 +151,7 @@ class SheetBar:
     beat0: int
     beats: int
     pitches: list[int]
+    notes: list[tuple[int, int, int]] = field(default_factory=list)  # (pitch, string, written fret)
 
 
 def sheet_part(song: Song, part: str, standard: Sequence[int]) -> list[SheetBar]:
@@ -150,10 +164,12 @@ def sheet_part(song: Song, part: str, standard: Sequence[int]) -> list[SheetBar]
     tun = sheet_tuning(header, standard)
     n = len(tun)
     b0 = beat0(doc)
-    return [SheetBar(b["bar"], b0[b["bar"]], b["numerator"],
-                     [tun[n - x["string"]] + x["fret"] for c in b["columns"] for x in c["notes"]
-                      if not x["dead"] and not x["tied"] and x["fret"] is not None])
-            for b in doc["bars"]]
+    out = []
+    for b in doc["bars"]:
+        trip = [(tun[n - x["string"]] + x["fret"], int(x["string"]), int(x["fret"])) for c in b["columns"]
+                for x in c["notes"] if not x["dead"] and not x["tied"] and x["fret"] is not None]
+        out.append(SheetBar(b["bar"], b0[b["bar"]], b["numerator"], [t[0] for t in trip], trip))
+    return out
 
 
 # ------------------------------------------------------------------------------------------------- our side
@@ -169,6 +185,7 @@ class Ours:
     n_beats: int
     guitar: list[tuple[float, int, str]]   # (onset_s, pitch, line), by onset
     bass: list[tuple[float, int, str]]
+    quant_guitar: list[tuple[float, int]]  # (onset_s, pitch) in quant.json order: a tab note's uid indexes it
 
 
 def ours(job_dir: Path) -> Ours:
@@ -190,7 +207,8 @@ def ours(job_dir: Path) -> Ours:
         return sorted((float(n["onset_s"]), int(n["pitch"]), str(n.get("line"))) for n in Q.notes_of(q, track))
 
     return Ours(Path(job_dir), dirs["quant"].name, dirs["grid"].name, TempoMap.from_dict(g), starts, acc,
-                notes("guitar_all"), notes("bass"))
+                notes("guitar_all"), notes("bass"),
+                [(float(n["onset_s"]), int(n["pitch"])) for n in Q.notes_of(q, "guitar_all")])
 
 
 # ------------------------------------------------------------------------------------------------- scoring
@@ -296,6 +314,268 @@ def per_part(o: Ours, guitars: Sequence[Sequence[SheetBar]], offset_of: Callable
     return best[1], best[2]
 
 
+def fretting(o: Ours, guitars: Sequence[Sequence[SheetBar]], offset_of: Callable[[int], int]) -> dict[str, Any]:
+    """String / fret agreement (module doc) of the fretted part tracks ``gtr_1`` .. ``gtr_4``."""
+    tab = atomic.read_json(o.job_dir / "export" / "tab" / "tab.json")
+    ours_f: list[tuple[float, int, int, int]] = []
+    mismatch = 0
+    for part in ("gtr_1", "gtr_2", "gtr_3", "gtr_4"):
+        for n in ((tab.get("tracks") or {}).get(part) or {}).get("notes") or []:
+            uid = str(n.get("uid") or "")
+            if not uid.startswith("guitar_all:") or n.get("string") is None:
+                continue
+            k = int(uid.split(":", 1)[1])
+            if not 0 <= k < len(o.quant_guitar):
+                mismatch += 1
+                continue
+            t, qp = o.quant_guitar[k]
+            mismatch += qp != int(n["pitch"])
+            ours_f.append((t, int(n["pitch"]), int(n["string"]), int(n["fret"])))
+    ours_f.sort()
+    t_on = [x[0] for x in ours_f]
+    pm = sm = fm = 0
+    for row in zip(*guitars):
+        b = row[0]
+        off = offset_of(b.bar)
+        if b.beat0 - off < 0:
+            continue
+        a = float(o.tempo.beat_to_time(b.beat0 - off)) - EARLY_S
+        e = float(o.tempo.beat_to_time(b.beat0 - off + b.beats)) - EARLY_S
+        gp: Counter = Counter()
+        gps: Counter = Counter()
+        gpf: Counter = Counter()
+        for x in row:
+            gp |= Counter(x.pitches)
+            gps |= Counter((p, s) for p, s, _f in x.notes)
+            gpf |= Counter(x.notes)
+        seg = ours_f[bisect.bisect_left(t_on, a):bisect.bisect_left(t_on, e)]
+        pm += sum((gp & Counter(x[1] for x in seg)).values())
+        sm += sum((gps & Counter((x[1], x[2]) for x in seg)).values())
+        fm += sum((gpf & Counter((x[1], x[2], x[3]) for x in seg)).values())
+    return {"pitch_matched": pm, "string_matched": sm, "fret_matched": fm, "string": round(sm / max(1, pm), 4),
+            "fret": round(fm / max(1, pm), 4), "uid_pitch_mismatch": mismatch,
+            "tab_tuning": {p: (tab["tracks"][p].get("label"), tab["tracks"][p].get("capo"))
+                           for p in ("gtr_1", "gtr_2") if p in (tab.get("tracks") or {})}}
+
+
+TPB = 48
+SNAP_BEATS, SAME_BEATS, MAP_EARLY_BEATS = 0.375, 0.125, 0.125
+
+
+def shape(pitches: Sequence[int]) -> str:
+    """Shape class: none, single, octave (one pitch class), power (two pitch classes a fourth / fifth apart), dyad,
+    triad34 (3-4 notes), full56 (5-6 notes)."""
+    n = len(pitches)
+    if n == 0:
+        return "none"
+    if n == 1:
+        return "single"
+    pcs = sorted({p % 12 for p in pitches})
+    if len(pcs) == 1:
+        return "octave"
+    if len(pcs) == 2 and (pcs[1] - pcs[0]) in (5, 7):
+        return "power"
+    if n == 2:
+        return "dyad"
+    return "triad34" if n <= 4 else "full56"
+
+
+def col_beat(bar: Mapping[str, Any], phase: float) -> float:
+    """Beat inside a sheet bar of a column at x fraction ``phase``: linear from the bar's first column (its left pad;
+    0.085 when the first column starts at 0.12 or later) to the bar end."""
+    ph = [c["phase"] for c in bar["columns"]]
+    p0 = min(ph) if ph else 0.0
+    p0 = p0 if p0 < 0.12 else 0.085
+    return min(max((phase - p0) / max(1e-6, 1.0 - p0), 0.0), 0.999) * bar["numerator"]
+
+
+def sheet_columns(song: Song, part: str, offset_of: Callable[[int], int]) -> list[dict[str, Any]]:
+    """[{bar, obeat (our beat), pitches (sorted unique sounding)}] of every column with a sounding note."""
+    doc = _load(song, f"{part}.json")
+    try:
+        header = str((_load(song, "headers.json") or {}).get(part) or "")
+    except (OSError, ValueError):
+        header = ""
+    tun = sheet_tuning(header, GUITAR)
+    n = len(tun)
+    b0 = beat0(doc)
+    out = []
+    for b in doc["bars"]:
+        for c in b["columns"]:
+            ns = [x for x in c["notes"] if not x["dead"] and not x["tied"] and x["fret"] is not None]
+            if ns:
+                out.append({"bar": b["bar"], "obeat": b0[b["bar"]] + col_beat(b, c["phase"]) - offset_of(b["bar"]),
+                            "pitches": sorted({tun[n - x["string"]] + x["fret"] for x in ns})})
+    return out
+
+
+def tab_events(job_dir: Path) -> dict[str, list[tuple[float, frozenset[int]]]]:
+    """{gtr_1 / gtr_2: [(our beat, pitches)]}: what the tab prints as one stacked event (a note without a string,
+    dropped by the playability check, is not printed)."""
+    tab = atomic.read_json(Path(job_dir) / "export" / "tab" / "tab.json")
+    out = {}
+    for tid in ("gtr_1", "gtr_2"):
+        by: dict[int, set[int]] = {}
+        for nt in ((tab.get("tracks") or {}).get(tid) or {}).get("notes") or []:
+            if nt.get("string") is not None:
+                by.setdefault(int(nt["gtick"]), set()).add(int(nt["pitch"]))
+        out[tid] = [(g / TPB, frozenset(ps)) for g, ps in sorted(by.items())]
+    return out
+
+
+def _nearest(beats: Sequence[float], t: float, tol: float) -> int | None:
+    lo, hi = bisect.bisect_left(beats, t - tol), bisect.bisect_right(beats, t + tol)
+    return min(range(lo, hi), key=lambda k: abs(beats[k] - t)) if lo < hi else None
+
+
+def texture(song: Song, job_dir: Path, offset_of: Callable[[int], int]) -> dict[str, Any]:
+    """Chord texture of the rhythm part and the lead part's stacked events (module doc)."""
+    ev = tab_events(job_dir)
+    cols = {p: sheet_columns(song, p, offset_of) for p in GUITAR_PARTS}
+    sheet_doc = _load(song, "gtr1.json")
+    b0 = beat0(sheet_doc)
+    num = {b["bar"]: b["numerator"] for b in sheet_doc["bars"]}
+
+    def part_f1(part: str, tid: str) -> float:
+        want_by: dict[int, Counter] = {}
+        for c in cols[part]:
+            want_by.setdefault(c["bar"], Counter()).update(c["pitches"])
+        beats = [e[0] for e in ev[tid]]
+        c = Counts()
+        for bar, n in num.items():
+            a = b0[bar] - offset_of(bar) - MAP_EARLY_BEATS
+            if a < 0:
+                continue
+            got = Counter(p for k in range(bisect.bisect_left(beats, a), bisect.bisect_left(beats, a + n))
+                          for p in ev[tid][k][1])
+            want = want_by.get(bar, Counter())
+            k = sum((want & got).values())
+            c += Counts(k, sum(got.values()) - k, sum(want.values()) - k)
+        return c.f1
+
+    mapping = max(({"gtr1": a, "gtr2": b} for a, b in itertools.permutations(("gtr_1", "gtr_2"))),
+                  key=lambda m: sum(part_f1(p, m[p]) for p in m))
+    single = {p: sum(1 for c in cols[p] if len(c["pitches"]) == 1) / max(1, len(cols[p])) for p in cols}
+    lead_part = max(single, key=lambda p: single[p])
+    rhythm_part = next(p for p in cols if p != lead_part)
+    allev = sorted(ev["gtr_1"] + ev["gtr_2"], key=lambda e: e[0])
+    allb = [e[0] for e in allev]
+    last = allb[-1] if allb else 0.0
+    beats = {tid: [e[0] for e in ev[tid]] for tid in ev}
+    res: dict[str, Counter] = {"rhythm": Counter(), "lead": Counter()}
+    for part, kind in ((rhythm_part, "rhythm"), (lead_part, "lead")):
+        tid = mapping[part]
+        for col in cols[part]:
+            o, want = col["obeat"], set(col["pitches"])
+            if o < 0 or o > last or (kind == "rhythm" and len(want) < 3) or (kind == "lead" and len(want) != 1):
+                continue
+            lo, hi = bisect.bisect_left(allb, o - SNAP_BEATS), bisect.bisect_right(allb, o + SNAP_BEATS)
+            cand = [allev[k][0] for k in range(lo, hi) if want & allev[k][1]]
+            t = min(cand, key=lambda x: abs(x - o)) if cand else o
+            k = _nearest(beats[tid], t, SAME_BEATS)
+            got = set(ev[tid][k][1]) if k is not None else set()
+            r = res[kind]
+            if kind == "lead":
+                r["single_cols"] += 1
+                if k is not None:
+                    r["with_event"] += 1
+                    r["event_ge3"] += len(got) >= 3
+                continue
+            r["chords"] += 1
+            r["exact"] += got == want
+            r["pc_same"] += {p % 12 for p in got} == {p % 12 for p in want}
+            r["shape_same"] += shape(sorted(want)) == shape(sorted(got))
+    return {"mapping": mapping, "lead_part": lead_part, "rhythm": dict(res["rhythm"]),
+            "lead": dict(res["lead"]) if song.lead else None}
+
+
+SECTION_RE = re.compile(r"^(Intro|Verse|Pre-chorus|Chorus|Inter|Solo|Bridge|Outro)\.?$")
+PHRASE_BARS = 4
+PRACTISABLE_F1 = 0.7
+
+
+def sheet_sections(song: Song) -> dict[int, str]:
+    """{sheet bar: rehearsal mark} from the marks of gtr1 / gtr2 / bass (the most common label of a bar)."""
+    lab: dict[int, Counter] = {}
+    for part in ("gtr1", "gtr2", "bass"):
+        try:
+            words = (_load(song, f"{part}_marks.json") or {}).get("words") or []
+        except (OSError, ValueError):
+            continue
+        for w in words:
+            m = SECTION_RE.match(str(w.get("text", "")).strip())
+            if m:
+                lab.setdefault(int(w["bar"]), Counter())[m.group(1)] += 1
+    return {b: c.most_common(1)[0][0] for b, c in sorted(lab.items())}
+
+
+def tab_notes(job_dir: Path) -> dict[str, list[tuple[float, int]]]:
+    """{gtr_1 / gtr_2: [(our beat, pitch)]} of the printed (fretted) notes, by beat."""
+    tab = atomic.read_json(Path(job_dir) / "export" / "tab" / "tab.json")
+    return {tid: sorted((int(n["gtick"]) / TPB, int(n["pitch"]))
+                        for n in ((tab.get("tracks") or {}).get(tid) or {}).get("notes") or []
+                        if n.get("string") is not None)
+            for tid in ("gtr_1", "gtr_2")}
+
+
+def phrases(song: Song, o: Ours, guitars: Sequence[Sequence[SheetBar]], offset_of: Callable[[int], int]
+            ) -> dict[str, Any]:
+    """Phrase quality: each sheet guitar's bars against our mapped part's printed notes whose beat falls in
+    ``beat0 - offset .. + numerator`` (the tab's beat axis, no early shift), grouped in 4-bar phrases from each
+    rehearsal mark. A phrase with at least 2 played bars counts; its F1 pools its bars. ``practisable`` = F1 >= 0.7;
+    ``light`` (strict) = at most 2 wrong + missing notes per bar on average and F1 >= 0.5."""
+    notes = tab_notes(o.job_dir)
+    beats = {tid: [t for t, _p in ns] for tid, ns in notes.items()}
+    marks = sheet_sections(song)
+
+    def bar_counts(part_bars: Sequence[SheetBar], tid: str) -> dict[int, Counts]:
+        out = {}
+        for b in part_bars:
+            a = b.beat0 - offset_of(b.bar)
+            if a < 0 or a >= o.n_beats:
+                continue
+            got = Counter(p for _t, p in notes[tid][bisect.bisect_left(beats[tid], a):
+                                                   bisect.bisect_left(beats[tid], a + b.beats)])
+            want = Counter(b.pitches)
+            k = sum((want & got).values())
+            out[b.bar] = Counts(k, sum(got.values()) - k, sum(want.values()) - k)
+        return out
+
+    def pooled_f1(mp: Mapping[str, str]) -> float:
+        c = Counts()
+        for part, bars in zip(GUITAR_PARTS, guitars):
+            for x in bar_counts(bars, mp[part]).values():
+                c += x
+        return c.f1
+
+    maps = [{"gtr1": "gtr_1", "gtr2": "gtr_2"}, {"gtr1": "gtr_2", "gtr2": "gtr_1"}]
+    mapping = maps[0] if pooled_f1(maps[0]) >= pooled_f1(maps[1]) else maps[1]
+    phrase_of, cur, start = {}, "(pre)", min(b.bar for b in guitars[0])
+    for b in sorted(x.bar for x in guitars[0]):
+        if b in marks:
+            cur, start = marks[b], b
+        phrase_of[b] = f"{cur}@{start}#{(b - start) // PHRASE_BARS}"
+    out = Counter()
+    for part, bars in zip(GUITAR_PARTS, guitars):
+        per_bar = bar_counts(bars, mapping[part])
+        groups: dict[str, list[Counts]] = {}
+        for bar, c in per_bar.items():
+            groups.setdefault(phrase_of[bar], []).append(c)
+        for cs in groups.values():
+            if sum(1 for c in cs if c.tp + c.fn > 0) < 2:
+                continue
+            tot = Counts()
+            for c in cs:
+                tot += c
+            err = sum(c.fp + c.fn for c in cs) / len(cs)
+            out["phrases"] += 1
+            out[f"phrases_{part}"] += 1
+            out["practisable"] += tot.f1 >= 100 * PRACTISABLE_F1
+            out[f"practisable_{part}"] += tot.f1 >= 100 * PRACTISABLE_F1
+            out["light"] += err <= 2 and tot.f1 >= 50
+    return {"mapping": mapping, **dict(out)}
+
+
 # ------------------------------------------------------------------------------------------------- the table
 
 
@@ -328,6 +608,8 @@ def evaluate_song(song: Song) -> SongResult:
     doc = {"song": song.id, "title": song.title, "job": song.job, "quant": o.quant_key, "grid": o.grid_key,
            "offset": off, "offset_changes": changes, "part_map": mapping,
            "downbeats": downbeats(o, guitars[0], glob_), "downbeats_drift": downbeats(o, guitars[0], loc),
+           "fretting": fretting(o, guitars, glob_), "texture": texture(song, o.job_dir, loc),
+           "phrases": phrases(song, o, guitars, loc),
            **{k: c.doc() for k, c in counts.items()}}
     doc["part_mean_F1"] = round(sum(parts[gk].f1 for gk in GUITAR_PARTS) / len(GUITAR_PARTS), 2)
     return SongResult(song, doc, counts)
@@ -350,6 +632,26 @@ def evaluate(songs: Sequence[Song] | None = None) -> dict[str, Any]:
         both += r.counts["part_gtr1"]
         both += r.counts["part_gtr2"]
     pooled["parts"] = both.doc()
+    fr = {k: sum(r.doc["fretting"][k] for r in results) for k in ("pitch_matched", "string_matched", "fret_matched")}
+    pooled["fretting"] = {**fr, "string": round(fr["string_matched"] / max(1, fr["pitch_matched"]), 4),
+                          "fret": round(fr["fret_matched"] / max(1, fr["pitch_matched"]), 4)}
+    rh: Counter = Counter()
+    ld: Counter = Counter()
+    for r in results:
+        rh.update(r.doc["texture"]["rhythm"])
+        ld.update(r.doc["texture"]["lead"] or {})
+    n = max(1, rh["chords"])
+    pooled["texture"] = {"rhythm_chords": rh["chords"], "exact": round(rh["exact"] / n, 4),
+                         "pc_same": round(rh["pc_same"] / n, 4), "shape_same": round(rh["shape_same"] / n, 4),
+                         "lead_single_with_event": ld["with_event"],
+                         "lead_ge3": round(ld["event_ge3"] / max(1, ld["with_event"]), 4)}
+    ph: Counter = Counter()
+    for r in results:
+        ph.update({k: v for k, v in r.doc["phrases"].items() if k != "mapping"})
+    pooled["phrases"] = {**dict(ph), "practisable_share": round(ph["practisable"] / max(1, ph["phrases"]), 4),
+                         "light_share": round(ph["light"] / max(1, ph["phrases"]), 4),
+                         **{f"practisable_share_{p}": round(ph[f"practisable_{p}"] / max(1, ph[f"phrases_{p}"]), 4)
+                            for p in GUITAR_PARTS}}
     for k in ("downbeats", "downbeats_drift"):
         hit = sum(r.doc[k]["on_our_bar_line"] for r in results)
         tot = sum(r.doc[k]["sheet_bars"] for r in results)
