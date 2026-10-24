@@ -36,7 +36,7 @@ class BackupError(RuntimeError):
 def sources(cfg: Any) -> list[tuple[str, Path]]:
     """(name in the backup, folder) of everything mirrored whole."""
     data = Path(paths.DATA)
-    out = [("models", data / "models"), ("eval_tierA", data / "eval" / "tierA")]
+    out = [("models", data / "models"), ("eval_tierA", data / "eval" / "tierA"), ("eval_sheets", data / "eval" / "sheets")]
     out += [(f"tmp_{n}", data / "tmp" / n) for n in ("m9", "m10", "midterm")]
     tmp = data / "tmp"
     out += [(f"tmp_{p.name}", p) for p in sorted(tmp.glob("sheets_*")) if p.is_dir()] if tmp.is_dir() else []

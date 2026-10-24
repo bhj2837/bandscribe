@@ -269,6 +269,43 @@ def register(app: typer.Typer) -> None:
         con.print(f"결과 폴더: {escape(str(res.run_dir))}")
         con.print("확인 후 결정 기록: bandscribe eval exp " + exp_id + ' --record "채택 (…)" | "기각" | "판단 보류 (…)"')
 
+    @ev.command("sheets")
+    def sheets_cmd(
+        out: Annotated[Path | None, typer.Option("--out", help="결과 JSON 파일 (기본 data/eval/sheets/sheets_eval.json)")] = None,
+    ) -> None:
+        """악보곡(Tier A)을 사용자 밴드스코어에서 뽑은 JSON 으로 채점한다(중간 점검 1-2). 풀링 값이 헤드라인이다."""
+        try:
+            from bandscribe import atomic
+            from bandscribe.eval import sheets as SH
+        except ImportError as e:
+            _fail(f"악보 평가 모듈을 불러오지 못했습니다: {e}")
+        try:
+            doc = SH.evaluate()
+        except (SH.SheetEvalError, OSError, ValueError, KeyError) as e:
+            _fail(str(e))
+        con = _out()
+        t = Table(title=f"악보곡 {len(doc['songs'])}곡 (마디 F1, 단일 오프셋 / 떠도는 오프셋)", title_justify="left")
+        for col in ("곡", "오프셋", "합친 기타", "떠도는", "파트 1 / 2", "베이스", "떠도는", "다운비트"):
+            t.add_column(col, justify="right" if col not in ("곡",) else "left")
+        rows = [(s["song"], str(s["offset"]), s["merged"], s["merged_drift"], s, s["bass"], s["bass_drift"],
+                 s["downbeats"]["share"]) for s in doc["songs"]]
+        for title, off, m, md, s, b, bd, db in rows:
+            t.add_row(escape(title), off, f"{m['F1']:.1f}", f"{md['F1']:.1f}",
+                      f"{s['part_gtr1']['F1']:.1f} / {s['part_gtr2']['F1']:.1f}", f"{b['F1']:.1f}", f"{bd['F1']:.1f}",
+                      f"{100 * db:.1f} %")
+        pl, mn = doc["pooled"], doc["song_mean"]
+        t.add_row("[bold]풀링[/]", "", f"[bold]{pl['merged']['F1']:.1f}[/]", f"{pl['merged_drift']['F1']:.1f}",
+                  f"{pl['part_gtr1']['F1']:.1f} / {pl['part_gtr2']['F1']:.1f} (합 [bold]{pl['parts']['F1']:.1f}[/])",
+                  f"[bold]{pl['bass']['F1']:.1f}[/]", f"{pl['bass_drift']['F1']:.1f}",
+                  f"{100 * pl['downbeats']['share']:.1f} %")
+        t.add_row("곡 평균", "", f"{mn['merged']:.1f}", f"{mn['merged_drift']:.1f}",
+                  f"{mn['part_gtr1']:.1f} / {mn['part_gtr2']:.1f} ({mn['parts']:.1f})", f"{mn['bass']:.1f}",
+                  f"{mn['bass_drift']:.1f}", "")
+        con.print(t)
+        dest = out or SH.songs_file().with_name("sheets_eval.json")
+        atomic.write_json(dest, doc)
+        con.print(f"결과: {escape(str(dest))}  (누적 바닥: 합친 66.5 · 파트 55.4 · 베이스 81.3, docs/decisions.md)")
+
     @ev.command("reftx")
     def reftx_cmd(
         dataset: Annotated[str, typer.Argument(help="데이터셋 이름 (예: cambridge_mt)")],
