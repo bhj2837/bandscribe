@@ -109,7 +109,7 @@ def test_viewer_serves_health(tmp_path):
         assert any(i["id"] == "merged_parts" for i in h["items"])  # the fixture's router has an R0 window
         assert (job / "export" / H.HEALTH_FILE).is_file()           # written once, then reused
         page = urllib.request.urlopen(base + "/").read().decode("utf-8")
-        assert 'id="health"' in page and "/api/health" in page
+        assert 'id="health"' in page and '"api/health"' in page
     finally:
         httpd.shutdown()
         t.join(timeout=5)

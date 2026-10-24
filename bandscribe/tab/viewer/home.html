@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>곡 목록 · bandscribe</title>
+<style>
+  :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc; --accent: #2f6f5e; --chip: #efeee9;
+          --warn: #b4540a; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #1b1c1a; --fg: #ecebe6; --muted: #a3a29b; --line: #34352f; --accent: #7cc4ad;
+                                     --chip: #2a2b27; --warn: #f0a050; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, "Malgun Gothic", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 2px; font-weight: 650; }
+  h2 { font-size: 15px; margin: 22px 0 4px; font-weight: 650; }
+  p.note { color: var(--muted); margin: 0 0 10px; font-size: 13px; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  a.song { color: var(--accent); font-weight: 600; text-decoration: none; }
+  a.song:hover { text-decoration: underline; }
+  .key { color: var(--muted); font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
+  .warn { color: var(--warn); }
+  .muted { color: var(--muted); }
+  .chip { background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 12px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>곡 목록</h1>
+  <p class="note">{{SUMMARY}} 제목을 누르면 악보가 열립니다. 이 서버는 이 컴퓨터에서만 열립니다.</p>
+  {{SECTIONS}}
+</main>
+</body>
+</html>

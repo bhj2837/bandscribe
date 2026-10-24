@@ -1,6 +1,10 @@
 """Local score viewer (DESIGN 10 M3 "원곡에 싱크된 정적 alphaTab 뷰어"): ``bandscribe view <song>``.
 
-A threaded HTTP server bound to 127.0.0.1 only (DESIGN 7.2) serves one job:
+A threaded HTTP server bound to 127.0.0.1 only (DESIGN 7.2) serves every song of the jobs folder (mid-term plan 1-7):
+- ``/home``              the songs by title (``viewer/home.html``; also ``/`` when the server has no song of its own),
+  ``/api/songs``         the same list as JSON,
+- ``/s/<job>/...``       one song: every route below, under that prefix (the page asks with relative URLs),
+- ``/...``               the routes below for the song ``view`` was started with (its own song, if any):
 - ``/``                  the page (``viewer/index.html``; alphaTab in external-media mode follows the recording),
 - ``/score.alphatex``    ``export/tab/score.alphatex`` (bar lines synced to the recording by ``\\sync`` points),
 - ``/score.gp5``, ``/tab/<track>.txt``   downloads,
@@ -17,7 +21,9 @@ A threaded HTTP server bound to 127.0.0.1 only (DESIGN 7.2) serves one job:
 - ``/api/health``        mid-term plan 1-4: the song's health (``bandscribe.tab.health``; rebuilt when the export changed),
 - ``/api/view?kind=role|player&players=N&idle=rest|double&unison=duplicate|primary_only``   M7c: a Role or Player
                          view of the (edited) score - alphaTex, note map and the Player view's assignment.
-With an edit session ``/score.alphatex`` is the edited score; every edit lands in the job's ``edits.jsonl`` and
+``/alphatab/...`` and ``/static/...`` are shared by all songs. A song's edit session opens on its first request and
+stays one per job (the root and ``/s/<job>/`` of the same job share it). With an edit session ``/score.alphatex`` is
+the edited score; every edit lands in the job's ``edits.jsonl`` and
 the score files of ``export/`` follow it. Every request must carry this server's own Host (DNS rebinding).
 Nothing else of the disk is reachable (paths are resolved and must stay inside their root). Workers and fonts
 need http(s), which is why this is a server and not a file:// page.
@@ -43,6 +49,8 @@ from bandscribe import atomic
 
 VIEWER_DIR = Path(__file__).with_name("viewer")
 TEMPLATE = VIEWER_DIR / "index.html"
+HOME_TEMPLATE = VIEWER_DIR / "home.html"
+_SONG_ROUTE = re.compile(r"^/s/([A-Za-z0-9_-]{1,64})(/.*)?$")
 AUDIO_EXTS = (".mp3", ".m4a", ".mp4", ".wav", ".flac", ".ogg", ".opus", ".webm", ".aac")
 MIME = {".alphatex": "text/plain; charset=utf-8", ".u8": "application/octet-stream", ".gp5": "application/octet-stream", ".mjs": "text/javascript",
         ".js": "text/javascript", ".woff2": "font/woff2", ".woff": "font/woff", ".sf2": "application/octet-stream",
@@ -101,15 +109,15 @@ def _inside(root: Path, rel: str) -> Path | None:
 
 
 class _Ctx:
-    """What every request of one viewer server shares."""
+    """What every request for one song shares."""
 
     def __init__(self, files: Mapping[str, Any], alphatab: Path, session: Any, readonly: str,
-                 job_dir: Path | None = None) -> None:
+                 job_dir: Path | None = None, token: str | None = None) -> None:
         self.files = files
         self.alphatab = alphatab
         self.session = session          # bandscribe.tab.edits.Session, or None (read-only)
         self.readonly = readonly        # why there is no session ("" when editing works)
-        self.token = secrets.token_urlsafe(18)
+        self.token = token or secrets.token_urlsafe(18)
         self.job_dir = Path(job_dir) if job_dir is not None else None
         self._media_lock = threading.Lock()
         self._media_key: str | None = None
@@ -146,14 +154,172 @@ class _Ctx:
         return m["candidates"]
 
 
+def _open_song(job_dir: Path, alphatab: Path, edit: bool, token: str) -> _Ctx:
+    files = job_files(job_dir)
+    session, readonly = None, "편집 끔"
+    if edit:
+        from bandscribe.tab import edits as E
+
+        try:
+            session, readonly = E.Session(Path(job_dir)), ""
+        except E.EditError as e:
+            readonly = str(e)
+        except Exception as e:  # noqa: BLE001 - the score can still be viewed
+            log.exception("viewer: the edit session of %s did not open", Path(job_dir).name)
+            readonly = f"편집 기록을 열지 못했습니다: {e}"
+    return _Ctx(files, alphatab, session, readonly, Path(job_dir), token)
+
+
+def _mmss(s: Any) -> str:
+    if not isinstance(s, (int, float)) or s <= 0:
+        return "-"
+    return f"{int(s // 60)}:{int(s % 60):02d}"
+
+
+def song_row(job_dir: Path) -> dict[str, Any]:
+    """One line of the home page: title, tempo (and whether someone set or kept it), tunings, health, edits."""
+    import time
+
+    from bandscribe.jobs import hints as HI
+    from bandscribe.tab import health as HL
+
+    job_dir = Path(job_dir)
+    files = job_files(job_dir)
+    row: dict[str, Any] = {"key": job_dir.name, "title": files["title"], "tuning": files["info"], "url": f"/s/{job_dir.name}/"}
+    try:
+        meta = atomic.read_json(job_dir / "input" / "meta.json")
+    except (OSError, ValueError):
+        meta = {}
+    row["duration"] = _mmss((meta or {}).get("duration_s"))
+    row["updated"] = time.strftime("%m-%d %H:%M", time.localtime(Path(files["tex"]).stat().st_mtime))
+    try:
+        h = HL.load_health(job_dir)
+    except Exception as e:  # noqa: BLE001 - the list still shows the song
+        h = {"items": [], "metrics": {}, "error": str(e)}
+    warns = [i for i in h.get("items") or [] if i.get("level") == "warn"]
+    row["warnings"] = [i.get("title", "") for i in warns]
+    row["guitar_removed"] = any(i.get("id") == "guitar_removed" for i in warns)
+    m = h.get("metrics") or {}
+    bpm = m.get("tempo_bpm")
+    confirmed = (HI.read_hints(job_dir).get("hints") or {}).get("tempo_confirmed") is True
+    row["tempo"] = f"{float(bpm):.0f}" if isinstance(bpm, (int, float)) else "-"
+    row["tempo_state"] = ("정함" if m.get("tempo_by") == "hint" else "확인함" if confirmed
+                          else "확인 안 됨" if bpm is not None else "")
+    try:
+        row["edits"] = sum(1 for ln in (job_dir / "edits.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip())
+    except OSError:
+        row["edits"] = 0
+    return row
+
+
+def song_keys(jobs_root: Path) -> list[str]:
+    """Jobs with an exported score."""
+    root = Path(jobs_root)
+    if not root.is_dir():
+        return []
+    return [d.name for d in sorted(root.iterdir()) if d.is_dir() and (d / "export" / "tab" / "score.alphatex").is_file()]
+
+
+def song_rows(jobs_root: Path) -> list[dict[str, Any]]:
+    """``song_row`` of every job with a score, by title (the home page, ``status --songs``)."""
+    out = []
+    for k in song_keys(jobs_root):
+        try:
+            out.append(song_row(Path(jobs_root) / k))
+        except (OSError, ValueError, ViewerError) as e:
+            out.append({"key": k, "title": k, "url": f"/s/{k}/", "error": str(e), "warnings": [],
+                        "guitar_removed": False})
+    return sorted(out, key=lambda r: (str(r.get("title") or "").casefold(), r["key"]))
+
+
+class _Library:
+    """Every song one server shows: the jobs with an exported score (mid-term plan 1-7)."""
+
+    def __init__(self, jobs_root: Path, alphatab: Path, edit: bool) -> None:
+        self.root = Path(jobs_root)
+        self.alphatab = alphatab
+        self.edit = edit
+        self.token = secrets.token_urlsafe(18)
+        self._lock = threading.Lock()
+        self._songs: dict[str, _Ctx] = {}
+
+    def song(self, key: str) -> _Ctx | None:
+        """The song of job ``key`` (opened once; None when there is no such job or it has no score)."""
+        d = self.root / key
+        if not d.is_dir() or d.resolve().parent != self.root.resolve():
+            return None
+        with self._lock:
+            ctx = self._songs.get(key)
+            if ctx is None:
+                try:
+                    ctx = _open_song(d, self.alphatab, self.edit, self.token)
+                except ViewerError:
+                    return None
+                self._songs[key] = ctx
+            return ctx
+
+    def rows(self) -> list[dict[str, Any]]:
+        return song_rows(self.root)
+
+    def sessions(self) -> list[Any]:
+        with self._lock:
+            return [c.session for c in self._songs.values() if c.session is not None]
+
+
+def _home_table(rows: list[dict[str, Any]]) -> str:
+    esc = html.escape
+    head = ("<tr><th>제목</th><th>템포</th><th>튜닝</th><th>점검</th><th>길이</th><th>편집</th><th>마지막 실행</th></tr>")
+    body = []
+    for r in rows:
+        if r.get("error"):
+            body.append(f'<tr><td><span class="key">{esc(r["key"])}</span></td><td colspan="6" class="warn">'
+                        f'{esc(r["error"])}</td></tr>')
+            continue
+        state = r.get("tempo_state") or ""
+        tempo = esc(r.get("tempo") or "-") + (f' <span class="{"warn" if state == "확인 안 됨" else "muted"}">'
+                                              f'{esc(state)}</span>' if state else "")
+        w = r.get("warnings") or []
+        check = (f'<span class="warn" title="{esc(" / ".join(w))}">⚠ {len(w)}</span>' if w else '<span class="muted">-</span>')
+        edits = f'<span class="chip">{r["edits"]}</span>' if r.get("edits") else '<span class="muted">-</span>'
+        body.append(f'<tr><td><a class="song" href="{esc(r["url"])}">{esc(r["title"])}</a><br>'
+                    f'<span class="key">{esc(r["key"])}</span></td><td class="num">{tempo}</td>'
+                    f'<td>{esc(r.get("tuning") or "-")}</td><td>{check}</td><td class="num">{esc(r.get("duration") or "-")}</td>'
+                    f'<td class="num">{edits}</td><td class="num">{esc(r.get("updated") or "-")}</td></tr>')
+    return f'<div class="wrap"><table>{head}{"".join(body)}</table></div>'
+
+
+def home_page(rows: list[dict[str, Any]]) -> str:
+    songs = [r for r in rows if not r.get("guitar_removed")]
+    removed = [r for r in rows if r.get("guitar_removed")]
+    if not rows:
+        sections = '<p>아직 악보가 있는 곡이 없습니다. 먼저 <code>bandscribe run &lt;파일&gt;</code> 을 실행하세요.</p>'
+    else:
+        sections = _home_table(songs) if songs else ""
+        if removed:
+            sections += ("<h2>기타가 빠진 음원 (참고용)</h2><p class=\"note\">분리된 기타가 거의 들리지 않아 기타를 뺀 반주로 보입니다. "
+                         "탭 전체를 믿기 어렵습니다.</p>" + _home_table(removed))
+    summary = f"{len(songs)}곡" + (f" (기타가 빠진 음원 {len(removed)}개 따로)" if removed else "") + "."
+    page = HOME_TEMPLATE.read_text(encoding="utf-8")
+    return page.replace("{{SUMMARY}}", html.escape(summary)).replace("{{SECTIONS}}", sections)
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "bandscribe-viewer"
 
-    def __init__(self, *args: Any, ctx: _Ctx, **kw: Any) -> None:
-        self.ctx = ctx
-        self.files = ctx.files
-        self.alphatab = ctx.alphatab
+    def __init__(self, *args: Any, lib: _Library, default: str | None, **kw: Any) -> None:
+        self.lib = lib
+        self.default = default          # the job key `view` was started with (served at the root too)
+        self.ctx: _Ctx | None = None
+        self.files: Mapping[str, Any] = {}
+        self.alphatab = lib.alphatab
         super().__init__(*args, **kw)
+
+    def _song(self, route: str) -> tuple[_Ctx | None, str]:
+        """(the song, its route) for ``/s/<job>/<route>``, else the server's own song at the root."""
+        m = _SONG_ROUTE.match(route)
+        if m:
+            return self.lib.song(m.group(1)), m.group(2) or ""
+        return (self.lib.song(self.default) if self.default else None), route
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet
         pass
@@ -219,6 +385,26 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self.send_error(403)
         route = unquote(urlsplit(self.path).path)
+        if route == "/home" or (route in ("/", "/index.html") and not self.default):
+            return self._send_bytes(home_page(self.lib.rows()).encode("utf-8"), "text/html; charset=utf-8")
+        if route == "/api/songs":
+            return self._json({"songs": self.lib.rows()})
+        if route.startswith("/alphatab/"):
+            p = _inside(self.alphatab, route[len("/alphatab/"):])
+            return self._send_file(p) if p else self.send_error(404)
+        if route.startswith("/static/") and route.endswith(".js"):
+            p = _inside(VIEWER_DIR, route[len("/static/"):])
+            return self._send_file(p) if p else self.send_error(404)
+        ctx, route = self._song(route)
+        if ctx is None:
+            return self.send_error(404)
+        if route == "":  # /s/<job> -> /s/<job>/ (the page's relative URLs need the slash)
+            self.send_response(301)
+            self.send_header("Location", urlsplit(self.path).path + "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        self.ctx, self.files = ctx, ctx.files
         f = self.files
         s = self.ctx.session
         if route in ("/", "/index.html"):
@@ -240,14 +426,6 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send_file(f["audio"])
         if route.startswith("/tab/") and route.endswith(".txt"):
             p = _inside(Path(f["tab_dir"]), route[len("/tab/"):])
-            if p:
-                return self._send_file(p)
-        if route.startswith("/alphatab/"):
-            p = _inside(self.alphatab, route[len("/alphatab/"):])
-            if p:
-                return self._send_file(p)
-        if route.startswith("/static/") and route.endswith(".js"):
-            p = _inside(VIEWER_DIR, route[len("/static/"):])
             if p:
                 return self._send_file(p)
         if route == "/api/media":
@@ -325,10 +503,12 @@ class _Handler(BaseHTTPRequestHandler):
 
         if not self._host_ok():
             return self._json({"error": "허용되지 않은 주소입니다"}, 403)
-        if unquote(urlsplit(self.path).path) != "/api/cmd":
+        ctx, route = self._song(unquote(urlsplit(self.path).path))
+        if ctx is None or route != "/api/cmd":
             return self._json({"error": "없는 경로입니다"}, 404)
-        if not secrets.compare_digest(self.headers.get("X-Bandscribe-Token") or "", self.ctx.token):
+        if not secrets.compare_digest(self.headers.get("X-Bandscribe-Token") or "", self.lib.token):
             return self._json({"error": "편집 권한이 없습니다(페이지를 새로 고치세요)"}, 403)
+        self.ctx, self.files = ctx, ctx.files
         s = self.ctx.session
         if s is None:
             return self._json({"error": f"이 악보는 편집할 수 없습니다: {self.ctx.readonly}"}, 409)
@@ -355,32 +535,37 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json({"error": f"편집을 처리하지 못했습니다: {e}"}, 500)
 
 
-def serve(job_dir: Path, *, port: int = 0, alphatab: Path | None = None, edit: bool = True
-          ) -> tuple[ThreadingHTTPServer, threading.Thread]:
-    """Start the viewer server on 127.0.0.1 in a daemon thread; returns (server, thread). With ``edit`` the page
-    can edit the score (``bandscribe.tab.edits``); ``httpd.session`` is that session (None: read-only, and
-    ``httpd.readonly`` says why)."""
+def serve(job_dir: Path | None, *, port: int = 0, alphatab: Path | None = None, edit: bool = True,
+          jobs_root: Path | None = None) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    """Start the viewer server on 127.0.0.1 in a daemon thread; returns (server, thread). It shows every song of
+    ``jobs_root`` (default: ``job_dir``'s folder, else ``paths.JOBS``); ``job_dir`` (optional) is also served at the
+    root. With ``edit`` the pages can edit their scores (``bandscribe.tab.edits``); ``httpd.session`` is the root
+    song's session (None: read-only, and ``httpd.readonly`` says why), ``httpd.sessions()`` every opened one."""
     from bandscribe.eval import node
 
-    files = job_files(job_dir)
     at = Path(alphatab or node.alphatab_dir() / "dist")
+    if job_dir is not None:
+        job_files(job_dir)  # the score must exist (Korean ViewerError), before the alphaTab check as before
     if not (at / "alphaTab.min.js").is_file():
         raise ViewerError(f"alphaTab 이 없습니다: {at} (node 폴더에서 npm ci)")
-    session, readonly = None, "편집 끔"
-    if edit:
-        from bandscribe.tab import edits as E
+    if jobs_root is None:
+        from bandscribe import paths
 
-        try:
-            session, readonly = E.Session(Path(job_dir)), ""
-        except E.EditError as e:
-            readonly = str(e)
-        except Exception as e:  # noqa: BLE001 - the score can still be viewed
-            log.exception("viewer: the edit session of %s did not open", Path(job_dir).name)
-            readonly = f"편집 기록을 열지 못했습니다: {e}"
-    ctx = _Ctx(files, at, session, readonly, Path(job_dir))
-    httpd = ThreadingHTTPServer(("127.0.0.1", int(port)), partial(_Handler, ctx=ctx))
-    httpd.session = session  # type: ignore[attr-defined]
-    httpd.readonly = readonly  # type: ignore[attr-defined]
+        jobs_root = Path(job_dir).parent if job_dir is not None else paths.JOBS
+    lib = _Library(Path(jobs_root), at, edit)
+    default = None
+    if job_dir is not None:
+        if Path(job_dir).resolve().parent != Path(jobs_root).resolve():
+            raise ViewerError(f"작업 폴더가 {jobs_root} 안에 있어야 합니다: {job_dir}")
+        default = Path(job_dir).name
+        ctx = lib.song(default)
+        if ctx is None:
+            raise ViewerError(f"악보를 열지 못했습니다: {job_dir}")
+    httpd = ThreadingHTTPServer(("127.0.0.1", int(port)), partial(_Handler, lib=lib, default=default))
+    httpd.session = ctx.session if default else None  # type: ignore[attr-defined]
+    httpd.readonly = ctx.readonly if default else ""  # type: ignore[attr-defined]
+    httpd.sessions = lib.sessions  # type: ignore[attr-defined]
+    httpd.library = lib  # type: ignore[attr-defined]
     t = threading.Thread(target=httpd.serve_forever, name="bandscribe-viewer", daemon=True)
     t.start()
     return httpd, t

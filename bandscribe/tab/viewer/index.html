@@ -28,6 +28,8 @@
   #band { display: block; width: 100%; height: 92px; cursor: pointer; }
   #roll { display: block; width: 100%; height: 216px; cursor: crosshair; }
   h1 { font-size: 17px; margin: 0 6px 0 0; font-weight: 650; }
+  a.home { color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap; }
+  a.home:hover { color: var(--accent); }
   h2 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: none; }
   button, select { font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line);
                    border-radius: 8px; padding: 5px 11px; cursor: pointer; }
@@ -93,6 +95,7 @@
 </head>
 <body>
 <header>
+  <a href="/home" title="곡 목록" class="home">☰ 곡</a>
   <h1>{{TITLE}}</h1>
   <button id="play" class="primary" disabled>▶ 재생</button>
   <span class="time" id="time">0:00 / 0:00</span>
@@ -372,7 +375,7 @@ function healthItem(it) {
   return div;
 }
 async function loadHealth() {
-  const r = await fetch("/api/health", { cache: "no-store" });
+  const r = await fetch("api/health", { cache: "no-store" });
   if (!r.ok) return;
   const h = await r.json();
   const items = (h.items || []).filter((it) => it.id !== "run");
@@ -395,20 +398,20 @@ loadHealth().catch(() => {});
 
 // recordings, router windows, CQT
 async function loadMedia() {
-  const r = await fetch("/api/media", { cache: "no-store" });
+  const r = await fetch("api/media", { cache: "no-store" });
   if (!r.ok) throw new Error(`/api/media: HTTP ${r.status}`);
   const m = await r.json();
-  for (const s of m.sources) engine.add({ id: s.id, label: s.label, group: "rec", url: `/media/${s.id}`, on: s.on });
+  for (const s of m.sources) engine.add({ id: s.id, label: s.label, group: "rec", url: `media/${s.id}`, on: s.on });
   drawMixer();
   lower.setRouter(m.router);
   if (m.cqt_default) {
-    fetch(`/api/cqt/${m.cqt_default}`).then(async (res) => {
+    fetch(`api/cqt/${m.cqt_default}`).then(async (res) => {
       if (!res.ok) return;
       const head = JSON.parse(res.headers.get("X-Cqt"));
       lower.setCqt(new Uint8Array(await res.arrayBuffer()), head);
     }).catch(() => {});
   }
-  fetch("/api/candidates").then((res) => res.ok ? res.json() : { notes: [] }).then((d) => lower.setCandidates(d.notes)).catch(() => {});
+  fetch("api/candidates").then((res) => res.ok ? res.json() : { notes: [] }).then((d) => lower.setCandidates(d.notes)).catch(() => {});
 }
 
 // tab synth: one source per score track ("synth:<track id>": an edit can add or remove a part track, which shifts
@@ -513,8 +516,8 @@ api.error.on((e) => { status.textContent = "악보를 열지 못했습니다: " 
 
 // resolves when alphaTab has drawn the new score (or after 20 s), so no click lands on the old drawing
 let view = "part";
-const viewUrl = () => view === "part" ? "/api/score" :
-  `/api/view?kind=${view}&players=${$("nSel").value}&idle=${$("idleSel").value}&unison=${$("uniSel").value}`;
+const viewUrl = () => view === "part" ? "api/score" :
+  `api/view?kind=${view}&players=${$("nSel").value}&idle=${$("idleSel").value}&unison=${$("uniSel").value}`;
 let loadSeq = 0, pendingDraw = null;
 async function load(keepScroll) {
   const seq = ++loadSeq;  // a newer load (a view switch during an edit, say) supersedes this one
@@ -688,7 +691,7 @@ function showCounts(d) {
 const setBusy = (b) => { busy = b; document.body.classList.toggle("busy", b); };
 // one command; the caller holds `busy` (so no other key is sent before the page shows the result)
 async function run(cmd, reload = true) {
-  const r = await fetch("/api/cmd", { method: "POST", headers: { "Content-Type": "application/json",
+  const r = await fetch("api/cmd", { method: "POST", headers: { "Content-Type": "application/json",
     "X-Bandscribe-Token": TOKEN }, body: JSON.stringify({ ...cmd, version: doc.version }) });
   const d = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
   if (r.status === 409 && d.stale) { flash(d.error); await load(true); return null; }

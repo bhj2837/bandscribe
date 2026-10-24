@@ -439,6 +439,24 @@ def run_cmd(
             for i in items:
                 tag = "[yellow]경고[/]" if i["level"] == "warn" else "알림"
                 out.print(f"  {tag}: {escape(i['title'])}", soft_wrap=True)
+            try:  # mid-term plan 1-7: the summary card, last
+                if not (export / "tab" / "score.alphatex").is_file():
+                    raise FileNotFoundError(str(export / "tab" / "score.alphatex"))
+                from bandscribe.commands.view import find_jobs
+                from bandscribe.tab import summary as SM
+                from bandscribe.tab import viewer
+
+                title = viewer.job_files(Path(job.job_dir))["title"]
+                arg = title if find_jobs(title, Path(job.job_dir).parent) == [Path(job.job_dir)] else song_key
+                rows = SM.card(Path(job.job_dir), doc, view_arg=arg)
+            except FileNotFoundError:
+                pass
+            except Exception as e:  # noqa: BLE001 - the run itself succeeded
+                err.print(f"[yellow]경고:[/] 요약을 만들지 못했습니다: {escape(str(e))}", soft_wrap=True)
+            else:
+                out.rule(f"[bold]{escape(title)}[/]", align="left")
+                for label, text in rows:
+                    out.print(f"[bold]{label}[/]  {escape(text)}", soft_wrap=True)
 
 
 def register(app: typer.Typer) -> None:
