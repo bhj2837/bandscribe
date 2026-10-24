@@ -33,7 +33,7 @@ from bandscribe import __version__, atomic, config, log, paths
 logger = logging.getLogger(__name__)
 
 # Command modules owned by the M1a/M2 work packages (M1_M2_SPEC 1.7), loaded lazily by _RootGroup.
-OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "view", "bench", "eval", "gt", "data", "models")
+OPTIONAL_COMMANDS: tuple[str, ...] = ("run", "view", "refresh", "bench", "eval", "gt", "data", "models")
 
 
 class _RootGroup(TyperGroup):
@@ -399,12 +399,43 @@ def ingest(
         _err().print(f"[yellow]경고:[/] {escape(long_msg)}", soft_wrap=True)
 
 
+def _status_songs(root: Path) -> None:
+    """``status --songs`` (mid-term plan 1-7): the viewer home's list in the terminal."""
+    from bandscribe.tab import viewer
+
+    c = _out()
+    rows = _call("곡 목록 읽기", viewer.song_rows, root)
+    shown = [r for r in rows if not r.get("guitar_removed") and not r.get("error")]
+    table = Table(title=f"곡 {len(shown)}개", title_justify="left")
+    for col in ("제목", "템포", "튜닝", "점검", "길이", "편집", "작업 키"):
+        table.add_column(col, overflow="fold")
+    for r in shown:
+        state = r.get("tempo_state") or ""
+        tempo = escape(str(r.get("tempo") or "-")) + (
+            f" [yellow]{escape(state)}[/]" if state == "확인 안 됨" else f" {escape(state)}" if state else "")
+        w = r.get("warnings") or []
+        table.add_row(escape(str(r["title"])), tempo, escape(str(r.get("tuning") or "-")),
+                      f"[yellow]경고 {len(w)}[/]" if w else "-", escape(str(r.get("duration") or "-")),
+                      str(r.get("edits") or "-"), escape(r["key"]))
+    c.print(table)
+    hidden = len(_job_dirs(root)) - len(shown)
+    if hidden:
+        removed = sum(1 for r in rows if r.get("guitar_removed"))
+        c.print(f"숨긴 작업 {hidden}개: 기타가 빠진 음원 {removed}개, 악보가 없거나 읽지 못한 작업 {hidden - removed}개. "
+                "전체 목록: bandscribe status", soft_wrap=True)
+    c.print("악보 보기: bandscribe view <제목>  (곡 목록: bandscribe view)")
+
+
 @app.command()
 def status(
     song_key: Annotated[str | None, typer.Argument(help="작업 키(앞부분만 써도 됨). 생략하면 전체 목록")] = None,
+    songs: Annotated[bool, typer.Option(
+        "--songs", help="악보가 있는 곡만 제목순으로(템포, 튜닝, 점검, 편집 수). 악보 없는 작업과 기타가 빠진 음원은 숨긴다.")] = False,
 ) -> None:
     """작업 목록, 또는 작업 하나의 입력 정보와 단계별 결과."""
     root = Path(paths.JOBS)
+    if songs and song_key is None:
+        return _status_songs(root)
     index = _read_index(root)
     sources: dict[str, list[str]] = {}
     for src_key, key in index.items():

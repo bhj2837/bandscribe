@@ -298,3 +298,59 @@ def test_song_flags_are_kept_in_hints_toml_but_not_on_a_dry_run_or_a_rejected_pl
     monkeypatch.setattr(runner, "plan", bad_plan)
     assert CliRunner().invoke(_app(), ["run", KEY, "--instruments", "kazoo"]).exit_code == 2
     assert "instruments" not in _hints(tmp_path).get("hints", {})
+
+
+# ---- mid-term plan 1-7: refresh (CPU stages only, every song) and status --songs
+
+def _bump(monkeypatch, stages):
+    """A new code version of ``stages`` (their cache keys change, as after a code or defaults change)."""
+    from bandscribe.pipeline import graph
+
+    real = graph._provider
+
+    def provider(module):
+        impls = real(module)
+        return {n: (dict(i, code_version="2") if n in stages else i) for n, i in impls.items()}
+
+    monkeypatch.setattr(graph, "_provider", provider)
+
+
+def _refresh_app():
+    from bandscribe.commands import refresh
+
+    app = typer.Typer()
+
+    @app.callback()
+    def _root():
+        pass
+
+    refresh.register(app)
+    return app
+
+
+def test_refresh_recomputes_cpu_stages_and_skips_songs_that_need_the_gpu(tmp_path, monkeypatch):
+    f = _job(tmp_path, monkeypatch)
+    assert CliRunner().invoke(_app(), ["run", KEY]).exit_code == 0
+    tex = tmp_path / "jobs" / KEY / "export" / "tab" / "score.alphatex"
+
+    def scored():  # the fake score stage writes no alphaTex, and a publish replaces export/
+        tex.parent.mkdir(parents=True, exist_ok=True)
+        tex.write_text("\title x", encoding="utf-8")
+
+    scored()
+    r = CliRunner().invoke(_refresh_app(), ["refresh", "--dry-run"])
+    assert r.exit_code == 0 and "최신" in r.output
+    _bump(monkeypatch, {"score"})
+    f.calls.clear()
+    r = CliRunner().invoke(_refresh_app(), ["refresh", "--dry-run"])
+    assert "다시 계산: score" in r.output and f.calls == []
+    r = CliRunner().invoke(_refresh_app(), ["refresh"])
+    assert r.exit_code == 0, r.output
+    assert f.calls == ["score"] and "다시 계산 1곡" in r.output
+    scored()
+    _bump(monkeypatch, {"amt_gtr"})
+    f.calls.clear()
+    r = CliRunner().invoke(_refresh_app(), ["refresh"])
+    flat = " ".join(r.output.split())
+    assert r.exit_code == 0 and "건너뜀" in flat and "amt_gtr" in flat and f.calls == []
+

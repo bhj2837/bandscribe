@@ -355,6 +355,25 @@ def test_status_empty(root: Path, runner: CliRunner) -> None:
     assert "작업이 없습니다" in result.stdout
 
 
+def test_status_songs_lists_scored_songs_and_counts_the_hidden_jobs(root: Path, runner: CliRunner,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    from bandscribe.tab import viewer
+
+    KEY = "f-0123456789abcdef"
+    (paths.JOBS / KEY).mkdir(parents=True)
+    rows = [{"key": KEY, "title": "lulu.", "tempo": "176", "tempo_state": "확인 안 됨", "tuning": "기타 E standard",
+             "warnings": ["x"], "guitar_removed": False, "edits": 2, "duration": "4:31"},
+            {"key": "f-1111111111111111", "title": "backing", "warnings": ["y"], "guitar_removed": True}]
+    monkeypatch.setattr(viewer, "song_rows", lambda root: rows)
+    (paths.JOBS / "f-1111111111111111").mkdir()
+    (paths.JOBS / "f-2222222222222222").mkdir()
+    r = runner.invoke(cli.app, ["status", "--songs"])
+    flat = " ".join(r.stdout.split())
+    assert r.exit_code == 0, r.output
+    assert "곡 1개" in flat and "lulu." in flat and "확인 안 됨" in flat and "경고 1" in flat and "backing" not in flat
+    assert "숨긴 작업 2개: 기타가 빠진 음원 1개, 악보가 없거나 읽지 못한 작업 1개" in flat
+
+
 def test_status_list(root: Path, runner: CliRunner) -> None:
     make_jobs(paths.JOBS)
     result = runner.invoke(cli.app, ["status"])

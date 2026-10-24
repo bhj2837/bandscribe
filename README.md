@@ -62,8 +62,10 @@ Pro 5·MIDI)를 만들고, 원곡에 맞춰 커서가 움직이는 로컬 뷰어
 | 편성 추정 | 악기 클래스별 존재 확률(`instrumentation.json`, 건반·신스·현악 등). 기타 전사의 악기 마스크를 정하는 데 쓴다 |
 | 연습용 반주 | 기타 뺀 믹스, 베이스 뺀 믹스, 베이스 스템. 분리 오차가 그대로 남는다 |
 
-`bandscribe view <작업>` 이 악보를 브라우저로 연다(127.0.0.1 에서만). 원곡을 재생하면 커서가 따라가고, 악보를 누르면 그
-위치로 이동한다. 怪獣の花唄 곡 전체에서 커서와 박 격자의 차이는 최대 31 ms였다(박 격자 자체가 틀린 구간은 아래 「원곡 동기」 참고).
+`bandscribe view` 가 곡 목록을 브라우저로 연다(127.0.0.1 에서만; 저장소의 `view.cmd` 를 더블클릭해도 된다). 서버 하나로 모든 곡을
+본다: 목록은 제목순으로 템포(정함 · 확인함 · 확인 안 됨), 튜닝, 점검 경고, 편집 수를 보이고, 기타가 빠진 음원은 따로 모은다.
+`bandscribe view <제목 또는 작업 키>` 는 그 곡을 바로 연다. 곡 페이지 위쪽에는 그 곡의 점검(경고, 접힌 알림)이 나오고 구간
+버튼을 누르면 그 자리로 간다. 원곡을 재생하면 커서가 따라가고, 악보를 누르면 그 위치로 이동한다. 怪獣の花唄 곡 전체에서 커서와 박 격자의 차이는 최대 31 ms였다(박 격자 자체가 틀린 구간은 아래 「원곡 동기」 참고).
 
 **연습·검토(M4b):**
 - **믹서**(왼쪽): 원곡, 분리 스템 6개, 기타 뺀 믹스·베이스 뺀 믹스, 그리고 악보 트랙마다 탭 신스를 켜기·솔로·볼륨으로 섞는다.
@@ -482,14 +484,19 @@ bandscribe.cmd doctor                              :: 환경 점검 (GPU 셀프�
 bandscribe.cmd run "C:\music\song.flac"            :: 기본: --until score, --profile quality
 bandscribe.cmd run "C:\music\song.flac" --parts 2  :: 기타 파트 수를 정하기(auto 가 기본, 1-4)
 bandscribe.cmd run "C:\music\song.flac" --tempo 185 :: 템포 단위를 185 BPM 에 맞추기(박을 절반으로 셀 때)
-bandscribe.cmd view "C:\music\song.flac"           :: 악보를 브라우저로 보고 키보드로 고치기 (작업 키 앞부분만 써도 됨)
+bandscribe.cmd view                               :: 곡 목록을 브라우저로 (view.cmd 더블클릭과 같음)
+bandscribe.cmd view lulu.                         :: 그 곡을 바로 열기 (제목, 작업 키 앞부분, 파일 경로 모두 됨)
 bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만 보기
-bandscribe.cmd status                              :: 작업 목록
+bandscribe.cmd status --songs                      :: 악보가 있는 곡 목록 (전체 작업: status)
+bandscribe.cmd refresh                             :: 코드·기본값이 바뀐 뒤 모든 곡을 CPU 단계만 다시 (GPU 가 필요한 곡은 건너뜀)
 bandscribe.cmd config show                         :: 지금 적용되는 설정
 ```
 
-- 결과는 `data\jobs\<작업 키>\export\`에 모인다: `tab\score.alphatex`, `tab\score.gp5`, `tab\*.txt`, `midi\*.mid`,
-  `practice\*.wav`, `instrumentation.json`, `score.json`. 스템은 `stages\sep\<키>\stems\`에 있다.
+- `run` 은 마지막에 요약을 보인다: 템포(누가 정했는지, 다른 후보), 박자, 기타·베이스 튜닝과 여유, 파트별 음 수, 점검 경고 수,
+  여는 명령, `.gp` 경로.
+- 결과는 `data\jobs\<작업 키>\export\`에 모인다: `tab\score.gp`(Guitar Pro 7, 원곡을 백킹 트랙으로 넣음), `tab\score.gp5`,
+  `tab\score.alphatex`, `tab\*.txt`, `midi\*.mid`, `practice\*.wav`, `chords\`, `health.json`(곡 점검), `instrumentation.json`,
+  `score.json`. 스템은 `stages\sep\<키>\stems\`에 있다.
 - `score.gp5` 는 Guitar Pro 5 형식이라 TuxGuitar(무료)·Guitar Pro·MuseScore 에서 열린다. 한글 제목이면 cp949 로 저장한다.
 - 튜닝은 자동으로 고르지만 직접 정할 수 있다: 곡 작업 폴더의 `hints.toml` 에
 
