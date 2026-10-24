@@ -92,6 +92,18 @@ def test_song_health_items(tmp_path):
     assert next(i for i in doc2["items"] if i["id"] == "tempo")["title"].endswith("(힌트로 정함)")
 
 
+def test_a_tiny_second_part_is_a_low_confidence_split(tmp_path):
+    job, dirs = _job(tmp_path)
+    notes = [dict(n, line="1") for n in _notes(0.0, 95.0, 1.0, 0.5, 60)] + [dict(n, line="2") for n in _notes(0.0, 5.0, 1.0, 0.5, 64)]
+    atomic.write_json(dirs["parts"] / "guitar_lines.json", {"notes": notes})
+    doc = H.song_health(job, results=dirs)
+    it = next(i for i in doc["items"] if i["id"] == "weak_split")
+    assert it["level"] == "info" and "5 %" in it["title"] and doc["metrics"]["smallest_part_share"] == 0.05
+    notes = [dict(n, line="2" if k % 3 == 0 else "1") for k, n in enumerate(_notes(0.0, 100.0, 1.0, 0.5, 60))]
+    atomic.write_json(dirs["parts"] / "guitar_lines.json", {"notes": notes})
+    assert "weak_split" not in {i["id"] for i in H.song_health(job, results=dirs)["items"]}
+
+
 def test_viewer_serves_health(tmp_path):
     from test_viewer_m4b import media_job
 

@@ -5,7 +5,9 @@
 - A name is "number - role (class, position)", e.g. ``Gtr 1 - Rhythm (dist., L)`` (ASCII: MIDI track names are
   Latin-1). Role: ``Rhythm`` when at least ``RHYTHM_CHORD_SHARE`` of the Line's notes are chord notes, ``Lead``
   when at least ``LEAD_SHARE`` are lead-layer notes or most notes are single and high (median at or above
-  ``LEAD_PITCH``), else ``Riff``. Class: the most frequent MuScriptor guitar class. Position (from the Line's seeds
+  ``LEAD_PITCH``), else ``Riff``. Class: the most frequent MuScriptor guitar class, written only when at least
+  ``CLASS_MIN_SHARE`` of the Line's notes carry it (mid-term plan 1-9: on 13 songs the top class held 37-100 % of a
+  part's notes, and a 37 % label is a guess shown as a fact). Position (from the Line's seeds
   in ``R3`` windows): ``L`` / ``R`` beyond ``POS_SIDE``, else none is written (a part not heard at a side has no
   position worth naming).
 - One Line (one guitar) is ``Gtr`` with no number.
@@ -22,6 +24,7 @@ RHYTHM_CHORD_SHARE = 0.4
 LEAD_SHARE = 0.3
 LEAD_PITCH = 64  # E4
 POS_SIDE = 0.3
+CLASS_MIN_SHARE = 0.7
 CLASS_SHORT = {"distorted_electric_guitar": "dist.", "clean_electric_guitar": "clean", "acoustic_guitar": "acoustic"}
 
 
@@ -54,6 +57,8 @@ def order_and_names(profiles: Sequence[Mapping[str, Any]], line: Sequence[int | 
         ii = idx[j]
         classes = [str(notes[i].get("instrument")) for i in ii]
         top = sorted(set(classes), key=lambda c: (-classes.count(c), c))[0] if classes else None
+        if top is not None and classes.count(top) < CLASS_MIN_SHARE * len(classes):
+            top = None
         pos = float(pr.get("position") or 0.0)
         rows.append({"j": j, "key": pr["key"], "role": role_of(ii, notes, feats),
                      "cls": CLASS_SHORT.get(str(top), str(top) if top else ""),

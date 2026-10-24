@@ -138,6 +138,6 @@ def run_parts(ctx: Any) -> None:
 STAGES: dict[str, dict] = {
     "notesig": {"run": run_notesig, "code_version": "1", "params": notesig_params, "device": "cpu",
                 "models": lambda cfg: {}},
-    "parts": {"run": run_parts, "code_version": "4", "params": parts_params, "device": "cpu",
+    "parts": {"run": run_parts, "code_version": "5", "params": parts_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

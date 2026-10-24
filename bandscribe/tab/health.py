@@ -18,12 +18,15 @@ Items (``level`` = ``warn`` or ``info``; ``spans`` = [[start_s, end_s], ...] whe
 - ``bleed_risk``: bars where the separated piano+other stems are at least ``BLEED_RISK_DB`` against the guitar stem
   (E37: such sounds land in the guitar tab and the transcriber never labels them; E38/E41: no note rule removes them).
 - ``merged_parts``: non-silent router windows outside R3 (wide double / centred guitars): their notes go to Gtr 1 unsplit.
+- ``weak_split`` (plan 1-9): the smallest guitar part holds under ``WEAK_SPLIT_SHARE`` of the part notes (on the 13
+  songs: 怪獣の花唄 11 %, 狭心症 7 %, AIZO 17 %; the others 28-48 %) - a low-confidence split.
 - ``run``: the run's own warnings (``pipeline.runner.run_warnings``: degraded GPU rungs, grid repairs, leftover energy...).
 """
 
 from __future__ import annotations
 
 import math
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -32,7 +35,7 @@ from bandscribe import atomic
 from bandscribe.jobs import hints as hints_mod
 
 FORMAT = "bandscribe.health/1"
-CODE_VERSION = "2"  # 2: tempo_confirmed; rebuilt when hints.toml changes
+CODE_VERSION = "3"  # 2: tempo_confirmed; rebuilt when hints.toml changes. 3: weak_split
 HEALTH_FILE = "health.json"
 GUITAR_REMOVED_DB = -16.0
 BURST_WINDOW_S = 10.0
@@ -45,6 +48,7 @@ TUNING_MARGIN_LOW = 0.1
 BLEED_RISK_DB = -3.0
 BLEED_INFO_SHARE = 0.1
 MERGED_INFO_SHARE = 0.2
+WEAK_SPLIT_SHARE = 0.2
 TRACK_KO = {"bass": "베이스", "guitar_all": "기타(합침)", "gtr_1": "기타 1", "gtr_2": "기타 2", "gtr_3": "기타 3",
             "gtr_4": "기타 4"}
 
@@ -280,6 +284,16 @@ def song_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> 
             items.append(_item("merged_parts", "info",
                                f"기타가 가운데·넓은 더블로 깔린 구간({share * 100:.0f} %)은 파트를 나누지 못하고 기타 1 에 합쳤습니다",
                                "그 구간의 기타 1 은 한 사람의 파트가 아닐 수 있습니다.", spans, share=round(share, 3)))
+
+    part_n = Counter(str(n.get("line")) for n in lines.get("notes") or [] if str(n.get("line")) not in ("None", "u"))
+    if len(part_n) >= 2:
+        low = min(part_n.values()) / sum(part_n.values())
+        metrics["smallest_part_share"] = round(low, 3)
+        if low < WEAK_SPLIT_SHARE:
+            items.append(_item("weak_split", "info",
+                               f"가장 작은 기타 파트가 파트 음의 {low * 100:.0f} %뿐입니다 — 파트 나누기 확신이 낮습니다",
+                               "그 파트는 다른 기타의 일부나 다른 악기 소리일 수 있습니다. 한 대로 보려면 뷰어의 '파트 수' 를 1 로.",
+                               share=round(low, 3)))
 
     try:
         from bandscribe.pipeline import runner

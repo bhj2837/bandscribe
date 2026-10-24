@@ -172,6 +172,16 @@ def test_gtr_1_is_the_line_in_most_bars_and_names_say_role_class_position():
     assert {n["line"] for n in out["note"]} == {1, 2}
 
 
+def test_the_guitar_class_is_named_only_when_70_percent_of_the_notes_agree():
+    # mid-term plan 1-9: 64 strums, 3 notes each; the top class must hold 70 % of the part's notes
+    for n_clean, named in ((57, True), (58, False)):  # 192 notes: 135 dist. = 70.3 % / 134 = 69.8 %
+        notes = [x for k in range(64) for x in _strum(k * 0.5, 40)]
+        for x in notes[:n_clean]:
+            x["instrument"] = CLEAN
+        out = D.diarize(notes, [{} for _ in notes], _wins(label="R0"))
+        assert out["lines"][0]["name"] == ("Gtr - Rhythm (dist.)" if named else "Gtr - Rhythm"), n_clean
+
+
 def test_one_guitar_is_named_gtr_without_a_number():
     notes = [x for k in range(64) for x in _strum(k * 0.5, 40)]
     out = D.diarize(notes, [{} for _ in notes], _wins(label="R0"))
