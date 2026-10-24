@@ -488,6 +488,7 @@ bandscribe.cmd view                               :: 곡 목록을 브라우저�
 bandscribe.cmd view lulu.                         :: 그 곡을 바로 열기 (제목, 작업 키 앞부분, 파일 경로 모두 됨)
 bandscribe.cmd run "C:\music\song.flac" --dry-run  :: 단계별 캐시 여부만 보기
 bandscribe.cmd status --songs                      :: 악보가 있는 곡 목록 (전체 작업: status)
+bandscribe.cmd library                             :: 곡마다 data\library\<제목>\ 에 .gp·.gp5·코드표·README 모으기
 bandscribe.cmd refresh                             :: 코드·기본값이 바뀐 뒤 모든 곡을 CPU 단계만 다시 (GPU 가 필요한 곡은 건너뜀)
 bandscribe.cmd config show                         :: 지금 적용되는 설정
 bandscribe.cmd eval sheets                         :: 악보곡 채점(사용자 밴드스코어에서 뽑은 JSON, 로컬 전용; 약 3초)
