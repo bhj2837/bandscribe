@@ -165,6 +165,12 @@ def bleed_risk(energy: Mapping[str, Any], grid: Mapping[str, Any]) -> tuple[list
     return _merge(spans), (len(spans) / n_bars if n_bars else 0.0)
 
 
+def guitar_level(stem_stats: Mapping[str, Any]) -> float | None:
+    """The separated guitar's level against the mix (dB, ``stem_stats.json``); below ``GUITAR_REMOVED_DB`` = removed."""
+    v = ((stem_stats.get("stems") or {}).get("guitar") or {}).get("rel_db")
+    return float(v) if isinstance(v, (int, float)) else None
+
+
 def song_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> dict[str, Any]:
     """The health document of a job's exported score (module doc)."""
     import numpy as np
@@ -177,7 +183,7 @@ def song_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> 
     duration = float(grid.get("duration_s") or 0.0)
 
     st = _read(dirs, "stems", "stem_stats.json") or {}
-    g_rel = ((st.get("stems") or {}).get("guitar") or {}).get("rel_db")
+    g_rel = guitar_level(st)
     if g_rel is not None:
         metrics["guitar_rel_db"] = round(float(g_rel), 2)
         if float(g_rel) < GUITAR_REMOVED_DB:
