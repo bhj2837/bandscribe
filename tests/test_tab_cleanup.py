@@ -57,3 +57,43 @@ def test_quant_stage_applies_the_cleanup(tmp_path):
     p = TS.quant_params(load_config())
     assert p["cleanup"] == {"dedupe_s": 0.03, "min_dur_s": 0.05}
     assert "cleanup" not in TS.quant_params({"tab.dedupe_s": 0.0, "tab.min_dur_s": 0.0})
+
+
+def test_cleanup_keeps_the_source_index_for_parts_and_repeat_links():
+    # the part-count switch and the repeat links find notes by quant's ``i`` = the parts stage's index
+    from test_tab_quantize import grid_doc
+
+    from bandscribe.tab import quantize as Q
+
+    notes = [_n(0.0, 0.3, 60, "1"), _n(0.01, 0.4, 60, "1"), _n(0.5, 0.51, 62, "1"), _n(1.0, 1.3, 64, "2")]
+    dd_notes = [{**n, Q.SRC_INDEX: k} for k, n in enumerate(notes)]
+    kept = C.dedupe_within_line(C.drop_short(dd_notes, 0.05)[0], 0.03)[0]
+    assert [n[Q.SRC_INDEX] for n in kept] == [0, 3]
+    q = Q.quantize({"guitar_all": kept}, grid_doc([0.5 * b for b in range(16)]))
+    assert sorted(n["i"] for n in Q.notes_of(q, "guitar_all")) == [0, 3]
+    q2 = Q.quantize({"guitar_all": notes}, grid_doc([0.5 * b for b in range(16)]))
+    assert sorted(n["i"] for n in Q.notes_of(q2, "guitar_all")) == [0, 1, 2, 3]  # no filter: the position, as before
+
+
+def test_editor_base_applies_the_runs_cleanup(monkeypatch):
+    from bandscribe.tab import edits as ED
+    from bandscribe.tab import stage as TS
+
+    seen = {}
+
+    def fake_quant_tracks(dirs, cleanup=None):
+        seen["cleanup"] = cleanup
+        raise KeyError("stop here")
+
+    monkeypatch.setattr(TS, "quant_tracks", fake_quant_tracks)
+    monkeypatch.setattr(ED, "export_score_key", lambda job: "s" * 12)
+    manifests = {"score": {"deps": {"tab": "t" * 12, "quant": "q" * 12, "grid": "g" * 12, "sections": "x" * 12}},
+                 "tab": {"params": {}}, "quant": {"deps": {"notes": "n" * 12, "parts": "p" * 12},
+                                                  "params": {"cleanup": {"dedupe_s": 0.03, "min_dur_s": 0.05}}}}
+    monkeypatch.setattr(ED, "_manifest", lambda d: manifests[d.parent.name])
+    monkeypatch.setattr(ED.atomic, "read_json", lambda p: {"sections": [], "bars": []})
+    import pytest
+
+    with pytest.raises(ED.EditError):
+        ED.load_base(__import__("pathlib").Path("D:/nonexistent_job"))
+    assert seen["cleanup"] == {"dedupe_s": 0.03, "min_dur_s": 0.05}

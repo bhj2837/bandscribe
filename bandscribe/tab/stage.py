@@ -123,6 +123,10 @@ def quant_tracks(dep_dirs: Mapping[str, Path], cleanup: Mapping[str, float] | No
     if cleanup:  # M10 (E39 / E40): short notes out of both, then duplicates within a part
         from bandscribe.tab import cleanup as CL
 
+        # keep each note's index in the stage's list: quant's ``i`` must stay the parts stage's index (the part
+        # count switch and the repeat links look notes up by it, tab/edits.py), not the position after the clean-up
+        gtr = [{**n, Q.SRC_INDEX: k} for k, n in enumerate(gtr)]
+        bass = [{**n, Q.SRC_INDEX: k} for k, n in enumerate(bass)]
         gtr = CL.drop_short(gtr, float(cleanup.get("min_dur_s", 0.0)))[0]
         bass = CL.drop_short(bass, float(cleanup.get("min_dur_s", 0.0)))[0]
         gtr = CL.dedupe_within_line(gtr, float(cleanup.get("dedupe_s", 0.0)))[0]
@@ -953,7 +957,7 @@ STAGES: dict[str, dict] = {
     "tuning": {"run": run_tuning, "code_version": "1", "params": tuning_params, "device": "cpu",
                "models": lambda cfg: {}},
     "a4": {"run": run_a4, "code_version": "1", "params": a4_params, "device": "cpu", "models": lambda cfg: {}},
-    "quant": {"run": run_quant, "code_version": "4", "params": quant_params, "device": "cpu",
+    "quant": {"run": run_quant, "code_version": "5", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
     "tab": {"run": run_tab, "code_version": "8", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
     "score": {"run": run_score, "code_version": "10", "params": score_params, "device": "cpu",

@@ -141,7 +141,7 @@ def load_base(job_dir: Path) -> Base:
         grid = atomic.read_json(stages / "grid" / dep["grid"] / "grid.json")
         sections = atomic.read_json(stages / "sections" / dep["sections"] / "sections.json").get("sections") or []
         tab = atomic.read_json(stages / "tab" / dep["tab"] / "tab.json")
-        raw = T.quant_tracks(raw_dirs)
+        raw = T.quant_tracks(raw_dirs, (qm.get("params") or {}).get("cleanup"))  # the run's E39 / E40 clean-up
         parts = T.parts_meta(raw_dirs)
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise EditError(f"편집할 악보를 찾지 못했습니다({job_dir.name}): 먼저 `bandscribe run` 으로 악보를 만드세요. ({e})") from e

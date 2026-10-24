@@ -306,6 +306,7 @@ def _viterbi(costs: list[dict[str, float]], switch: float) -> list[str]:
 # note fields the quantiser carries over unchanged (M5 bass: techniques, provenance, the anchor's move; M7a: the
 # guitar note's part, its posterior and the amber flag)
 PASS_KEYS = ("tech", "src", "conf", "f0", "from_pitch", "merged", "line", "shared", "p", "amber", "rep")
+SRC_INDEX = "src_i"  # a note's index in its source list when a filter ran before quantisation (tab.stage.quant_tracks)
 
 
 def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[str, Any] | Grid,
@@ -375,7 +376,8 @@ def quantize(tracks: Mapping[str, Sequence[Mapping[str, Any]]], grid: Mapping[st
             step = TPB // DENOM[u_on][f_on]
             dur = max(g_off - g_on, step)
             bar, start_beat = tm._bar_of_beat(g_on / TPB)
-            rows.append({"i": k, "onset_s": round(float(n["onset_s"]), 6), "offset_s": round(float(n["offset_s"]), 6),
+            rows.append({"i": int(n.get(SRC_INDEX, k)), "onset_s": round(float(n["onset_s"]), 6),
+                         "offset_s": round(float(n["offset_s"]), 6),
                          "pitch": int(n["pitch"]), "instrument": n.get("instrument"), "gtick": int(g_on),
                          "dur": int(dur), "bar": int(bar), "tick": int(g_on - round(start_beat * TPB)),
                          "family": fam, "level": int(pts.level[c]), "resid_ms": round(float(resid_ms), 2),
