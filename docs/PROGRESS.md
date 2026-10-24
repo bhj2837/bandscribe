@@ -11,6 +11,18 @@ phase 2 section-first fixing tools, phase 3 E45/E44/E46 and the first J-pop meas
 answers recorded (check lulu. / 狭心症 / 怪獣の花唄 first; the target is practising in bandscribe's own viewer, not Guitar Pro; E48
 MuScriptor-large approved for phase 3); the 13 jobs re-run after `2276733` and checked (notes unchanged, repeat links 100 %, no-edit replay
 = the run up to note order within a tick). Next: phase 1, viewer-first (see the appendix of `docs/MIDTERM_REVIEW.md`).
+**Phase 1 so far (2026-10-24, local commits):** song health in `export/health.json`, printed after `run` and shown as a
+banner in the viewer (1-4, 1-5, 1-8, 1-9; 0 input / burst / unplaced false alarms on the 13 valid jobs, all 3 guitar-removed
+jobs caught); `run` asks the tempo after beats + grid, before the first GPU stage of a new song (1-6; Enter keeps, h / d /
+a BPM; 60 s or no terminal = unconfirmed), and keeps `--tempo` / `--parts` / `--title` / `--instruments` / tuning in the
+job's `hints.toml`; on the 8 local songs with a known tempo the automatic level is x2 off on 4, the right level is
+always a candidate, the hint always lands on it (`tests/test_grid_known_tempo.py`). One viewer server for every song
+(`bandscribe view` = the song list, `/s/<job>/`, `view.cmd`), a summary card at the end of `run`, per-stage time
+estimates, `status --songs`, `refresh` (CPU stages only) (1-7). Repository safety (1-1): copyright guard test,
+`-m smoke` (143 tests, 19 s), `.githooks/pre-push`, `--run-gpu` / `--run-network`, `bandscribe backup` + a doctor
+warning. The metrics-and-split rules block heads `docs/decisions.md` (1-3; the split itself is due 11/15). Open in phase
+1: `bandscribe eval sheets` (1-2), the test-access code (1-3), the GP library (1-7, lower priority), the owner's check
+of lulu. / 狭心症 / 怪獣の花唄.
 Before it, **E41 rejected (2026-10-23)** - the piano+other transcription vote also removes more real guitar notes than
 bleed (arrangements double the guitar); keys / strings bleed needs a better separation, not a note rule. Before it,
 **E39 and E40 adopted (2026-10-21)** - note clean-up at the quant stage's input: same-pitch duplicates
