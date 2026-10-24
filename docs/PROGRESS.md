@@ -7,6 +7,10 @@ nothing measured what the player reads (string agreement 0.583, tuning+capo 13/1
 failures. The review also found two bugs in the E39/E40 wiring (the editor skipped the clean-up; the clean-up shifted quant's note index),
 fixed in `2276733`. The plan: phase 0 backups and checks, phase 1 visible warnings / tempo question / library / sheet evaluation in git,
 phase 2 section-first fixing tools, phase 3 E45/E44/E46 and the first J-pop measurement. Evidence: `data/tmp/midterm/`.
+**Phase 0 done (2026-10-24):** backup of 1,825 files (2.13 GB, sha256 verified) in `C:\Users\user\bandscribe_backup\2026-10-24\`; the owner's
+answers recorded (check lulu. / 狭心症 / 怪獣の花唄 first; the target is practising in bandscribe's own viewer, not Guitar Pro; E48
+MuScriptor-large approved for phase 3); the 13 jobs re-run after `2276733` and checked (notes unchanged, repeat links 100 %, no-edit replay
+= the run up to note order within a tick). Next: phase 1, viewer-first (see the appendix of `docs/MIDTERM_REVIEW.md`).
 Before it, **E41 rejected (2026-10-23)** - the piano+other transcription vote also removes more real guitar notes than
 bleed (arrangements double the guitar); keys / strings bleed needs a better separation, not a note rule. Before it,
 **E39 and E40 adopted (2026-10-21)** - note clean-up at the quant stage's input: same-pitch duplicates
