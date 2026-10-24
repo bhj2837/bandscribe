@@ -141,3 +141,17 @@ def test_a_kept_automatic_tempo_reads_confirmed_and_hints_changes_rebuild_the_fi
     HI.set_hint(job, "hints", "tempo_confirmed", True)       # run asked, the user pressed Enter
     doc = H.load_health(job)                                  # same score: rebuilt because hints.toml changed
     assert next(i for i in doc["items"] if i["id"] == "tempo")["title"] == "템포 120 BPM (자동 판단, 확인함)"
+
+
+def test_a_title_the_gp5_file_cannot_hold_asks_for_a_romanised_one(tmp_path):
+    from bandscribe.jobs import hints as HI
+
+    job, dirs = _job(tmp_path)
+    atomic.write_json(job / "export" / "score.json", {"song": {"title": "狭心症"}})
+    it = next(i for i in H.song_health(job, results=dirs)["items"] if i["id"] == "gp5_title")
+    assert it["level"] == "info" and "title_ascii" in it["detail"]
+    HI.set_hint(job, "hints", "title_ascii", "kyoshinsho")
+    assert "gp5_title" not in {i["id"] for i in H.song_health(job, results=dirs)["items"]}
+    atomic.write_json(job / "export" / "score.json", {"song": {"title": "逆光"}})
+    (job / "hints.toml").unlink()
+    assert "gp5_title" not in {i["id"] for i in H.song_health(job, results=dirs)["items"]}

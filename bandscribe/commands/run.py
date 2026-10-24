@@ -60,7 +60,7 @@ def _about(seconds: float) -> str:
 # Mid-term plan 1-6: settings that belong to the song, so the CLI keeps them in the job's hints.toml (given once with a
 # flag or --set, used on every later run of that song; nobody edits the file by hand).
 SONG_KEYS: tuple[str, ...] = ("grid.tempo_bpm", "tab.guitar_parts", "tab.guitar_tuning", "tab.bass_tuning",
-                              "hints.title", "hints.instruments")
+                              "hints.title", "hints.title_ascii", "hints.instruments")
 TEMPO_WAIT_S = 60.0
 
 

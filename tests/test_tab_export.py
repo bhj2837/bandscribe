@@ -122,6 +122,16 @@ def test_gp5_round_trip(tmp_path):
     kr.title = "괴수의 꽃노래"
     assert GP5.text_encoding(kr) == "cp949" and GP5.write(kr, tmp_path / "kr.gp5")
     assert gp.parse(str(tmp_path / "kr.gp5"), encoding="cp949").title == "괴수의 꽃노래"
+    # mid-term plan 1-7: a Japanese title with characters cp949 lacks keeps the rest (was "???"), or uses title_ascii
+    jp = _song_score(fretted=True)
+    jp.title = "青と夏"
+    assert GP5.text_encoding(jp) == "cp949" and not GP5.title_fits("青と夏") and GP5.title_fits("逆光")
+    assert GP5.write(jp, tmp_path / "jp.gp5")
+    assert gp.parse(str(tmp_path / "jp.gp5"), encoding="cp949").title == "?と夏"
+    assert GP5.write(jp, tmp_path / "jp2.gp5", title_ascii="ao to natsu")
+    assert gp.parse(str(tmp_path / "jp2.gp5"), encoding="cp949").title == "ao to natsu"
+    assert GP5.write(kr, tmp_path / "kr2.gp5", title_ascii="unused")  # a title that fits keeps itself
+    assert gp.parse(str(tmp_path / "kr2.gp5"), encoding="cp949").title == "괴수의 꽃노래"
 
 
 def test_viewer_serves_the_job_with_ranges(tmp_path):

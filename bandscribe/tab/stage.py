@@ -426,7 +426,9 @@ def track_name(q: Mapping[str, Any], tid: str) -> tuple[str, str]:
 
 
 def score_params(cfg: Any) -> dict[str, Any]:
+    ascii_title = str(_cfg_get(cfg, "hints.title_ascii", "") or "").strip()
     return {"tempo_change_ratio": 0.04, "title": str(_cfg_get(cfg, "hints.title", "") or "").strip(),
+            **({"title_ascii": ascii_title} if ascii_title else {}),  # only when set: other songs keep their key
             "views": {"players": int(_cfg_get(cfg, "views.players", 2)),
                       "idle_policy": str(_cfg_get(cfg, "views.idle_policy", "rest")),
                       "unison_policy": str(_cfg_get(cfg, "views.unison_policy", "duplicate"))},
@@ -709,7 +711,7 @@ def write_score(out: Path, *, song_key: str, meta: dict[str, Any], title: str, q
     if problems:
         raise TabStageError(f"리듬 표기 오류 {len(problems)}건(버그): {problems[:3]}")
     atomic.write_text(out / "tab" / "score.alphatex", ATX.write(score))
-    GP5.write(score, out / "tab" / "score.gp5")
+    GP5.write(score, out / "tab" / "score.gp5", title_ascii=str(params.get("title_ascii") or ""))
     write_gp7(out, score, grid, backing_audio(job_dir, str((params.get("gp7") or {}).get("backing") or "none"),
                                               stems_dir=stems_dir), job_dir=job_dir, quant=quant)
     for tid, tr in (tab.get("tracks") or {}).items():
@@ -925,7 +927,7 @@ def write_views(out: Path, *, title: str, quant: dict[str, Any], tab: dict[str, 
             if problems:
                 raise TabStageError(f"리듬 표기 오류 {len(problems)}건(버그): {problems[:3]}")
             atomic.write_text(out / "tab" / "views" / f"{view}.alphatex", ATX.write(score))
-            GP5.write(score, out / "tab" / "views" / f"{view}.gp5")
+            GP5.write(score, out / "tab" / "views" / f"{view}.gp5", title_ascii=str(params.get("title_ascii") or ""))
         except Exception as e:  # noqa: BLE001 - logged; the view is left out
             log.warning("%s 보기를 쓰지 못했습니다: %s", view, e)
             doc.setdefault("errors", {})[view] = str(e)
@@ -952,7 +954,7 @@ def run_score(ctx: Any) -> None:
 
 # quant 4 / tab 7 / score 5: M7a Part view (guitar notes and Line names from the parts stage; K part tracks with
 # their own tunings, the Unassigned staff). tab 8: the song tuning from the tuning stage, a part's own tuning among
-# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff); 8: the chord chart and the GP7 file (M9); 9: M9 review (stems dep, note drift); 10: chart header with three songs (E33)
+# the song's best few (2026-10-17, the --parts switch). score 6: the Role / Player views, roles per section (M7c); 7: review fixes (view instruments, extra staff); 8: the chord chart and the GP7 file (M9); 9: M9 review (stems dep, note drift); 10: chart header with three songs (E33); 11: GP5 title in cp949 even when partly lossy, hints.title_ascii
 STAGES: dict[str, dict] = {
     "tuning": {"run": run_tuning, "code_version": "1", "params": tuning_params, "device": "cpu",
                "models": lambda cfg: {}},
@@ -960,6 +962,6 @@ STAGES: dict[str, dict] = {
     "quant": {"run": run_quant, "code_version": "5", "params": quant_params, "device": "cpu",
               "models": lambda cfg: {}},
     "tab": {"run": run_tab, "code_version": "8", "params": tab_params, "device": "cpu", "models": lambda cfg: {}},
-    "score": {"run": run_score, "code_version": "10", "params": score_params, "device": "cpu",
+    "score": {"run": run_score, "code_version": "11", "params": score_params, "device": "cpu",
               "models": lambda cfg: {}},
 }

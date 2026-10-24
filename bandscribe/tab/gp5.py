@@ -77,27 +77,38 @@ def build(score: WScore) -> gp.Song:
     return song
 
 
+def _fits(text: str, enc: str) -> bool:
+    try:
+        text.encode(enc)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def text_encoding(score: WScore) -> str:
-    """GP5 stores strings in a single-byte code page: cp1252 (Guitar Pro's default) when the texts fit, else
-    cp949 for Korean titles (a Korean Windows reads it; alphaTab: ``settings.importer.encoding = "euc-kr"``)."""
+    """GP5 stores strings in a code page: cp1252 (Guitar Pro's default) when the texts fit, else cp949 (a Korean
+    Windows reads it; alphaTab: ``settings.importer.encoding = "euc-kr"``) - also when some characters are not in
+    cp949 (Japanese shinjitai such as 獣 青 狭): those become "?", the rest stays readable (before 2026-10-24 the whole
+    title fell back to cp1252 and became "???")."""
     texts = [score.title, score.artist or ""] + [t.name for t in score.tracks] + [b.section or "" for b in score.bars]
-    for enc in ("cp1252", "cp949"):
-        try:
-            for t in texts:
-                t.encode(enc)
-            return enc
-        except UnicodeEncodeError:
-            continue
-    return "cp1252"
+    return "cp1252" if all(_fits(t, "cp1252") for t in texts) else "cp949"
 
 
-def write(score: WScore, path: Path) -> bool:
-    """Write ``path``; False (nothing written) when the score has no fretted track."""
+def title_fits(title: str) -> bool:
+    """Whether ``title`` survives in a GP5 file (cp1252 or cp949) without "?"."""
+    return _fits(title, "cp1252") or _fits(title, "cp949")
+
+
+def write(score: WScore, path: Path, *, title_ascii: str = "") -> bool:
+    """Write ``path``; False (nothing written) when the score has no fretted track. ``title_ascii`` (the song's
+    ``hints.title_ascii``) replaces a title the code page cannot hold."""
     if not any(t.fretted for t in score.tracks):
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
     enc = text_encoding(score)
     song = build(score)
+    if title_ascii.strip() and not _fits(song.title, enc):
+        song.title = title_ascii.strip()
     # characters outside the chosen code page (rare symbols) become "?" rather than failing the stage
     song.title = song.title.encode(enc, "replace").decode(enc)
     song.artist = song.artist.encode(enc, "replace").decode(enc)

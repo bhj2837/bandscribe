@@ -139,6 +139,9 @@ class HintsCfg(_Section):
     parts: str = "auto"  # used from M6 on; stored now
     # The song's title in the score, the viewer and `status`; empty = the input's file name (YouTube: video title).
     title: str = ""
+    # Mid-term plan 1-7: the GP5 file's title when ``title`` does not fit its code page (Japanese shinjitai such as
+    # 獣 青 狭 are not in cp949), e.g. "kaiju no hanauta". The .gp (UTF-8) and the viewer keep ``title``.
+    title_ascii: str = ""
     # Mid-term plan 1-6: the user kept the automatic tempo when `run` asked (Enter). Not in any stage's params, so
     # writing it never invalidates a cache; `run` stops asking and the song health says "확인함".
     tempo_confirmed: bool = False

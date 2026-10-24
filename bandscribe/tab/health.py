@@ -18,6 +18,7 @@ Items (``level`` = ``warn`` or ``info``; ``spans`` = [[start_s, end_s], ...] whe
 - ``bleed_risk``: bars where the separated piano+other stems are at least ``BLEED_RISK_DB`` against the guitar stem
   (E37: such sounds land in the guitar tab and the transcriber never labels them; E38/E41: no note rule removes them).
 - ``merged_parts``: non-silent router windows outside R3 (wide double / centred guitars): their notes go to Gtr 1 unsplit.
+- ``gp5_title`` (plan 1-7): the title does not fit the GP5 file's code page and no ``hints.title_ascii`` is set.
 - ``weak_split`` (plan 1-9): the smallest guitar part holds under ``WEAK_SPLIT_SHARE`` of the part notes (on the 13
   songs: 怪獣の花唄 11 %, 狭心症 7 %, AIZO 17 %; the others 28-48 %) - a low-confidence split.
 - ``run``: the run's own warnings (``pipeline.runner.run_warnings``: degraded GPU rungs, grid repairs, leftover energy...).
@@ -35,7 +36,7 @@ from bandscribe import atomic
 from bandscribe.jobs import hints as hints_mod
 
 FORMAT = "bandscribe.health/1"
-CODE_VERSION = "3"  # 2: tempo_confirmed; rebuilt when hints.toml changes. 3: weak_split
+CODE_VERSION = "4"  # 2: tempo_confirmed; rebuilt when hints.toml changes. 3: weak_split. 4: gp5_title
 HEALTH_FILE = "health.json"
 GUITAR_REMOVED_DB = -16.0
 BURST_WINDOW_S = 10.0
@@ -284,6 +285,18 @@ def song_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> 
             items.append(_item("merged_parts", "info",
                                f"기타가 가운데·넓은 더블로 깔린 구간({share * 100:.0f} %)은 파트를 나누지 못하고 기타 1 에 합쳤습니다",
                                "그 구간의 기타 1 은 한 사람의 파트가 아닐 수 있습니다.", spans, share=round(share, 3)))
+
+    try:
+        from bandscribe.tab import gp5 as GP5
+
+        title = str((atomic.read_json(job_dir / "export" / "score.json").get("song") or {}).get("title") or "")
+    except (OSError, ValueError):
+        title = ""
+    if (title and not GP5.title_fits(title)
+            and not str((hints_mod.read_hints(job_dir).get("hints") or {}).get("title_ascii") or "").strip()):
+        items.append(_item("gp5_title", "info", f"GP5 파일에서는 제목 '{title}' 의 일부 글자가 '?' 로 보입니다",
+                           "GP5 는 한국어 코드 페이지(cp949)로 저장하는데 그 글자(일본 신자체 등)가 없습니다. "
+                           "로마자 제목을 주세요: --set hints.title_ascii=\"...\" (.gp 파일과 뷰어는 원래 제목 그대로)."))
 
     part_n = Counter(str(n.get("line")) for n in lines.get("notes") or [] if str(n.get("line")) not in ("None", "u"))
     if len(part_n) >= 2:

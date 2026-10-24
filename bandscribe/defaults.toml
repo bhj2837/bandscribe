@@ -73,6 +73,7 @@ profile = "quality"            # fast | quality | eval   (max = later milestones
 instruments = "auto"           # "auto" or comma list of families: guitar,keys,synth,bass,strings,brass,winds,vocals
 parts = "auto"                 # used from M6 on; stored now
 title = ""                     # song title in the score, viewer and status; "" = the input's file name
+title_ascii = ""               # the GP5 file's title when the title does not fit its code page (cp949)
 tempo_confirmed = false        # run asked and the user kept the automatic tempo (written by run, not a cache input)
 
 [sep]
