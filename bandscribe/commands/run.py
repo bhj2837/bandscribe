@@ -31,6 +31,146 @@ def _dur(v: Any) -> str:
     return f"{int(m)}:{s:04.1f}" if m else f"{s:.1f} s"
 
 
+# Mid-term plan 1-6: settings that belong to the song, so the CLI keeps them in the job's hints.toml (given once with a
+# flag or --set, used on every later run of that song; nobody edits the file by hand).
+SONG_KEYS: tuple[str, ...] = ("grid.tempo_bpm", "tab.guitar_parts", "tab.guitar_tuning", "tab.bass_tuning",
+                              "hints.title", "hints.instruments")
+TEMPO_WAIT_S = 60.0
+
+
+def song_settings(overrides: list[str]) -> list[tuple[str, str, Any]]:
+    """(section, key, value) of the ``SONG_KEYS`` among the overrides; the last one wins, as in the config."""
+    from bandscribe import config
+
+    seen: dict[str, Any] = {}
+    for item in overrides:
+        parts, value = config.parse_override(item)
+        if ".".join(parts) in SONG_KEYS:
+            seen[".".join(parts)] = value
+    out = []
+    for k, v in seen.items():
+        section, key = k.split(".", 1)
+        out.append((section, key, v))
+    return out
+
+
+def tempo_question_due(items: list, cfg: Any) -> bool:
+    """Ask the tempo now (plan 1-6)? A GPU stage below the grid would run for the first time, and the song has neither a
+    tempo (hint, ``--tempo``) nor a kept automatic one. A wrong tempo found later costs those GPU stages again (lulu.
+    +515 s). The caller checks the terminal."""
+    from bandscribe.pipeline import graph
+
+    if float(cfg.grid.tempo_bpm) > 0 or cfg.hints.tempo_confirmed:
+        return False
+    below = graph.descendants({"grid"}) - {"grid"}
+    return (any(it.stage == "grid" for it in items)
+            and any(it.stage in below and it.device == "gpu" and not it.cached for it in items))
+
+
+def tempo_choices(grid: dict) -> tuple[float, dict[str, dict]] | None:
+    """(the grid's tempo, {half|keep|double: {bpm, score, ...}}) of an automatic octave decision in grid.json, else None."""
+    to = (grid.get("hypotheses") or {}).get("tempo_octave") or {}
+    sc = to.get("scores") or {}
+    cur = sc.get(to.get("decision") or "keep") or {}
+    if to.get("by") != "onsets" or not cur.get("bpm"):
+        return None
+    return float(cur["bpm"]), sc
+
+
+def parse_tempo_answer(text: str, current: float) -> float | str | None:
+    """'' -> "keep"; h / d -> half / double of ``current`` (also the Korean-layout keys); a BPM; else None (ask again)."""
+    t = text.strip().lower()
+    if t == "":
+        return "keep"
+    if t in ("h", "ㅗ"):
+        v = current / 2
+    elif t in ("d", "ㅇ"):
+        v = current * 2
+    else:
+        try:
+            v = float(t)
+        except ValueError:
+            return None
+    return round(v, 1) if 0 < v <= 400 else None  # the hint only picks the nearest octave (as shown)
+
+
+def _meter_text(grid: dict) -> str:
+    segs = grid.get("meter") or []
+    if not segs:
+        return "?"
+    m = max(segs, key=lambda s: int(s.get("end_bar", 0)) - int(s.get("start_bar", 0)))
+    return f"{m.get('numerator')}/{m.get('denominator')}"
+
+
+def tempo_prompt(grid: dict) -> str | None:
+    ch = tempo_choices(grid)
+    if ch is None:
+        return None
+    cur, sc = ch
+    cands = " · ".join(
+        f"{float(v.get('bpm') or 0):.1f}{' ←' if abs(float(v.get('bpm') or 0) - cur) < 1e-6 else ''}"
+        f" (점수 {float(v.get('score') or 0):.2f})"
+        for _, v in sorted(sc.items(), key=lambda kv: float(kv[1].get("bpm") or 0)))
+    return (f"템포 확인 — 새 곡이라 GPU 전사 전에 한 번만 묻습니다.\n"
+            f"  박 추적: {cur:.1f} BPM, {_meter_text(grid)} (자동)\n"
+            f"  후보: {cands}\n"
+            f"  Enter = 그대로 · h = 절반({cur / 2:.1f}) · d = 두 배({cur * 2:.1f}) · 숫자 = 그 BPM"
+            f" ({TEMPO_WAIT_S:.0f}초 안에 답이 없으면 그대로)\n> ")
+
+
+def _is_tty() -> bool:
+    import sys
+
+    try:
+        return sys.stdin.isatty() and sys.stderr.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _ask(prompt: str, timeout_s: float) -> str | None:
+    """One line typed at the console, or None when nothing came within ``timeout_s`` (Windows: msvcrt; else select)."""
+    import os
+    import sys
+    import time
+
+    sys.stderr.write(prompt)
+    sys.stderr.flush()
+    if os.name == "nt":
+        import msvcrt
+
+        while msvcrt.kbhit():  # keys pressed while the beat tracker ran are not an answer
+            msvcrt.getwch()
+        buf: list[str] = []
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if not msvcrt.kbhit():
+                time.sleep(0.05)
+                continue
+            ch = msvcrt.getwch()
+            if ch in ("\r", "\n"):
+                sys.stderr.write("\n")
+                return "".join(buf)
+            if ch in ("\x00", "\xe0"):  # arrow and function keys come as two characters
+                msvcrt.getwch()
+            elif ch == "\b":
+                if buf:
+                    buf.pop()
+                    sys.stderr.write("\b \b")
+            else:
+                buf.append(ch)
+                sys.stderr.write(ch)
+            sys.stderr.flush()
+        sys.stderr.write("\n")
+        return None
+    import select
+
+    ready, _, _ = select.select([sys.stdin], [], [], timeout_s)
+    if not ready:
+        sys.stderr.write("\n")
+        return None
+    return sys.stdin.readline().rstrip("\r\n")
+
+
 def run_cmd(
     source: Annotated[str, typer.Argument(help="오디오 파일, YouTube URL 또는 작업 키(앞부분만 써도 됨)",
                                           show_default=False)],
@@ -45,10 +185,14 @@ def run_cmd(
         "--instruments", help='편성 힌트: auto 또는 "guitar,keys" 처럼 악기군 목록')] = None,
     parts: Annotated[str | None, typer.Option(
         "--parts", help="기타 파트 수: auto(기본, 곡에서 센다) 또는 1-4. 파트마다 탭 트랙 하나가 생기고, 합친 기타는 "
-                        "오선보로 남는다. 바꿔서 다시 돌리면 파트 나누기부터만 다시 한다.")] = None,
+                        "오선보로 남는다. 바꿔서 다시 돌리면 파트 나누기부터만 다시 한다. 이 곡의 hints.toml 에 저장된다.")] = None,
     tempo: Annotated[float | None, typer.Option(
         "--tempo", help="곡의 템포(4분음표 BPM). 박 추적이 절반·두 배 속도로 셀 때 박 단위만 이 값에 맞춘다. "
-                        "곡마다 고정하려면 작업 폴더 hints.toml 의 [grid] tempo_bpm.")] = None,
+                        "이 곡의 hints.toml 에 저장돼 다음 실행에도 쓴다. 안 주면 새 곡은 GPU 전사 전에 묻는다.")] = None,
+    title: Annotated[str | None, typer.Option(
+        "--title", help="곡 제목(악보·GP·뷰어·status). 이 곡의 hints.toml 에 저장된다.")] = None,
+    no_ask: Annotated[bool, typer.Option(
+        "--no-ask", help="템포를 묻지 않는다(답이 없을 때처럼 자동 템포로 진행하고 '확인 안 됨'으로 남긴다).")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="실행하지 않고 단계별 캐시 여부만 보여 준다.")] = False,
     set_: Annotated[list[str] | None, typer.Option(
         "--set", "-s", metavar="KEY=VALUE", help="설정 덮어쓰기(여러 번 가능). 예: --set grid.refine_window_ms=30")] = None,
@@ -58,6 +202,7 @@ def run_cmd(
     from rich.table import Table
 
     from bandscribe import config, paths
+    from bandscribe.jobs import hints as hints_mod
 
     out, err = Console(highlight=False), Console(stderr=True, highlight=False)
 
@@ -83,6 +228,8 @@ def run_cmd(
         # a JSON string literal is a valid TOML basic string, so quotes/backslashes in the value cannot break
         # the override; the family names are checked by the instr stage's params (Korean ConfigError, exit 2)
         overrides.append(f"hints.instruments={json.dumps(instruments.strip(), ensure_ascii=False)}")
+    if title is not None:
+        overrides.append(f"hints.title={json.dumps(title.strip(), ensure_ascii=False)}")
     try:
         cfg0 = config.load_config(overrides=overrides)
     except config.ConfigError as e:
@@ -151,6 +298,18 @@ def run_cmd(
         out.print(t)
         return
 
+    saved = []
+    for section, key, value in song_settings(overrides):  # after the plan: a value it rejects is never kept
+        try:
+            if (hints_mod.read_hints(Path(job.job_dir)).get(section) or {}).get(key) != value:
+                hints_mod.set_hint(Path(job.job_dir), section, key, value)
+                saved.append(f"{section}.{key}={value}")
+        except (OSError, ValueError) as e:
+            err.print(f"[yellow]경고:[/] {section}.{key} 를 hints.toml 에 저장하지 못했습니다: {escape(str(e))}",
+                      soft_wrap=True)
+    if saved:
+        out.print(f"이 곡의 설정으로 저장했습니다(hints.toml, 다음 실행에도 씀): {escape(', '.join(saved))}")
+
     notices: list[str] = []
     warned_live: set[str] = set()  # stages whose "warning" events were shown during this run
 
@@ -168,18 +327,61 @@ def run_cmd(
             err.print(f"[yellow]경고:[/] {escape(msg)}", soft_wrap=True)
             notices.append(msg)
 
-    try:
-        results = runner.run(song_key, cfg, until=until, force=forced, progress=progress, store=store)
-    except runner.ModelsMissing as e:
-        fail(str(e))
-    except KeyboardInterrupt:
-        fail("중단했습니다. 끝난 단계는 캐시에 남아 있어 다시 실행하면 이어서 진행합니다.", 130)
-    except Exception as e:
-        from bandscribe.pipeline.publish import PublishError
-
-        if isinstance(e, PublishError):
+    def run_until(stop: str, cfg_: Any, force_: set[str]) -> dict[str, Path]:
+        try:
+            return runner.run(song_key, cfg_, until=stop, force=force_, progress=progress, store=store)
+        except runner.ModelsMissing as e:
             fail(str(e))
-        fail(f"실행 실패: {str(e) or type(e).__name__}\n(끝난 단계는 캐시에 남아 있습니다. 로그: {paths.LOGS})")
+        except KeyboardInterrupt:
+            fail("중단했습니다. 끝난 단계는 캐시에 남아 있어 다시 실행하면 이어서 진행합니다.", 130)
+        except Exception as e:
+            from bandscribe.pipeline.publish import PublishError
+
+            if isinstance(e, PublishError):
+                fail(str(e))
+            fail(f"실행 실패: {str(e) or type(e).__name__}\n(끝난 단계는 캐시에 남아 있습니다. 로그: {paths.LOGS})")
+        raise AssertionError("unreachable")  # fail() always exits
+
+    if not no_ask and _is_tty() and tempo_question_due(items, cfg):  # plan 1-6: beats + grid first, then ask
+        pre = forced & {"beats", "grid"}
+        grid_dir = run_until("grid", cfg, pre)["grid"]
+        if pre:  # done now; their descendants stay forced
+            forced = graph.descendants(forced) - {"beats", "grid"}
+        try:
+            gdoc = json.loads((Path(grid_dir) / "grid.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            gdoc = {}
+        prompt, answer = tempo_prompt(gdoc), None
+        if prompt:
+            import time
+
+            cur = tempo_choices(gdoc)[0]
+            deadline = time.monotonic() + TEMPO_WAIT_S
+            while True:
+                left = deadline - time.monotonic()
+                text = _ask(prompt, left) if left > 0 else None
+                if text is None:
+                    err.print("답이 없어 자동 템포로 진행합니다('템포 확인 안 됨'으로 뷰어 위쪽 점검에 남습니다).")
+                    break
+                answer = parse_tempo_answer(text, cur)
+                if answer is not None:
+                    break
+                prompt = "Enter, h, d 또는 0 보다 크고 400 이하인 BPM 을 입력하세요\n> "
+        if answer == "keep":
+            hints_mod.set_hint(Path(job.job_dir), "hints", "tempo_confirmed", True)
+            out.print(f"템포 {cur:.1f} BPM 을 그대로 씁니다(hints.toml 에 '확인함'으로 적음).")
+        elif answer is not None:
+            hints_mod.set_hint(Path(job.job_dir), "grid", "tempo_bpm", float(answer),
+                               comment="run 이 물어서 정한 템포 (4분음표 BPM)")
+            out.print(f"템포를 {answer:g} BPM 으로 정했습니다(hints.toml [grid] tempo_bpm). 박자 격자를 다시 셉니다.")
+        if answer is not None:
+            try:
+                cfg = config.load_config(job_hints=hints, overrides=overrides)
+                items = runner.plan(song_key, cfg, until=until, force=forced, store=store)
+            except Exception as e:  # noqa: BLE001 - the answer is saved; the plain run below reports what is wrong
+                err.print(f"[yellow]경고:[/] 템포 답을 반영하지 못했습니다: {escape(str(e))}", soft_wrap=True)
+
+    results = run_until(until, cfg, forced)
 
     rows = runner.stage_summary(results, items)
     t = Table(title=f"단계 ({len(rows)}개)", title_justify="left")

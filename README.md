@@ -499,13 +499,19 @@ bandscribe.cmd config show                         :: 지금 적용되는 설정
   guitar_parts = 1               # 기타 파트 수 (--parts 1 과 같음; 0 = 자동)
   ```
 
-  를 적거나 한 번만 `--set tab.guitar_tuning="E standard"`. 그 튜닝으로 낼 수 없는 음은 옥타브를 옮겨 적고 경고한다.
+  를 적거나 `--set tab.guitar_tuning="E standard"`(이 곡의 `hints.toml` 에 저장돼 다음 실행에도 쓴다). 그 튜닝으로 낼 수 없는 음은
+  옥타브를 옮겨 적고 경고한다.
   자동 판정은 `tab/tab.json` 의 `auto_label` 에 남는다.
-- 곡 제목은 입력 파일 이름이다. 바꾸려면 같은 `hints.toml` 에 `[hints]` 아래 `title = "곡 제목"` 을 적는다(악보·GP5·뷰어·`status`).
+- 곡 제목은 입력 파일 이름이다. 바꾸려면 `--title "곡 제목"`(또는 같은 `hints.toml` 의 `[hints]` 아래 `title`; 악보·GP5·뷰어·`status`).
+- 곡의 성질인 설정 — `--tempo`, `--parts`, `--title`, `--instruments`, `--set tab.guitar_tuning=…`/`bass_tuning` — 은 한 번 주면
+  그 곡의 `hints.toml` 에 저장돼 다음 실행에도 쓴다(`--dry-run` 과 설정 오류로 멈춘 실행은 저장하지 않는다). 파일의 주석은 그대로 둔다.
 - 박 추적이 곡을 절반(또는 두 배) 속도로 세면 8분음표가 16분음표로 적힌다. 템포 단위는 자동으로 가를 근거가 없어서
   (예: 青と夏 185 BPM 과 AIZO 95 BPM 이 둘 다 93.75 로 잡히고 특징도 같다) 직접 정한다: 같은 `hints.toml` 에
-  `[grid]` 아래 `tempo_bpm = 185`(4분음표 기준), 또는 한 번만 `--tempo 185`. 박 단위(×2, ÷2)만 이 값에 맞추고
+  `[grid]` 아래 `tempo_bpm = 185`(4분음표 기준), 또는 `--tempo 185`. 박 단위(×2, ÷2)만 이 값에 맞추고
   템포 자체는 추적한 값을 쓴다. 2의 거듭제곱 배가 아닌 값(예: 6/8 의 점4분 템포)은 경고하고 무시한다.
+- 템포를 모르는 새 곡은 터미널에서 실행하면 박 추적(약 40초) 뒤, GPU 전사 전에 한 번 묻는다: 후보(÷2 · 그대로 · ×2)와 점수를
+  보이고 Enter = 그대로, h = 절반, d = 두 배, 숫자 = 그 BPM. 60초 안에 답이 없거나 `--no-ask`, 스크립트 실행이면 자동 템포로
+  진행하고 뷰어 위쪽 점검에 '확인 안 됨'으로 남는다. 늦게 고치면 GPU 단계까지 다시 돈다(lulu. 약 +9분).
 - 전사기(MuScriptor)는 소리가 없는 스템 위에도 음을 지어낸다. 그래서 기타·베이스 음 중 그 악기 스템이 곡의 큰 소리보다
   50 dB 넘게 작은 곳에서 시작한 음은 뺀다(`amt.silence_gate_db`, `-200` 이면 끔). 뺀 개수와 구간은
   `stages\notes\<키>\notes_summary.json` 의 `silence_gate` 에 남는다.

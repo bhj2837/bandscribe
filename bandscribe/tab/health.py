@@ -7,7 +7,8 @@ Items (``level`` = ``warn`` or ``info``; ``spans`` = [[start_s, end_s], ...] whe
   ``rel_db``). The user's originals sit at -5.3 to -11.5 dB, the guitar-removed backings at -20.6 to -42.0 dB
   (mid-term review, robustness area). A file name with "backing" is an info line.
 - ``tempo``: the grid's tempo level and whether a hint set it; without a hint, the x2 / /2 alternatives with their scores
-  (an info line on every unhinted song: the review found a score gap too small to tell on 10 of 13 songs).
+  (an info line on every unhinted song: the review found a score gap too small to tell on 10 of 13 songs), unless the
+  user kept the automatic tempo when ``run`` asked (``hints.tempo_confirmed``, plan 1-6).
 - ``burst_<track>``: 10 s windows of the stage notes (before the quant clean-up) where notes shorter than 50 ms are at
   least half, or the density is over 3x the song's median window - a transcriber degeneration (lulu.'s bass).
 - ``unplaced_<track>``: the tab could not place more than ``UNPLACED_WARN`` of a track's notes (``tab.json`` check).
@@ -28,9 +29,10 @@ from pathlib import Path
 from typing import Any
 
 from bandscribe import atomic
+from bandscribe.jobs import hints as hints_mod
 
 FORMAT = "bandscribe.health/1"
-CODE_VERSION = "1"
+CODE_VERSION = "2"  # 2: tempo_confirmed; rebuilt when hints.toml changes
 HEALTH_FILE = "health.json"
 GUITAR_REMOVED_DB = -16.0
 BURST_WINDOW_S = 10.0
@@ -199,6 +201,8 @@ def song_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> 
         metrics["tempo_by"] = to.get("by")
         if to.get("by") == "hint":
             items.append(_item("tempo", "info", f"템포 {float(bpm):.0f} BPM (힌트로 정함)"))
+        elif (hints_mod.read_hints(job_dir).get("hints") or {}).get("tempo_confirmed") is True:
+            items.append(_item("tempo", "info", f"템포 {float(bpm):.0f} BPM (자동 판단, 확인함)"))
         else:
             alts = sorted(((k, v) for k, v in sc.items() if k != (to.get("decision") or "keep")),
                           key=lambda kv: -float(kv[1].get("score") or 0))
@@ -282,10 +286,20 @@ def song_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> 
     order = {"warn": 0, "info": 1}
     items.sort(key=lambda it: order.get(it["level"], 2))
     return {"format": FORMAT, "code_version": CODE_VERSION, "job": job_dir.name,
-            "score_key": Path(dirs["score"]).name if "score" in dirs else None, "duration_s": duration,
+            "score_key": Path(dirs["score"]).name if "score" in dirs else None, "hints_sha": _hints_sha(job_dir),
+            "duration_s": duration,
             "summary": {"warn": sum(1 for i in items if i["level"] == "warn"),
                         "info": sum(1 for i in items if i["level"] == "info")},
             "metrics": metrics, "items": items}
+
+
+def _hints_sha(job_dir: Path) -> str | None:
+    import hashlib
+
+    try:
+        return hashlib.sha256(hints_mod.path(job_dir).read_bytes()).hexdigest()[:16]
+    except OSError:
+        return None
 
 
 def write_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) -> dict[str, Any]:
@@ -295,7 +309,8 @@ def write_health(job_dir: Path, *, results: Mapping[str, Path] | None = None) ->
 
 
 def load_health(job_dir: Path) -> dict[str, Any]:
-    """``export/health.json`` when it belongs to the exported score (same score key and code version), else rebuilt."""
+    """``export/health.json`` when it belongs to the exported score (same score key, code version and hints.toml),
+    else rebuilt."""
     p = Path(job_dir) / "export" / HEALTH_FILE
     try:
         doc = atomic.read_json(p)
@@ -304,6 +319,7 @@ def load_health(job_dir: Path) -> dict[str, Any]:
     from bandscribe.tab import edits as E
 
     if (isinstance(doc, dict) and doc.get("code_version") == CODE_VERSION
-            and doc.get("score_key") == E.export_score_key(Path(job_dir))):
+            and doc.get("score_key") == E.export_score_key(Path(job_dir))
+            and doc.get("hints_sha") == _hints_sha(Path(job_dir))):
         return doc
     return write_health(job_dir)

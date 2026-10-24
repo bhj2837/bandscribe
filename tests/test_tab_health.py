@@ -114,3 +114,18 @@ def test_viewer_serves_health(tmp_path):
         httpd.shutdown()
         t.join(timeout=5)
         httpd.session.close()
+
+
+def test_a_kept_automatic_tempo_reads_confirmed_and_hints_changes_rebuild_the_file(tmp_path, monkeypatch):
+    from bandscribe.jobs import hints as HI
+    from bandscribe.tab import edits as E
+
+    job, dirs = _job(tmp_path)
+    monkeypatch.setattr(H, "stage_dirs", lambda job_dir: dirs)
+    monkeypatch.setattr(E, "export_score_key", lambda job_dir: None)
+    doc = H.load_health(job)
+    assert "확인 안 됨" in next(i for i in doc["items"] if i["id"] == "tempo")["title"]
+    assert H.load_health(job)["hints_sha"] is None
+    HI.set_hint(job, "hints", "tempo_confirmed", True)       # run asked, the user pressed Enter
+    doc = H.load_health(job)                                  # same score: rebuilt because hints.toml changed
+    assert next(i for i in doc["items"] if i["id"] == "tempo")["title"] == "템포 120 BPM (자동 판단, 확인함)"

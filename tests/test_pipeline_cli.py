@@ -173,3 +173,128 @@ def test_tempo_flag_sets_the_grid_hint(tmp_path, monkeypatch):
     for bad in ("0", "500"):
         r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run", "--tempo", bad])
         assert r.exit_code == 2 and "--tempo" in r.output, r.output
+
+
+# ---- mid-term plan 1-6: the tempo question before the GPU stages, and song flags kept in hints.toml
+
+def _octave_grid(monkeypatch, decision="keep"):
+    """The fake grid stage also writes an automatic tempo-octave decision (lulu.: 176 tracked, 88 right)."""
+    from pathlib import Path
+
+    from bandscribe.pipeline import graph
+
+    real = graph._provider
+
+    def provider(module):
+        impls = real(module)
+        if "grid" in impls:
+            inner = impls["grid"]["run"]
+
+            def run(ctx):
+                inner(ctx)
+                atomic.write_json(Path(ctx.out_dir) / "grid.json", {
+                    "meter": [{"start_bar": 0, "end_bar": 90, "numerator": 4, "denominator": 4}],
+                    "hypotheses": {"tempo_octave": {"decision": decision, "by": "onsets", "scores": {
+                        "keep": {"bpm": 176.47, "score": 0.29}, "half": {"bpm": 88.24, "score": 0.24},
+                        "double": {"bpm": 352.94, "score": 0.0}}}}})
+
+            impls["grid"] = dict(impls["grid"], run=run)
+        return impls
+
+    monkeypatch.setattr(graph, "_provider", provider)
+
+
+def _console(monkeypatch, f, answers):
+    asked = []
+
+    def ask(prompt, timeout_s):
+        asked.append((prompt, list(f.calls)))
+        return answers.pop(0)
+
+    monkeypatch.setattr(run_cmd, "_is_tty", lambda: True)
+    monkeypatch.setattr(run_cmd, "_ask", ask)
+    return asked
+
+
+def _hints(tmp_path):
+    from bandscribe.jobs import hints as HI
+
+    return HI.read_hints(tmp_path / "jobs" / KEY)
+
+
+def test_tempo_is_asked_after_the_grid_before_any_gpu_transcription(tmp_path, monkeypatch):
+    f = _job(tmp_path, monkeypatch)
+    _octave_grid(monkeypatch)
+    asked = _console(monkeypatch, f, ["x", "h"])          # a wrong key is asked again
+    r = CliRunner().invoke(_app(), ["run", KEY])
+    assert r.exit_code == 0, r.output
+    assert [a[1] for a in asked] == [["beats", "grid"]] * 2
+    assert "176.5 BPM, 4/4" in asked[0][0] and "88.2" in asked[0][0] and "352.9" in asked[0][0]
+    assert _hints(tmp_path)["grid"]["tempo_bpm"] == 88.2
+    assert f.calls.count("beats") == 1 and "amt_gtr" in f.calls
+    assert "88.2 BPM 으로 정했습니다" in " ".join(r.output.split())
+    asked.clear()
+    assert CliRunner().invoke(_app(), ["run", KEY, "--force", "amt_gtr"]).exit_code == 0
+    assert asked == []                                     # the song has a tempo now
+
+
+def test_enter_confirms_without_touching_the_cache_and_a_timeout_leaves_it_unconfirmed(tmp_path, monkeypatch):
+    f = _job(tmp_path, monkeypatch)
+    _octave_grid(monkeypatch)
+    _console(monkeypatch, f, [None])
+    r = CliRunner().invoke(_app(), ["run", KEY, "--until", "amt_ms1"])
+    assert r.exit_code == 0, r.output
+    assert "답이 없어 자동 템포로 진행합니다" in " ".join(r.output.split()) and _hints(tmp_path) == {}
+    asked = _console(monkeypatch, f, [""])
+    r = CliRunner().invoke(_app(), ["run", KEY, "--from", "beats"])  # forced beats: run once, not twice
+    assert r.exit_code == 0, r.output
+    assert len(asked) == 1 and _hints(tmp_path) == {"hints": {"tempo_confirmed": True}}
+    assert f.calls.count("beats") == 2 and f.calls.count("amt_ms1") == 2  # first run + the forced one
+    asked.clear()
+    f.calls.clear()
+    assert CliRunner().invoke(_app(), ["run", KEY, "--force", "amt_ms1"]).exit_code == 0
+    assert asked == [] and "beats" not in f.calls
+
+
+def test_no_question_without_a_terminal_or_with_no_ask(tmp_path, monkeypatch):
+    f = _job(tmp_path, monkeypatch)
+    _octave_grid(monkeypatch)
+    asked = _console(monkeypatch, f, [])
+    monkeypatch.setattr(run_cmd, "_is_tty", lambda: False)
+    assert CliRunner().invoke(_app(), ["run", KEY, "--until", "amt_ms1"]).exit_code == 0
+    monkeypatch.setattr(run_cmd, "_is_tty", lambda: True)
+    assert CliRunner().invoke(_app(), ["run", KEY, "--force", "amt_ms1", "--no-ask"]).exit_code == 0
+    assert asked == []
+
+
+def test_tempo_answers():
+    assert run_cmd.parse_tempo_answer("", 176.47) == "keep"
+    assert run_cmd.parse_tempo_answer(" H ", 176.47) == 88.2 and run_cmd.parse_tempo_answer("ㅗ", 176.47) == 88.2
+    assert run_cmd.parse_tempo_answer("d", 68.0) == 136.0 and run_cmd.parse_tempo_answer("ㅇ", 68.0) == 136.0
+    assert run_cmd.parse_tempo_answer("88", 176.47) == 88.0
+    assert run_cmd.parse_tempo_answer("d", 250.0) is None and run_cmd.parse_tempo_answer("abc", 1.0) is None
+    assert run_cmd.tempo_choices({"hypotheses": {"tempo_octave": {"by": "hint", "scores": {"keep": {"bpm": 9}}}}}) is None
+
+
+def test_song_flags_are_kept_in_hints_toml_but_not_on_a_dry_run_or_a_rejected_plan(tmp_path, monkeypatch):
+    from bandscribe.config import ConfigError
+    from bandscribe.pipeline import runner
+
+    _job(tmp_path, monkeypatch)
+    r = CliRunner().invoke(_app(), ["run", KEY, "--dry-run", "--tempo", "185", "--title", "青と夏"])
+    assert r.exit_code == 0 and _hints(tmp_path) == {}
+    r = CliRunner().invoke(_app(), ["run", KEY, "--until", "grid", "--tempo", "185", "--title", "青と夏", "--parts", "2",
+                                    "--set", "tab.guitar_tuning=Eb standard", "--set", "run.profile=fast"])
+    assert r.exit_code == 0, r.output
+    assert _hints(tmp_path) == {"grid": {"tempo_bpm": 185.0}, "hints": {"title": "青と夏"},
+                                "tab": {"guitar_parts": 2, "guitar_tuning": "Eb standard"}}
+    assert "다음 실행에도 씀" in r.output
+    r = CliRunner().invoke(_app(), ["run", KEY, "--until", "grid", "--tempo", "185"])
+    assert "다음 실행에도 씀" not in r.output                # unchanged values are not rewritten
+
+    def bad_plan(*a, **kw):
+        raise ConfigError("hints.instruments 에 알 수 없는 악기 계열이 있습니다: kazoo")
+
+    monkeypatch.setattr(runner, "plan", bad_plan)
+    assert CliRunner().invoke(_app(), ["run", KEY, "--instruments", "kazoo"]).exit_code == 2
+    assert "instruments" not in _hints(tmp_path).get("hints", {})
