@@ -14,6 +14,7 @@ A threaded HTTP server bound to 127.0.0.1 only (DESIGN 7.2) serves one job:
 - ``/media/<id>``        M4b: one recording (original, stem, practice mix; with HTTP Range),
 - ``/api/cqt/<id>``      M4b: the constant-Q image of one recording (raw uint8, its header in ``X-Cqt``),
 - ``/api/candidates``    M4b: the transcribers' notes the run did not keep (outlined in the roll),
+- ``/api/health``        mid-term plan 1-4: the song's health (``bandscribe.tab.health``; rebuilt when the export changed),
 - ``/api/view?kind=role|player&players=N&idle=rest|double&unison=duplicate|primary_only``   M7c: a Role or Player
                          view of the (edited) score - alphaTex, note map and the Player view's assignment.
 With an edit session ``/score.alphatex`` is the edited score; every edit lands in the job's ``edits.jsonl`` and
@@ -259,6 +260,15 @@ class _Handler(BaseHTTPRequestHandler):
             return self._cqt(route[len("/api/cqt/"):])
         if route == "/api/candidates":
             return self._json({"notes": self.ctx.candidates()})
+        if route == "/api/health":
+            from bandscribe.tab import health as HL
+
+            if self.ctx.job_dir is None:
+                return self._json({"items": [], "summary": {"warn": 0, "info": 0}})
+            try:
+                return self._json(HL.load_health(self.ctx.job_dir))
+            except Exception as e:  # noqa: BLE001 - the page works without it
+                return self._json({"items": [], "summary": {"warn": 0, "info": 0}, "error": str(e)})
         if route == "/api/view":
             return self._view(urlsplit(self.path).query)
         self.send_error(404)

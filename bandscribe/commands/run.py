@@ -223,6 +223,20 @@ def run_cmd(
         if w not in shown:
             shown.add(w)
             out.print(f"[yellow]경고:[/] {escape(w)}", soft_wrap=True)
+    if "score" in results and export.is_dir():  # mid-term plan 1-4: the song's health, kept in export/health.json
+        from bandscribe.tab import health as HL
+
+        try:
+            doc = HL.write_health(Path(job.job_dir))
+        except Exception as e:  # noqa: BLE001 - the run itself succeeded
+            err.print(f"[yellow]경고:[/] 곡 건강 점검을 쓰지 못했습니다: {escape(str(e))}", soft_wrap=True)
+        else:
+            items = [i for i in doc["items"] if i["id"] != "run"]
+            if items:
+                out.print("곡 점검 (뷰어 위쪽에도 나옵니다):")
+            for i in items:
+                tag = "[yellow]경고[/]" if i["level"] == "warn" else "알림"
+                out.print(f"  {tag}: {escape(i['title'])}", soft_wrap=True)
 
 
 def register(app: typer.Typer) -> None:

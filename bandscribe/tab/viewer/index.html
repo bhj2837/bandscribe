@@ -45,6 +45,12 @@
   #sel { flex: 1 1 260px; min-width: 0; }
   #sel b { font-weight: 600; }
   #msg { color: var(--warn); }
+  #health { padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; background: var(--chip); }
+  #health .warn { color: var(--warn); font-weight: 600; }
+  #health .item { margin: 2px 0; }
+  #health .detail { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  #health button.span { font-size: 12px; padding: 0 6px; margin-left: 4px; }
+  #health summary { cursor: pointer; color: var(--muted); }
   #counts { color: var(--muted); font-variant-numeric: tabular-nums; }
   #edit button { padding: 3px 10px; }
   #status { color: var(--muted); padding: 24px 16px; }
@@ -122,6 +128,7 @@
     <button id="helpBtn" title="키 목록 (?)" aria-expanded="false" aria-controls="help">?</button>
   </div>
 </header>
+<div id="health" hidden role="status" aria-label="곡 점검"></div>
 <div id="help" hidden>
   <h2>편집 키</h2>
   <table>
@@ -348,6 +355,43 @@ $("kSel").addEventListener("change", async (e) => {
 });
 $("sideBtn").addEventListener("click", (e) => { const s = $("side"); s.hidden = !s.hidden; e.target.setAttribute("aria-pressed", String(!s.hidden)); });
 $("lowerBtn").addEventListener("click", (e) => { const s = $("lower"); s.hidden = !s.hidden; e.target.setAttribute("aria-pressed", String(!s.hidden)); if (!s.hidden) { lower._fit(); lower.drawBand(); lower.draw(audio.currentTime); } });
+
+// song health (mid-term plan 1-4): warnings first, the rest folded; a span button seeks there
+const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+function healthItem(it) {
+  const div = document.createElement("div");
+  div.className = "item" + (it.level === "warn" ? " warn" : "");
+  div.textContent = (it.level === "warn" ? "⚠ " : "· ") + it.title;
+  if (it.detail) { const d = document.createElement("span"); d.className = "detail"; d.textContent = it.detail; div.append(d); }
+  for (const [a, b] of (it.spans || []).slice(0, 6)) {
+    const btn = document.createElement("button");
+    btn.className = "span"; btn.textContent = `${fmtT(a)}–${fmtT(b)}`; btn.title = "그 자리로";
+    btn.addEventListener("click", () => { engine.seek(a); toScore(); });
+    div.append(btn);
+  }
+  return div;
+}
+async function loadHealth() {
+  const r = await fetch("/api/health", { cache: "no-store" });
+  if (!r.ok) return;
+  const h = await r.json();
+  const items = (h.items || []).filter((it) => it.id !== "run");
+  const box = $("health");
+  box.replaceChildren();
+  if (!items.length) { box.hidden = true; return; }
+  const warns = items.filter((it) => it.level === "warn"), infos = items.filter((it) => it.level !== "warn");
+  for (const it of warns) box.append(healthItem(it));
+  if (infos.length) {
+    const det = document.createElement("details");
+    const sum = document.createElement("summary");
+    sum.textContent = `알림 ${infos.length}개 (템포 확인, 다른 악기가 큰 구간, 파트를 나누지 못한 구간 등)`;
+    det.append(sum);
+    for (const it of infos) det.append(healthItem(it));
+    box.append(det);
+  }
+  box.hidden = false;
+}
+loadHealth().catch(() => {});
 
 // recordings, router windows, CQT
 async function loadMedia() {
