@@ -272,6 +272,7 @@ def register(app: typer.Typer) -> None:
     @ev.command("sheets")
     def sheets_cmd(
         out: Annotated[Path | None, typer.Option("--out", help="결과 JSON 파일 (기본 data/eval/sheets/sheets_eval.json)")] = None,
+        split: Annotated[str, typer.Option("--split", help="dev(기본). test 곡은 등록된 실험(eval exp)으로만 읽는다")] = "dev",
     ) -> None:
         """악보곡(Tier A)을 사용자 밴드스코어에서 뽑은 JSON 으로 채점한다(중간 점검 1-2). 풀링 값이 헤드라인이다."""
         try:
@@ -280,7 +281,7 @@ def register(app: typer.Typer) -> None:
         except ImportError as e:
             _fail(f"악보 평가 모듈을 불러오지 못했습니다: {e}")
         try:
-            doc = SH.evaluate()
+            doc = SH.evaluate(split=split)
         except (SH.SheetEvalError, OSError, ValueError, KeyError) as e:
             _fail(str(e))
         con = _out()

@@ -28,6 +28,11 @@ the song mean is for reference only.
   ``lead: true``): of the sheet's single-note columns that have such an event, the share where it has 3+ notes.
 - **practisable phrases** (``phrases``): 4-bar phrases of each part, from each rehearsal mark, at the drifting
   offset; the share with phrase F1 >= 0.7 (the plan's headline) and the strict light-edit share.
+
+The split (docs/decisions.md "지표와 분할"): a song is ``dev`` or ``test`` (``split`` in songs.yaml; dev until the
+split is committed). Test songs are scored only with a ``SealAccess`` from ``open_test``, which a registered
+experiment of ``bandscribe eval exp`` asks for; each one is a line in ``data/eval/test_access.log`` and the distinct
+views are budgeted (``TEST_VIEW_BUDGET``).
 """
 
 from __future__ import annotations
@@ -75,6 +80,7 @@ class Song:
     sheet_bpm: float | None = None
     tempo_hint: bool = False     # the job was run with the sheet tempo as its hint
     lead: bool = True            # the sheet has a lead part (HBT: both guitars play rhythm)
+    split: str = "dev"           # "dev" | "test" (docs/decisions.md; dev until the split is committed)
 
 
 def load_songs(path: Path | None = None) -> tuple[list[Song], dict[str, str]]:
@@ -95,9 +101,13 @@ def load_songs(path: Path | None = None) -> tuple[list[Song], dict[str, str]]:
     doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     songs = [Song(id=str(s["id"]), title=str(s.get("title") or s["id"]), job=str(s["job"]),
                   sheets=Path(paths.DATA) / str(s["sheets"]), sheet_bpm=s.get("sheet_bpm"),
-                  tempo_hint=bool(s.get("tempo_hint", False)), lead=bool(s.get("lead", True)))
+                  tempo_hint=bool(s.get("tempo_hint", False)), lead=bool(s.get("lead", True)),
+                  split=str(s.get("split") or "dev"))
              for s in doc.get("songs") or []]
     invalid = {str(x["job"]): str(x.get("why") or "") for x in doc.get("invalid") or []}
+    wrong = [f"{s.id}={s.split}" for s in songs if s.split not in ("dev", "test")]
+    if wrong:
+        raise SheetEvalError(f"split 은 dev 또는 test 입니다: {', '.join(wrong)}")
     bad = [s.id for s in songs if s.job in invalid]
     if bad:
         raise SheetEvalError(f"무효로 표시된 작업을 채점하려 합니다: {', '.join(bad)}")
@@ -576,6 +586,73 @@ def phrases(song: Song, o: Ours, guitars: Sequence[Sequence[SheetBar]], offset_o
     return {"mapping": mapping, **dict(out)}
 
 
+# ------------------------------------------------------------------------------------------------- the test seal
+
+TEST_VIEW_BUDGET = 4  # docs/decisions.md "지표와 분할": baseline, phase-2 batch, phase-3 batch, final check
+
+
+def access_log() -> Path:
+    return Path(paths.DATA) / "eval" / "test_access.log"
+
+
+@dataclass(frozen=True)
+class SealAccess:
+    """Permission to score the test songs, made only by ``open_test`` (one line in the access log)."""
+
+    exp: str
+    view: str
+
+
+def access_rows(log: Path | None = None) -> list[dict[str, Any]]:
+    import json
+
+    p = Path(log or access_log())
+    if not p.is_file():
+        return []
+    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def open_test(exp: str, view: str, *, songs: Sequence[str] = (), log: Path | None = None) -> SealAccess:
+    """Open the test songs for experiment ``exp`` (``bandscribe eval exp``) as viewing ``view`` (e.g. "1 baseline").
+    A new view beyond ``TEST_VIEW_BUDGET`` is refused (a reserve view is registered in decisions.md first and the
+    budget raised in code); repeating a view already logged is allowed and logged again."""
+    import json
+    import subprocess
+    import time
+
+    from bandscribe.eval import experiments as X
+
+    reg = X.load_registry()
+    if exp not in reg:
+        raise SheetEvalError(f"등록되지 않은 실험입니다: {exp} (docs/decisions.md 에 먼저 사전 등록)")
+    views = {v["view"] for v in access_rows(log)}
+    if view not in views and len(views) >= TEST_VIEW_BUDGET:
+        raise SheetEvalError(f"test 보기 예산 {TEST_VIEW_BUDGET}번을 다 썼습니다({', '.join(sorted(views))}). "
+                             "예비 보기는 decisions.md 에 먼저 등록합니다.")
+    try:
+        git = subprocess.run(["git", "-C", str(paths.ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
+                             text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        git = ""
+    p = Path(log or access_log())
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "exp": exp, "view": view,
+                            "git": git, "songs": list(songs)}, ensure_ascii=False) + "\n")
+    return SealAccess(exp, view)
+
+
+def select(songs: Sequence[Song], split: str, access: SealAccess | None) -> list[Song]:
+    """The songs of ``split`` (dev / test / all); test songs only with an ``access`` from ``open_test``."""
+    if split not in ("dev", "test", "all"):
+        raise SheetEvalError(f"분할은 dev, test, all 중 하나입니다: {split}")
+    out = [s for s in songs if split == "all" or s.split == split]
+    if any(s.split == "test" for s in out) and not isinstance(access, SealAccess):
+        raise SheetEvalError("test 곡은 등록된 실험의 `bandscribe eval exp <id>` 로만 읽습니다(접근은 "
+                             "data/eval/test_access.log 에 남습니다).")
+    return out
+
+
 # ------------------------------------------------------------------------------------------------- the table
 
 
@@ -615,10 +692,14 @@ def evaluate_song(song: Song) -> SongResult:
     return SongResult(song, doc, counts)
 
 
-def evaluate(songs: Sequence[Song] | None = None) -> dict[str, Any]:
-    """The whole table: per song and pooled (module doc)."""
+def evaluate(songs: Sequence[Song] | None = None, *, split: str = "dev", access: SealAccess | None = None
+             ) -> dict[str, Any]:
+    """The whole table of ``split``: per song and pooled (module doc)."""
     if songs is None:
         songs, _ = load_songs()
+    songs = select(songs, split, access)
+    if not songs:
+        raise SheetEvalError(f"{split} 분할에 곡이 없습니다")
     results = [evaluate_song(s) for s in songs]
     pooled: dict[str, Any] = {}
     keys = ("merged", "merged_drift", "bass", "bass_drift", "part_gtr1", "part_gtr2")
@@ -658,4 +739,4 @@ def evaluate(songs: Sequence[Song] | None = None) -> dict[str, Any]:
         pooled[k] = {"sheet_bars": tot, "on_our_bar_line": hit, "share": round(hit / max(1, tot), 4)}
     mean = {k: round(sum(r.counts[k].f1 for r in results) / max(1, len(results)), 2) for k in keys}
     mean["parts"] = round(sum(r.doc["part_mean_F1"] for r in results) / max(1, len(results)), 2)
-    return {"format": FORMAT, "songs": [r.doc for r in results], "pooled": pooled, "song_mean": mean}
+    return {"format": FORMAT, "split": split, "songs": [r.doc for r in results], "pooled": pooled, "song_mean": mean}

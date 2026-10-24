@@ -105,3 +105,31 @@ def test_snapshot_of_the_local_sheet_songs():
     assert not {k: round(v, 2) for k, v in got.items() if abs(v - want[k]) > 0.5}
     assert pl["texture"]["rhythm_chords"] == 4247 and pl["phrases"]["phrases"] == 485
     assert sum(Counter(r["part_map"].values()).total() for r in doc["songs"]) == 12
+
+
+def test_test_songs_need_a_logged_experiment_access_within_the_view_budget(tmp_path, monkeypatch):
+    from bandscribe.eval import experiments as X
+
+    songs = [SH.Song("a", "a", "f-1", tmp_path, split="dev"), SH.Song("b", "b", "f-2", tmp_path, split="test")]
+    assert [s.id for s in SH.select(songs, "dev", None)] == ["a"]
+    for split in ("test", "all"):
+        with pytest.raises(SH.SheetEvalError, match="eval exp"):
+            SH.select(songs, split, None)
+    with pytest.raises(SH.SheetEvalError, match="dev, test, all"):
+        SH.select(songs, "train", None)
+    log = tmp_path / "test_access.log"
+    monkeypatch.setattr(X, "load_registry", lambda path=None: {"E50": object()})
+    with pytest.raises(SH.SheetEvalError, match="등록되지 않은"):
+        SH.open_test("E99", "1 baseline", log=log)
+    acc = SH.open_test("E50", "1 baseline", songs=["b"], log=log)
+    assert [s.id for s in SH.select(songs, "test", acc)] == ["b"]
+    for v in ("2 phase-2", "3 phase-3", "4 final", "1 baseline"):      # a repeated view is logged, not counted
+        SH.open_test("E50", v, log=log)
+    with pytest.raises(SH.SheetEvalError, match="보기 예산 4번"):
+        SH.open_test("E50", "5 extra", log=log)
+    rows = SH.access_rows(log)
+    assert len(rows) == 5 and rows[0]["exp"] == "E50" and rows[0]["songs"] == ["b"] and rows[0]["utc"].endswith("Z")
+    f = tmp_path / "songs.yaml"
+    f.write_text("songs:\n  - {id: a, job: f-1, sheets: s, split: holdout}\n", encoding="utf-8")
+    with pytest.raises(SH.SheetEvalError, match="dev 또는 test"):
+        SH.load_songs(f)
