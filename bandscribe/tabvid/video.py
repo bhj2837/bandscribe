@@ -70,6 +70,14 @@ def _same_lines(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> bool:
                                     for p, q in zip(a, b))
 
 
+def _goes_on(above: list[dict[str, Any]], bars: list[dict[str, Any]]) -> bool:
+    """Most of the staff's own bar numbers come after those of the staff above: the next system of a page, even with
+    the same bar lines (an even layout); another part of the same system shows no numbers or the same ones."""
+    up = [b["number"] for b in above if b["number"] is not None]
+    mine = [b["number"] for b in bars if b["number"] is not None]
+    return bool(up and mine) and sum(1 for m in mine if m > max(up)) > len(mine) / 2
+
+
 def frame_staves(gray: np.ndarray, n: int = 6) -> list[dict[str, Any]]:
     """Every tab staff of the frame, top to bottom: {y (top line), sp, bars}. Tabs are dark-on-light or light-on-dark in
     any part of the frame (a dark strip over a light video), so both polarities are searched and the one with more fret
@@ -83,7 +91,7 @@ def frame_staves(gray: np.ndarray, n: int = 6) -> list[dict[str, Any]]:
             bars = S.read_staff(g, st, prev)
             prev = st[-1]
             for up in out:
-                if _same_lines(up["bars"], bars):
+                if _same_lines(up["bars"], bars) and not _goes_on(up["bars"], bars):
                     for b, u in zip(bars, up["bars"]):
                         if b["number"] is None:
                             b["number"] = u["number"]
@@ -236,10 +244,11 @@ def systems(staves: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """A frame's staves (top to bottom) grouped into systems: a staff with the same bar lines as the system above it is
     another part of that system (Guitar 1 over Guitar 2); a staff with other bar lines starts the next system (a score
     page shows the next bars below) unless most of its bar numbers are ones the system above shows too (another part
-    laid out on its own, Rika's arpeggio guitar under the bridge)."""
+    laid out on its own, Rika's arpeggio guitar under the bridge). Bar numbers that go on after the system above make
+    a staff the next system even with the same bar lines (``_goes_on``: a page laid out evenly)."""
     out: list[list[dict[str, Any]]] = []
     for t in staves:
-        if out and _same_lines(out[-1][0]["bars"], t["bars"]):
+        if out and _same_lines(out[-1][0]["bars"], t["bars"]) and not _goes_on(out[-1][0]["bars"], t["bars"]):
             out[-1].append(t)
             continue
         above = [b["number"] for s in out[-1] for b in s["bars"] if b["number"] is not None] if out else []

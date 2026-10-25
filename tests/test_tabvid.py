@@ -361,3 +361,13 @@ def test_the_reading_quality_verdict():
     q = V.quality(torn, 0.1)
     assert q["verdict"] == "unusable" and len(q["reasons"]) == 3
     assert V.quality(good[:5], 1.0)["verdict"] == "unusable"
+
+
+def test_an_evenly_laid_page_shows_its_next_system_below():
+    """Two systems with the same bar lines (a page laid out evenly), each with its own bar numbers: the lower one is the
+    next system of the same part, not a second part."""
+    page = np.vstack([draw(BARS, first_number=21), draw(BARS[2:] + BARS[:2], first_number=25)])
+    staves = V.frame_staves(page)
+    assert [len(sy) for sy in V.systems(staves)] == [1, 1]
+    (track,) = V.tracks([staves] * 3)
+    assert [b["number"] for b in V.read_track(track)["bars"]] == list(range(21, 29))
