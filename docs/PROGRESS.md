@@ -8,9 +8,10 @@ accuracy first; plan change 2 in `docs/MIDTERM_REVIEW.md`), truth for J-pop song
 agreement, bar F1 0.860 against the owner's band score (a different transcriber). Same transcriber (Rika [Music Channel]'s
 あのバンド video vs the owner's PDF): F1 guitar 1 0.979, guitar 2 0.861, bass 0.922 (0.989 / 0.890 / 0.943 on bars
 with 80 % frame agreement or more); several staves per frame as tracks, centred bar numbers, 4-line bass staves, rhythm
-slashes, merged number boxes. `bandscribe tabvid read | compare`. Found on the way: the sheet truth JSONs hold merged
-frets (81 notes over 6 songs) - a separate fix. Next: Rika's second song, a re-compressed synthetic video, then the
-owner's J-pop songs.
+slashes, merged number boxes. `bandscribe tabvid read | compare`. Held out (Rika's ギターと孤独と蒼い惑星, no rule
+changed for it), on bars whose truth is known: F1 0.967 / 0.946 / 0.961 (0.980 / 0.967 / 0.972 with 80 % agreement).
+Found on the way: the sheet truth JSONs hold merged frets (81 notes) and unexpanded two-bar repeats (73 empty bars) over
+the 6 songs - separate fixes. Next: tab videos of the owner's J-pop songs (怪獣の花唄 guitar, 狭心症 bass).
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of
