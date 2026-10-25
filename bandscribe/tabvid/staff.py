@@ -86,16 +86,20 @@ def find_staves(gray: np.ndarray, n: int = 6) -> list[list[float]]:
 
 
 def barlines(gray: np.ndarray, st: list[float]) -> tuple[list[int], float]:
-    """(x of each bar line, line spacing). A bar line spans the staff exactly; a stem or a slash goes on beyond it."""
+    """(x of each bar line, line spacing). A bar line spans the staff exactly; a stem or a slash goes on beyond it. The
+    one exception is the line where the staff starts: on a score page it joins the staves of a system."""
     top, bot = int(round(st[0])), int(round(st[-1]))
     sp = (st[-1] - st[0]) / (len(st) - 1)
     frac = (gray[top:bot + 1] < 160).mean(0)
     below = gray[bot + 3:bot + int(sp)] < 160
     above = gray[max(0, top - int(sp)):max(0, top - 2)] < 160
+    mid = np.flatnonzero(gray[int(round(st[len(st) // 2]))] < 200)
+    start = int(mid[0]) if len(mid) else -1  # where the staff's lines begin
     xs: list[int] = []
     for x in np.flatnonzero(frac > 0.97):
         if (below.size and below[:, x].mean() > 0.5) or (above.size and above[:, x].mean() > 0.5):
-            continue
+            if xs or x > start + sp:
+                continue
         if xs and x - xs[-1] <= 2:
             continue
         if xs and x - xs[-1] < 0.8 * sp:  # a double bar line (a section or a repeat): one bar line, the later one
@@ -126,7 +130,7 @@ def line_gaps(sub: np.ndarray, ly: float, y0: int, sp: float) -> list[tuple[int,
     gap = ndimage.binary_closing(np.r_[np.zeros(k, bool), ~on, np.zeros(k, bool)], structure=np.ones(k))[k:-k]
     edges = np.flatnonzero(np.diff(np.r_[0, gap.astype(int), 0]))
     return [(int(a), int(b)) for a, b in zip(edges[::2], edges[1::2])
-            if 0.3 * sp <= b - a <= 6 * sp and a > 0 and b < len(gap)]  # wide: close boxes merge
+            if 0.3 * sp <= b - a <= 30 * sp and a > 0 and b < len(gap)]  # wide: runs of close boxes merge
 
 
 def _digits(piece: np.ndarray, h: int, *, digits_only: bool = False) -> list[tuple[str | None, float]]:

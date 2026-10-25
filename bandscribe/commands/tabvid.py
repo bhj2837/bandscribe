@@ -60,7 +60,7 @@ def read_cmd(
     fps: Annotated[float, typer.Option("--fps", help="초당 프레임(처음 뽑을 때만)")] = 2.0,
     set_: SetOpt = None,
 ) -> None:
-    """탭 영상을 읽어 줄 높이(트랙)마다 마디·열·(줄, 프렛)으로 낸다."""
+    """탭 영상을 읽어 파트(시스템 안 순서: 기타1, 기타2 …)마다 마디·열·(줄, 프렛)으로 낸다."""
     from bandscribe import atomic
     from bandscribe.tabvid import fetch as F
     from bandscribe.tabvid import sheet as SH
@@ -74,7 +74,7 @@ def read_cmd(
         doc["source"] = source
         atomic.write_json(dest / f"{name}_n{n}.json", doc)
         t = Table(title=f"{name}: {n}줄 탭 {len(doc['tracks'])}트랙 ({len(frames)}프레임)", title_justify="left")
-        for col in ("트랙", "높이", "마디", "읽은 마디", "음", "프레임 일치", "의심 마디(<0.8)", "파트 파일"):
+        for col in ("트랙", "마디", "읽은 마디", "음", "프레임 일치", "의심 마디(<0.8)", "파트 파일"):
             t.add_column(col, justify="left" if col in ("파트 파일",) else "right")
         for k, tr in enumerate(doc["tracks"], 1):
             bars = tr["bars"]
@@ -82,7 +82,7 @@ def read_cmd(
             if bars:
                 atomic.write_json(part, SH.to_sheet_part(bars, n_strings=n, source=f"tabvid:{name}:n{n}:t{k}"))
             low = sum(1 for b in bars if b["agree"] < 0.8)
-            t.add_row(str(k), f"{tr['y']:.0f}", f"{bars[0]['number']}–{bars[-1]['number']}" if bars else "–",
+            t.add_row(str(k), f"{bars[0]['number']}–{bars[-1]['number']}" if bars else "–",
                       str(len(bars)), str(tr["notes"]), f"{tr['agree']:.3f}" if tr["agree"] is not None else "–",
                       f"{low} ({100 * low / max(1, len(bars)):.0f} %)", escape(part.name) if bars else "–")
         out.print(t)

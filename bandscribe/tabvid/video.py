@@ -4,7 +4,8 @@ Tab videos show a strip or a page of the score and turn it as the music plays: f
 one *page*. A page's bars are read in every one of its frames and voted; bar numbers (small digits above each bar) are
 voted per page, and a page's first number is the start near the previous page's end that fits its readings best (a
 read '24' fits 124: a leading digit is often lost). Bars on two pages vote together. A frame with several tab staves
-(Guitar 1 over Guitar 2) gives one *track* per staff height, each read on its own.
+(Guitar 1 over Guitar 2) gives one *track* per place in the system, each read on its own; the systems of a score
+page follow one another.
 
 Measured on JINZO-TABS' 青春コンプレックス rhythm guitar (1080p, 2 frames/s): bars 2-158 in order with none missing,
 98.9 % of a bar's frames agreeing; bar-bag F1 0.86 against the owner's band score of the same part (a different
@@ -39,20 +40,25 @@ def extract_frames(video: Path, out_dir: Path, *, fps: float = 2.0) -> list[Path
 
 def tab_staves(gray: np.ndarray, n: int = 6) -> list[tuple[list[float], list[int], float]]:
     """Staves that hold a tab: bars wider than 4 line gaps (a notation staff misread as lines has stems for bar lines),
-    gaps in the lines (fret numbers), a light background."""
-    out = []
+    gaps in the lines (fret numbers), a light background, and line gaps at least 0.8 of the widest in the frame (every
+    format seen draws its tab lines wider apart than a notation staff: JINZO 20 / 13.5 px, Rika 17 / 12, a GP page
+    13.2 / 8.8). A staff without fret numbers (a part resting) counts when another tab of the frame has its bar lines:
+    leaving it out would move the parts below it up a place in their system."""
+    cand = []
     for st in S.find_staves(gray, n):
         xs, sp = S.barlines(gray, st)
         if len(xs) < 2 or float(np.median(np.diff(xs))) < 4 * sp:
             continue
-        y0 = max(0, int(st[0] - sp))
-        sub = gray[y0:int(st[-1] + sp)].astype(float)
-        if sum(len(S.line_gaps(sub, ly, y0, sp)) for ly in st) < 2:
-            continue
         if float(np.median(gray[int(st[0]):int(st[-1]) + 1, xs[0]:xs[-1]])) < 170:
             continue
-        out.append((st, xs, sp))
-    return out
+        y0 = max(0, int(st[0] - sp))
+        sub = gray[y0:int(st[-1] + sp)].astype(float)
+        cand.append((st, xs, sp, sum(len(S.line_gaps(sub, ly, y0, sp)) for ly in st) >= 2))
+    numbered = [c for c in cand if c[3]]
+    out = [(st, xs, sp) for st, xs, sp, has in cand
+           if has or any(len(xs) == len(o[1]) and all(abs(a - b) <= 3 for a, b in zip(xs, o[1])) for o in numbered)]
+    widest = max((sp for _st, _xs, sp in out), default=0.0)
+    return [t for t in out if t[2] >= 0.8 * widest]
 
 
 def _notes(bars: list[dict[str, Any]]) -> int:
@@ -187,20 +193,34 @@ def iter_frames(paths: Iterable[Path]) -> Iterator[np.ndarray]:
         yield np.asarray(Image.open(p).convert("L"))
 
 
-def tracks(per_frame: list[list[dict[str, Any]]]) -> list[tuple[float, list[list[dict[str, Any]]]]]:
-    """The staves of every frame sorted into tracks by height (a staff within 1.5 line gaps of a track's height is that
-    track; a video keeps each part's staff at one height): [(height, its bars in every frame, [] where absent)]."""
-    ys: list[float] = []
-    for staves in per_frame:
-        for t in staves:
-            if not any(abs(t["y"] - y) <= 1.5 * t["sp"] for y in ys):
-                ys.append(t["y"])
-    ys.sort()
-    out: list[tuple[float, list[list[dict[str, Any]]]]] = [(y, [[] for _ in per_frame]) for y in ys]
+def systems(staves: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """A frame's staves (top to bottom) grouped into systems: a staff with the same bar lines as the system above it is
+    another part of that system (Guitar 1 over Guitar 2); a staff with other bar lines starts the next system (a score
+    page shows the next bars below) unless most of its bar numbers are ones the system above shows too (another part
+    laid out on its own, Rika's arpeggio guitar under the bridge)."""
+    out: list[list[dict[str, Any]]] = []
+    for t in staves:
+        if out and _same_lines(out[-1][0]["bars"], t["bars"]):
+            out[-1].append(t)
+            continue
+        above = [b["number"] for s in out[-1] for b in s["bars"] if b["number"] is not None] if out else []
+        mine = [b["number"] for b in t["bars"] if b["number"] is not None]
+        if above and mine and sum(1 for m in mine if m <= max(above)) > len(mine) / 2:
+            out[-1].append(t)
+        else:
+            out.append([t])
+    return out
+
+
+def tracks(per_frame: list[list[dict[str, Any]]]) -> list[list[list[dict[str, Any]]]]:
+    """Per part (the staff's place in its system: first, second ...), its bars in every frame, the frame's systems one
+    after another ([] where the frame has no such part)."""
+    k = max((len(sy) for staves in per_frame for sy in systems(staves)), default=0)
+    out: list[list[list[dict[str, Any]]]] = [[[] for _ in per_frame] for _ in range(k)]
     for i, staves in enumerate(per_frame):
-        for t in staves:
-            k = min(range(len(ys)), key=lambda j: abs(ys[j] - t["y"]))
-            out[k][1][i] = t["bars"]
+        for sy in systems(staves):
+            for j, t in enumerate(sy):
+                out[j][i] = out[j][i] + t["bars"]
     return out
 
 
@@ -213,10 +233,10 @@ def read_track(readings: list[list[dict[str, Any]]]) -> dict[str, Any]:
 
 
 def read_video(frames: list[Path], n: int = 6) -> dict[str, Any]:
-    """Every tab track of the video (each staff height: Guitar 1, Guitar 2 ... on a multi-part video), top to bottom;
+    """Every tab track of the video (Guitar 1, Guitar 2 ... by the staff's place in its system) in that order;
     ``bars`` / ``agree`` / ``pages`` repeat the track with the most fret numbers."""
     per_frame = [frame_staves(g, n) for g in iter_frames(frames)]
-    tr = [dict(read_track(r), y=round(y, 1)) for y, r in tracks(per_frame)]
+    tr = [dict(read_track(r), part=j + 1) for j, r in enumerate(tracks(per_frame))]
     main = max(tr, key=lambda t: t["notes"], default={"pages": 0, "stable_pages": 0, "bars": [], "agree": None})
     return {"format": FORMAT, "strings": n, "frames": len(frames), "tracks": tr, "pages": main["pages"],
             "stable_pages": main["stable_pages"], "bars": main["bars"], "agree": main["agree"]}

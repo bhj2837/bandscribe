@@ -17,10 +17,11 @@ FONT = G.font_dir() / "arial.ttf"
 pytestmark = pytest.mark.skipif(not FONT.is_file(), reason="needs the Windows fonts")
 
 
-def draw(bars, *, first_number=1, invert=False, width=1200, staves=None, height=420, centred=False):
+def draw(bars, *, first_number=1, invert=False, width=1200, staves=None, height=420, centred=False, sp=SP):
     """bars: [[(string, text, column), ...] per bar]; four bars over the staff; a stem under every column.
     ``staves``: [(top, lines, bars)] for several staves with the same bar lines (bar numbers above the first only);
-    ``centred``: bar numbers centred on the bar line instead of right of it."""
+    ``centred``: bar numbers centred on the bar line instead of right of it; ``sp``: the line gap."""
+    SP = sp  # noqa: N806 - the module's line gap, overridden
     im = Image.new("L", (width, height), 255)
     d = ImageDraw.Draw(im)
     big = ImageFont.truetype(str(FONT), 18)
@@ -177,7 +178,7 @@ def test_a_staff_has_exactly_its_lines():
 
 def test_staves_of_one_system_share_its_bar_numbers_and_become_tracks():
     """Guitar 1 over Guitar 2 (bar numbers printed once, above the system): both get the numbers, and over a video each
-    staff height is its own track."""
+    place in the system is its own track."""
     lower = BARS[2:] + BARS[:2]
     g = draw(None, first_number=21, staves=[(120, 6, BARS), (330, 6, lower)], height=520)
     staves = V.frame_staves(g)
@@ -186,8 +187,8 @@ def test_staves_of_one_system_share_its_bar_numbers_and_become_tracks():
     assert staves[1]["bars"][0]["cols"] == [[(3, "9"), (4, "10")], [(3, "9")]]
     h = draw(None, first_number=25, staves=[(120, 6, lower), (330, 6, BARS)], height=520)
     tr = V.tracks([V.frame_staves(g)] * 3 + [V.frame_staves(h)] * 3)
-    assert [round(y) for y, _ in tr] == [120, 330]
-    upper = V.read_track(tr[0][1])
+    assert len(tr) == 2
+    upper = V.read_track(tr[0])
     assert [b["number"] for b in upper["bars"]] == list(range(21, 29))
     assert upper["bars"][4]["cols"] == [[(3, "9"), (4, "10")], [(3, "9")]]
 
@@ -231,3 +232,18 @@ def test_the_command_reads_a_frame_folder_and_scores_a_part(tmp_path, monkeypatc
     res = CliRunner().invoke(cli.app, ["tabvid", "compare", str(out / "clip_n6_t1.json"), str(tmp_path / "sheet.json")])
     assert res.exit_code == 0, res.output
     assert "오프셋 +1" in res.output and "F1 1.000" in res.output
+
+
+def test_a_score_page_is_one_part_whose_systems_follow_one_another():
+    """Two systems with their own bar lines (a page): one track, bars 21-24 then 25-27. A narrower staff (notation) in
+    the frame is no tab, and a system's opening line that runs on up to the staff above is still its first bar line."""
+    top = draw(BARS, first_number=21).copy()
+    top[TOP - 60:TOP, X0:X0 + 2] = 0  # the system line joins a staff above
+    page = np.vstack([top, draw(BARS[:3], first_number=25)])
+    staves = V.frame_staves(page)
+    assert [len(sy) for sy in V.systems(staves)] == [1, 1]
+    (track,) = V.tracks([staves] * 3)
+    assert [b["number"] for b in V.read_track(track)["bars"]] == list(range(21, 28))
+    bass = draw(None, staves=[(TOP, 4, BASS)])
+    narrow = draw(None, staves=[(TOP, 4, BASS)], sp=13)
+    assert [round(t[2]) for t in V.tab_staves(np.vstack([narrow, bass]), 4)] == [SP]
