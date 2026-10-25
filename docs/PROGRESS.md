@@ -1,5 +1,13 @@
 # bandscribe progress / handoff
 
+**Tab videos as silver truth (2026-10-25): `docs/TAB_VIDEO.md`** - after the owner's check (guitar split and note
+accuracy first; plan change 2 in `docs/MIDTERM_REVIEW.md`), truth for J-pop songs comes from YouTube tab videos.
+`bandscribe/tabvid/` reads a tab video box-first (fret numbers sit on white boxes that cut the staff lines) into bars of
+(string, fret) in play order (pages + voted bar numbers). Synthetic alphaTab page: note precision 0.999 / recall 0.9997,
+154 / 157 bars exact. JINZO-TABS 青春コンプレックス rhythm guitar (1080p): 160 bars in order, 98.8 % frame agreement, bar
+F1 0.860 against the owner's band score (a different transcriber). Next: same-transcriber accuracy on Rika's videos,
+bass staves, a `bandscribe tabvid` command.
+
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of
 4-bar part phrases are practisable with light edits (6 % by the strict test); rhythm strums match the sheet exactly 10 % of the time;

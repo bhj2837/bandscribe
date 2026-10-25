@@ -103,7 +103,7 @@ def _model_available(name: str) -> bool:
 SMOKE_MODULES = frozenset({
     "test_repo_guard", "test_config", "test_cli", "test_pipeline_cli", "test_jobs_hints", "test_tab_health",
     "test_tab_summary", "test_viewer_home", "test_backup", "test_tab_cleanup", "test_datasets_registry",
-    "test_eval_sheets", "test_library",
+    "test_eval_sheets", "test_library", "test_tabvid",
 })
 
 
