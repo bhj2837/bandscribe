@@ -1,5 +1,18 @@
 # bandscribe progress / handoff
 
+**Sheet truth corrected, floor and snapshot re-based (2026-10-25)** - three extraction defects in the sheet truth JSONs
+(`data/tmp/sheets_<song>/`, local; script `data/tmp/sheets_sc/pdf_tab.py`) were fixed: merged fret numbers and tie
+parens dropped inside chords (another session; its entries follow in `docs/decisions.md`), and two-bar repeat signs left
+unexpanded - the sign sits on the bar line between its two bars, so no bar held it. Those 60 bars in 8 parts now copy the
+two bars before (`repeat2`, `copied_from`); the other 13 empty bars (muted strums only, tied hollow slashes, a rest bar)
+are right as they are, checked in the PDFs. Sounding notes 33,148 -> 34,045. Same jobs, pooled: merged 66.84 -> 68.17,
+parts 55.92 -> 57.31, bass 81.52 -> 82.60, practisable phrases 26.6 -> 29.7 % (481). With the owner's agreement the
+plan's start values and the cumulative floor were re-measured with the same margins: floor **67.9 / 56.8 / 82.4, phrases
+27.7 %** (was 66.5 / 55.4 / 81.3, 24.6 %); `tests/test_eval_sheets.py` and the floor shown by `bandscribe eval sheets`
+follow. Sheet numbers in `docs/MIDTERM_REVIEW.md` and in older entries here are on the old truth and are not rewritten.
+Rika's tab videos on the corrected truth, all read bars: あのバンド 0.986 / 0.940 / 0.970, held-out GKA 0.978 / 0.963 /
+0.978 (`docs/TAB_VIDEO.md` 5).
+
 **Tab videos as silver truth (2026-10-25): `docs/TAB_VIDEO.md`** - after the owner's check (guitar split and note
 accuracy first; plan change 2 in `docs/MIDTERM_REVIEW.md`), truth for J-pop songs comes from YouTube tab videos.
 `bandscribe/tabvid/` reads a tab video box-first (fret numbers sit on white boxes that cut the staff lines) into bars of
@@ -12,7 +25,7 @@ slashes, merged number boxes, score pages (systems follow one another; notation 
 gap). `bandscribe tabvid read | compare`. On bars whose truth is known: あのバンド 0.984 / 0.932 / 0.968, held out
 (Rika's ギターと孤独と蒼い惑星, no rule changed for it) 0.968 / 0.958 / 0.976 (0.986 / 0.977 / 0.979 with 80 % frame
 agreement). Found on the way: the sheet truth JSONs held merged frets (81 notes; re-extracted the same day in another
-session) and unexpanded two-bar repeats (73 empty bars, still open). A 682p screen-recorded 5-string bass video of 狭心症
+session) and unexpanded two-bar repeats (60 of 73 empty bars; fixed the same day, see the entry above). A 682p screen-recorded 5-string bass video of 狭心症
 could not be read (9 px digits). `bandscribe tabvid score` scores a job against a video tab. **Correction: the first J-pop measurement made with it
 (怪獣の花唄 recall 69.2 against Ryo Higuchi's tab) is void - that video is 「怪獣の花唄 -replica-」, a different song
 (owner's note).** Against the original, with あいろな's tab (bars 1-137 after fixing bar numbers set close on the line,

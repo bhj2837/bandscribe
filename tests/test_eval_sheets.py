@@ -71,12 +71,12 @@ def test_load_songs_refuses_an_invalid_job(tmp_path, monkeypatch):
         SH.load_songs(tmp_path / "none.yaml")
 
 
-# The local songs on 2026-10-24 (after E39/E40 and the 2276733 re-run; docs/MIDTERM_REVIEW.md 2.1): song -> merged,
-# part gtr1, part gtr2, bass bar F1. A move of more than 0.5 point fails: re-measure on purpose, then update here
-# and in decisions.md's floor.
-SNAPSHOT = {"sc": (73.98, 65.71, 58.14, 90.41), "gka": (60.65, 48.42, 59.64, 70.91), "anb": (64.20, 55.65, 43.50, 85.93),
-            "snn": (71.74, 67.55, 54.64, 91.32), "hbt": (71.52, 57.64, 57.89, 81.34), "hnn": (59.21, 50.77, 45.61, 70.84)}
-POOLED = {"merged": 66.84, "merged_drift": 68.86, "parts": 55.92, "bass": 81.52, "bass_drift": 85.56}
+# The local songs on 2026-10-25 (the 2026-10-24 jobs, re-measured on the corrected sheet truth: merged frets split,
+# two-bar repeats expanded, tie parens restored; docs/decisions.md "지표와 분할"): song -> merged, part gtr1, part gtr2,
+# bass bar F1. A move of more than 0.5 point fails: re-measure on purpose, then update here and in decisions.md's floor.
+SNAPSHOT = {"sc": (74.44, 65.97, 58.70, 90.65), "gka": (65.50, 55.69, 59.83, 75.53), "anb": (65.71, 56.37, 47.76, 86.85),
+            "snn": (73.62, 68.96, 57.57, 91.56), "hbt": (71.20, 57.19, 58.51, 81.54), "hnn": (59.93, 51.60, 45.43, 71.46)}
+POOLED = {"merged": 68.17, "merged_drift": 70.30, "parts": 57.31, "bass": 82.60, "bass_drift": 86.87}
 
 
 @pytest.mark.skipif(not SH.songs_file().is_file(), reason="the sheet songs are local only")
@@ -94,16 +94,16 @@ def test_snapshot_of_the_local_sheet_songs():
     moved.update({k: doc["pooled"][k]["F1"] for k, v in POOLED.items() if abs(doc["pooled"][k]["F1"] - v) > 0.5})
     assert not moved, f"sheet scores moved by more than 0.5 point: {moved}"
     pl = doc["pooled"]
-    assert round(100 * pl["downbeats"]["share"], 1) == 82.4 and round(100 * pl["downbeats_drift"]["share"], 1) == 95.2
+    assert round(100 * pl["downbeats"]["share"], 1) == 82.4 and round(100 * pl["downbeats_drift"]["share"], 1) == 94.7
     # chord texture, fretting and phrases (exact counts move with any change; 0.5 point of slack as above)
     got = {"exact": 100 * pl["texture"]["exact"], "pc_same": 100 * pl["texture"]["pc_same"],
            "shape_same": 100 * pl["texture"]["shape_same"], "lead_ge3": 100 * pl["texture"]["lead_ge3"],
            "string": 100 * pl["fretting"]["string"], "fret": 100 * pl["fretting"]["fret"],
            "practisable": 100 * pl["phrases"]["practisable_share"], "light": 100 * pl["phrases"]["light_share"]}
-    want = {"exact": 10.05, "pc_same": 22.84, "shape_same": 36.21, "lead_ge3": 12.03, "string": 58.27, "fret": 39.69,
-            "practisable": 26.60, "light": 6.19}
+    want = {"exact": 10.25, "pc_same": 23.20, "shape_same": 36.48, "lead_ge3": 11.09, "string": 58.52, "fret": 39.93,
+            "practisable": 29.73, "light": 6.65}
     assert not {k: round(v, 2) for k, v in got.items() if abs(v - want[k]) > 0.5}
-    assert pl["texture"]["rhythm_chords"] == 4247 and pl["phrases"]["phrases"] == 485
+    assert pl["texture"]["rhythm_chords"] == 4449 and pl["phrases"]["phrases"] == 481
     assert sum(Counter(r["part_map"].values()).total() for r in doc["songs"]) == 12
 
 

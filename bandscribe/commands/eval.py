@@ -312,7 +312,7 @@ def register(app: typer.Typer) -> None:
                   f"엄격 기준 {100 * ph['light_share']:.1f} % — {ph['phrases']}개 중")
         dest = out or SH.songs_file().with_name("sheets_eval.json")
         atomic.write_json(dest, doc)
-        con.print(f"결과: {escape(str(dest))}  (누적 바닥: 합친 66.5 · 파트 55.4 · 베이스 81.3 · 구절 24.6 %, "
+        con.print(f"결과: {escape(str(dest))}  (누적 바닥: 합친 67.9 · 파트 56.8 · 베이스 82.4 · 구절 27.7 %, "
                   "docs/decisions.md)")
 
     @ev.command("reftx")
