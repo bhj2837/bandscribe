@@ -13,6 +13,18 @@ follow. Sheet numbers in `docs/MIDTERM_REVIEW.md` and in older entries here are 
 Rika's tab videos on the corrected truth, all read bars: あのバンド 0.986 / 0.940 / 0.970, held-out GKA 0.978 / 0.963 /
 0.978 (`docs/TAB_VIDEO.md` 5).
 
+**Sheet truth fixes for fret glyphs and tie parens (2026-10-25)** - the two fixes the entry above credits to another
+session, in `data/tmp/sheets_sc/pdf_tab.py`. Fret glyphs (`fret_tokens`): the old rule (box gap under 2 pt, digits
+sorted by rounded y) read dense runs as one number (41 tokens = 157 notes; 79 notes above fret 24, the earlier "81" was
+a mis-added sum). It also joined digits of different beats (27, six of them plausible-looking ≤ 24, such as 19 + 2 for
+9 and 12). It cut tie parens off their digit too (147: tied notes counted as onsets, chords split into two columns, so
+slashes repeated part of a chord). Now the glyphs of one number are joined only when written one right after the other
+on the same tab line, each exactly one pen advance after the last (advances measured per PDF; same-glyph spread under
+0.0001 pt, the nearest separate number 0.046 pt off). Tie parens in chords (`dropped_parens`): pdfium's text page drops
+every "(" and ")" above the lowest string of a tied chord, taking them for Guitar Pro's 0.09 pt fake-bold copies. They
+now come back from the page objects by their exact box: 331 written + 32 copied notes are now tied, none untied. Details:
+`docs/decisions.md` "정답 정정".
+
 **Tab videos as silver truth (2026-10-25): `docs/TAB_VIDEO.md`** - after the owner's check (guitar split and note
 accuracy first; plan change 2 in `docs/MIDTERM_REVIEW.md`), truth for J-pop songs comes from YouTube tab videos.
 `bandscribe/tabvid/` reads a tab video box-first (fret numbers sit on white boxes that cut the staff lines) into bars of
