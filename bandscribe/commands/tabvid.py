@@ -345,11 +345,13 @@ def review_cmd(
 :root {{ color-scheme: light dark; --bg: #fafafa; --fg: #222; --line: #ccc; }}
 @media (prefers-color-scheme: dark) {{ :root {{ --bg: #1b1b1b; --fg: #ddd; --line: #444; }} }}
 body {{ background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; margin: 16px; }}
-table {{ border-collapse: collapse; }} td {{ border-bottom: 1px solid var(--line); padding: 6px 10px; vertical-align: top; }}
+table {{ border-collapse: collapse; }}
+td {{ border-bottom: 1px solid var(--line); padding: 6px 10px; vertical-align: top; }}
 td.n {{ font-weight: 600; font-size: 18px; }} img {{ max-width: 900px; }} pre {{ margin: 0; font-size: 13px; }}
 </style>
 <h1>{html.escape(name)}</h1>
-<p>{html.escape(doc.get('source') or '')} · 판정 {html.escape(q.get('verdict', '-'))} {html.escape('; '.join(q.get('reasons') or []))}
+<p>{html.escape(doc.get('source') or '')} · 판정 {html.escape(q.get('verdict', '-'))}
+{html.escape('; '.join(q.get('reasons') or []))}
 · 보인 마디 {len(pick)}개 (프레임 일치 {agree} 미만{', 마디 ' + bars if bars else ''})</p>
 <p>왼쪽 그림은 그 마디가 가장 오래 보인 프레임, 오른쪽은 읽어 낸 탭(b 벤딩, / 슬라이드). 다르면 영상 쪽이 맞다.</p>
 <table>{''.join(rows)}</table></html>"""

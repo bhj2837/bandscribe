@@ -487,8 +487,9 @@ def glides(gray: np.ndarray, st: list[float], sp: float, nums: list[dict[str, An
 def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) -> list[dict[str, Any]]:
     """The staff's bars: {x: (left, right bar line), number (or None), cols: [[(string, text), ...] per column],
     slash: [bool per column], bend / slide: [bool per column: a bend arrow / a slide line at one of its numbers]}.
-    String 1 is the top line. Tied notes (in brackets) are left out, as the sheet evaluation does. A rhythm slash is a column of the chord shape before it (its dead strings left out, as a band score writes
-    the repeated strums), marked in ``slash``. ``ceiling``: the bottom line of the tab staff above (bar numbers are
+    String 1 is the top line. Tied notes (in brackets) are left out, as the sheet evaluation does. A rhythm slash is a
+    column of the chord shape before it (its dead strings left out, as a band score writes the repeated strums), marked
+    in ``slash``. ``ceiling``: the bottom line of the tab staff above (bar numbers are
     not searched beyond it)."""
     xs, sp = barlines(gray, st)
     nums = read_numbers(gray, st, sp)
