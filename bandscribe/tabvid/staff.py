@@ -260,8 +260,10 @@ def read_numbers(gray: np.ndarray, st: list[float], sp: float) -> list[dict[str,
                 nums.append({"line": li, "x0": g0, "x1": g1, "cx": (g0 + g1) / 2, "text": "x", "tied": tied,
                              "conf": round(min(d[1] for d in digs), 3)})
                 continue
-            for part in _frets(digs):
-                nums.append({"line": li, "x0": g0, "x1": g1, "cx": g0 + (part[0][2] + part[-1][3]) / 2,
+            parts = _frets(digs)
+            for part in parts:  # numbers sharing a box (close notes, a slide between) keep their own extent
+                x0, x1 = (g0, g1) if len(parts) == 1 else (g0 + int(part[0][2]) - 1, g0 + int(np.ceil(part[-1][3])) + 1)
+                nums.append({"line": li, "x0": x0, "x1": x1, "cx": g0 + (part[0][2] + part[-1][3]) / 2,
                              "text": "".join(d[0] for d in part), "tied": tied,
                              "conf": round(min(d[1] for d in part), 3)})
     return nums
@@ -402,16 +404,98 @@ def _rising(win: np.ndarray, sp: float) -> bool:
     return bool(np.ptp(xs) >= 0.4 * sp and np.corrcoef(ys, xs)[0, 1] < -0.8)
 
 
+def bends(gray: np.ndarray, st: list[float], sp: float, nums: list[dict[str, Any]]) -> set[int]:
+    """``id``s of the fret numbers with a bend arrow: a thin stroke that starts just right of the number (along its line
+    or above it) and rises more than 1.5 line gaps above the staff (Guitar Pro, Rika: a curved arrow up to 'full' or
+    '1/2'; a tie arc over string 1 rises about 0.65). The staff lines are wiped first and the cuts they leave in the
+    stroke bridged; a release arrow joined to it changes nothing."""
+    top, bot = st[0], st[-1]
+    y0, y1 = max(0, int(top - 4 * sp)), min(gray.shape[0], int(bot + 0.5 * sp))
+    sub = gray[y0:y1].astype(float)
+    bg = float(np.median(gray[int(top):int(bot) + 1]))
+    mask = sub < bg - 60
+    for ly in st:
+        r = int(round(ly)) - y0
+        mask[max(0, r - 1):r + 2] = False
+    mask = ndimage.binary_closing(mask, structure=np.ones((5, 1)))
+    lab, _ = ndimage.label(mask, structure=np.ones((3, 3)))
+    objs = ndimage.find_objects(lab)
+    out = set()
+    for n in nums:
+        ly = st[n["line"]] - y0
+        ya, yb = max(0, int(ly - 1.0 * sp)), min(lab.shape[0], int(ly + 0.6 * sp) + 1)
+        xa, xb = int(n["x1"]), min(lab.shape[1], int(n["x1"] + 1.6 * sp))
+        for k in set(np.unique(lab[ya:yb, xa:xb])) - {0}:
+            sl = objs[k - 1]
+            if sl[0].start + y0 < top - 1.5 * sp and (lab[sl] == k).sum() < 15 * sp * sp:
+                out.add(id(n))
+                break
+    return out
+
+
+def _wipe_lines(mask: np.ndarray, st: list[float], y0: int) -> np.ndarray:
+    """The staff lines out of an ink mask, except where a stroke crosses them (ink both just above and just below)."""
+    mask = mask.copy()
+    keep = np.zeros_like(mask)
+    for ly in st:
+        r = int(round(ly)) - y0
+        a, b = max(0, r - 1), min(mask.shape[0], r + 2)
+        up = mask[max(0, a - 3):a].any(0) if a > 0 else np.zeros(mask.shape[1], bool)
+        dn = mask[b:b + 3].any(0) if b < mask.shape[0] else np.zeros(mask.shape[1], bool)
+        cross = ndimage.binary_dilation(up, np.ones(7)) & ndimage.binary_dilation(dn, np.ones(7))
+        keep[a:b] = mask[a:b] & cross
+        mask[a:b] = False
+    return mask | keep
+
+
+def glides(gray: np.ndarray, st: list[float], sp: float, nums: list[dict[str, Any]]) -> set[int]:
+    """``id``s of the fret numbers with a slide line next to them: a thin straight stroke, slanting up or down, within
+    1.2 line gaps left or right of the number at its own line, off the line's rows (a slide between two numbers, or into
+    or out of one). Strokes with a number's box in them, and anything taller than a line gap, are left out."""
+    top, bot = st[0], st[-1]
+    y0, y1 = max(0, int(top - sp)), min(gray.shape[0], int(bot + sp))
+    sub = gray[y0:y1].astype(float)
+    bg = float(np.median(gray[int(top):int(bot) + 1]))
+    mask = _wipe_lines(sub < bg - 60, st, y0)
+    for n in nums:  # the numbers themselves out
+        r = int(round(st[n["line"]])) - y0
+        mask[max(0, int(r - 0.5 * sp)):int(r + 0.5 * sp) + 1, max(0, int(n["x0"]) + 1):int(n["x1"])] = False
+    lab, _ = ndimage.label(mask, structure=np.ones((3, 3)))
+    objs = ndimage.find_objects(lab)
+    good = set()
+    for k, sl in enumerate(objs, 1):
+        h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+        if not (0.3 * sp <= h <= 1.0 * sp and 0.25 * sp <= w <= 1.5 * sp):
+            continue
+        ys, xs = np.nonzero(lab[sl] == k)
+        if len(ys) > 0.5 * h * w or len(set(ys)) < 3 or np.std(xs) == 0:
+            continue
+        if abs(np.corrcoef(ys, xs)[0, 1]) >= 0.8:
+            good.add(k)
+    out = set()
+    for n in nums:
+        r = int(round(st[n["line"]])) - y0
+        ya, yb = max(0, int(r - 0.5 * sp)), min(lab.shape[0], int(r + 0.5 * sp) + 1)
+        for xa, xb in ((int(n["x0"] - 1.2 * sp), int(n["x0"]) + 2), (int(n["x1"]) - 2, int(n["x1"] + 1.2 * sp))):
+            seen = set(np.unique(lab[ya:yb, max(0, xa):max(0, xb)])) & good
+            if seen:
+                out.add(id(n))
+                break
+    return out
+
+
 def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) -> list[dict[str, Any]]:
     """The staff's bars: {x: (left, right bar line), number (or None), cols: [[(string, text), ...] per column],
-    slash: [bool per column]}. String 1 is the top line. Tied notes (in brackets) are left out, as the sheet evaluation
-    does. A rhythm slash is a column of the chord shape before it (its dead strings left out, as a band score writes
+    slash: [bool per column], bend / slide: [bool per column: a bend arrow / a slide line at one of its numbers]}.
+    String 1 is the top line. Tied notes (in brackets) are left out, as the sheet evaluation does. A rhythm slash is a column of the chord shape before it (its dead strings left out, as a band score writes
     the repeated strums), marked in ``slash``. ``ceiling``: the bottom line of the tab staff above (bar numbers are
     not searched beyond it)."""
     xs, sp = barlines(gray, st)
     nums = read_numbers(gray, st, sp)
     numbers = bar_numbers(gray, st, xs, sp, ceiling)
     marks = slashes(gray, st, sp, nums)
+    bent = bends(gray, st, sp, nums)
+    slid = glides(gray, st, sp, nums)
     bars = []
     shape: list[tuple[int, str]] | None = None
     for a, b in zip(xs, xs[1:]):
@@ -424,10 +508,10 @@ def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) 
                 cols.append([nm])
                 cur = nm["cx"]
         events = [(float(np.mean([n["cx"] for n in c])), sorted((n["line"] + 1, n["text"]) for n in c if not n["tied"]),
-                   False) for c in cols]
-        events += [(x, [], True) for x in marks if a < x < b]
-        out_cols, flags, phases = [], [], []
-        for x, notes, is_slash in sorted(events, key=lambda e: e[0]):
+                   False, any(id(n) in bent for n in c), any(id(n) in slid for n in c)) for c in cols]
+        events += [(x, [], True, False, False) for x in marks if a < x < b]
+        out_cols, flags, bend, slide, phases = [], [], [], [], []
+        for x, notes, is_slash, is_bent, is_slid in sorted(events, key=lambda e: e[0]):
             if is_slash:
                 if not shape:
                     continue
@@ -436,8 +520,11 @@ def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) 
                 shape = notes
             out_cols.append(notes)
             flags.append(is_slash)
+            bend.append(is_bent)
+            slide.append(is_slid)
             phases.append(round((x - a) / max(1, b - a), 4))
-        bars.append({"x": (a, b), "number": numbers.get(a), "cols": out_cols, "slash": flags, "phases": phases})
+        bars.append({"x": (a, b), "number": numbers.get(a), "cols": out_cols, "slash": flags, "bend": bend,
+                     "slide": slide, "phases": phases})
     return bars
 
 

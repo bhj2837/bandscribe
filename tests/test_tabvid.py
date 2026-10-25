@@ -371,3 +371,24 @@ def test_an_evenly_laid_page_shows_its_next_system_below():
     assert [len(sy) for sy in V.systems(staves)] == [1, 1]
     (track,) = V.tracks([staves] * 3)
     assert [b["number"] for b in V.read_track(track)["bars"]] == list(range(21, 29))
+
+
+def test_bend_arrows_and_slide_lines_are_marked():
+    """A bend arrow from the 9 on string 3 up past the staff ('full' above it), a short slide line into the last 9 of
+    string 3, and a low tie arc over the 0 on string 1 that is no bend."""
+    im = Image.fromarray(draw(BARS))
+    d = ImageDraw.Draw(im)
+    edges = np.linspace(X0, X1, len(BARS) + 1).astype(int)
+    cx = edges[2] + 40  # bar 3, column 0: 9 on string 3, 10 on string 4
+    y3 = TOP + 2 * SP
+    d.line([(cx + 10, y3 - 2), (cx + 20, y3 - 6), (cx + 26, TOP - 10), (cx + 28, TOP - 40)], fill=0, width=2)
+    d.polygon([(cx + 23, TOP - 36), (cx + 33, TOP - 36), (cx + 28, TOP - 46)], fill=0)
+    d.text((cx + 28, TOP - 52), "full", fill=0, font=ImageFont.truetype(str(FONT), 12), anchor="mb")
+    c0 = edges[1] + 40  # bar 2, column 0: a tie arc over the 0 on string 1
+    d.arc([c0 + 6, TOP - 12, c0 + 30, TOP + 2], 200, 340, fill=0, width=1)
+    cx2 = edges[2] + 40 + 120  # bar 3, column 2: the 9 of string 3, a slide line into it from the left
+    d.line([(cx2 - 20, y3 + 5), (cx2 - 9, y3 - 5)], fill=0, width=2)
+    g = np.asarray(im)
+    bars = S.read_staff(g, S.find_staves(g)[0])
+    assert bars[2]["bend"] == [True, False] and not any(bars[0]["bend"] + bars[1]["bend"] + bars[3]["bend"])
+    assert bars[2]["slide"] == [False, True] and not any(bars[0]["slide"] + bars[1]["slide"] + bars[3]["slide"])

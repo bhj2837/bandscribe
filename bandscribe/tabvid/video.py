@@ -143,12 +143,15 @@ def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
             same = not (step != 0 and k >= 2 and moves[0] == 0)
         if not same:
             out.append({"bars": sig, "frames": 0, "first": fi, "readings": [Counter() for _ in sig],
-                        "numbers": [Counter() for _ in sig], "phases": [b["phases"] for b in bars]})
+                        "numbers": [Counter() for _ in sig], "bends": [Counter() for _ in sig],
+                        "phases": [b["phases"] for b in bars]})
         pg = out[-1]
         pg["frames"] += 1
         pg["last"] = fi
         for i, b in enumerate(bars):
             pg["readings"][i][tuple(tuple(c) for c in b["cols"])] += 1
+            pg["bends"][i][tuple(zip(b.get("bend") or [False] * len(b["cols"]),
+                                     b.get("slide") or [False] * len(b["cols"])))] += 1
             if b["number"] is not None:
                 pg["numbers"][i][b["number"]] += 1
     return out
@@ -189,6 +192,7 @@ def number_pages(pgs: list[dict[str, Any]], *, min_frames: int = 2, back: int = 
         read = sum(k * fits(rd, first + i) for i, c in enumerate(pg["numbers"]) for rd, k in c.items()) > 0
         for i, rd in enumerate(pg["readings"]):
             seq.append({"number": first + i, "readings": rd, "phases": pg["phases"][i], "by_number": read,
+                        "bends": pg["bends"][i] if "bends" in pg else Counter(),
                         "shown": (pg.get("first", 0), pg.get("last", 0), i, len(pg["readings"]), pg["frames"])})
         last = max(last, first + len(pg["readings"]) - 1)
     return seq
@@ -217,9 +221,11 @@ def assemble(seq: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One reading per bar number, voted note by note over all its frames (``consensus``); ``agree`` is the share of
     frames whose whole reading is the most common one. {number, cols, agree, frames, phases}."""
     acc: dict[int, Counter] = {}
+    bends: dict[int, Counter] = {}
     phases: dict[int, list[float]] = {}
     for b in seq:
         acc.setdefault(b["number"], Counter()).update(b["readings"])
+        bends.setdefault(b["number"], Counter()).update(b.get("bends") or {})
         phases.setdefault(b["number"], b["phases"])
     out = []
     for num in sorted(acc):
@@ -228,8 +234,10 @@ def assemble(seq: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tot = sum(acc[num].values())
         ph = phases[num] if len(phases[num]) == len(cols) else [round((i + 0.5) / max(1, len(cols)), 4)
                                                                  for i in range(len(cols))]
+        fl = [f for f, _k in bends.get(num, Counter()).most_common() if len(f) == len(cols)]
+        marks = list(fl[0]) if fl else [(False, False)] * len(cols)
         out.append({"number": num, "cols": [list(c) for c in cols], "agree": round(k / tot, 3), "frames": tot,
-                    "phases": ph})
+                    "phases": ph, "bend": [m[0] for m in marks], "slide": [m[1] for m in marks]})
     return out
 
 

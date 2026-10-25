@@ -41,8 +41,11 @@ def to_sheet_part(bars: Sequence[dict[str, Any]], *, n_strings: int = 6, numerat
         cols = []
         for i, col in enumerate(b["cols"] if b else []):
             ph = b["phases"][i] if b and i < len(b["phases"]) else (i + 0.5) / max(1, len(b["cols"]))
-            cols.append({"phase": ph, "notes": [{"string": int(s), "fret": None if f == "x" else int(f),
-                                                 "dead": f == "x", "tied": False} for s, f in col]})
+            bent = bool(b.get("bend") and i < len(b["bend"]) and b["bend"][i])
+            slid = bool(b.get("slide") and i < len(b["slide"]) and b["slide"][i])
+            cols.append({"phase": ph, "bend": bent, "slide": slid,
+                         "notes": [{"string": int(s), "fret": None if f == "x" else int(f), "dead": f == "x",
+                                    "tied": False} for s, f in col]})
         out.append({"bar": num, "numerator": numerator, "rest_only": not cols, "columns": cols,
                     "read": b is not None, "agree": b["agree"] if b else None})
     return {"source": source, "n_strings": n_strings, "bars": out}
