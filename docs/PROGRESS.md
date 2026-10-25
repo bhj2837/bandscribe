@@ -44,7 +44,12 @@ could not be read (9 px digits). `bandscribe tabvid score` scores a job against 
 a cursor box and riffs repeated on the next page; bars voted note by note): our merged guitar recall 66.8, precision
 32.2; the last chorus (bars 124-135) falls to 15 % - the tab's high C#5-A4 sixteenth line is absent from our
 transcription (only strummed chords), confirming the owner's ear. 狭心症 bass (a 1080p BassScore video): not usable yet -
-bar numbers only at system starts and too tall for the number filter, and the video is a 337 s cut of the 410 s song.
+bar numbers only at system starts and too tall for the number filter, and the video is a 337 s cut of the 410 s song. Later
+the same day, to lean less on each format: `tabvid align` matches the video's sound with the song (same version / cut /
+another song; a re-recording like -replica- sounds the same, so title words are shown), bars get times from the pages
+on screen and `tabvid score` also scores by time (video -> song -> our beats; it keeps the better of time and beat
+offset: 0-4.5 points below on well-read videos, far ahead on a cut version and unsure numbering), each read track gets a
+verdict (usable / doubtful / unusable), and `tabvid search --job` lists candidate videos by length.
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of
