@@ -247,3 +247,21 @@ def test_a_score_page_is_one_part_whose_systems_follow_one_another():
     bass = draw(None, staves=[(TOP, 4, BASS)])
     narrow = draw(None, staves=[(TOP, 4, BASS)], sp=13)
     assert [round(t[2]) for t in V.tab_staves(np.vstack([narrow, bass]), 4)] == [SP]
+
+
+def test_a_job_is_scored_against_a_video_part():
+    """Our notes one bar late and missing one note: the offset is found and the recall shows the miss."""
+    from bandscribe.schema.grid import TempoMap
+
+    tempo = TempoMap([0.5 * i for i in range(80)], [i // 4 + 1 for i in range(80)], [i % 4 + 1 for i in range(80)],
+                     {b: 4 for b in range(1, 21)})
+    bars = [{"number": k + 1, "cols": [[(2, str(k))], [(3, str(k + 2))]], "agree": 1.0, "phases": [0.0, 0.75]}
+            for k in range(8)]
+    part = SH.to_sheet_part(bars)
+    est = []
+    for k in range(8):  # string 2 is B3, string 3 G3; each bar a bar late
+        est += [(0.5 * (4 * (k + 1)), 59 + k, "1"), (0.5 * (4 * (k + 1) + 3), 55 + k + 2, "1")]
+    del est[5]
+    res = SH.score(part, tempo, sorted(est))
+    assert res["offset"] == -4 and res["drifting"]["tp"] == 15 and res["drifting"]["fn"] == 1
+    assert res["drifting"]["P"] == 100.0 and res["blocks"][0]["tab_notes"] == 16

@@ -13,9 +13,11 @@ gap). `bandscribe tabvid read | compare`. On bars whose truth is known: あの�
 (Rika's ギターと孤独と蒼い惑星, no rule changed for it) 0.968 / 0.958 / 0.976 (0.986 / 0.977 / 0.979 with 80 % frame
 agreement). Found on the way: the sheet truth JSONs held merged frets (81 notes; re-extracted the same day in another
 session) and unexpanded two-bar repeats (73 empty bars, still open). A 682p screen-recorded 5-string bass video of 狭心症
-could not be read (9 px digits). 怪獣の花唄: three guitar tab videos read, but they agree only 0.18-0.26 with one
-another (different parts and voicings; two of them lose their bar order) - not usable as truth yet; Ryo Higuchi's
-is the best (bars 1-138).
+could not be read (9 px digits). **First J-pop measurement (`bandscribe tabvid score`): 怪獣の花唄's merged guitar
+against Ryo Higuchi's tab (one electric guitar covering both parts, owner-confirmed): recall 69.2, precision 44.2
+over 105 bars; the choruses at bars 107-122 fall to 34-36 % recall - the tab's high C#5-A4 sixteenth lead line is
+absent from our transcription, which has only the other guitar's strummed chords.** The two other 怪獣の花唄 videos
+agree only 0.18-0.26 with it (other parts, broken bar order) and are not used.
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of

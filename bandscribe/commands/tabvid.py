@@ -112,9 +112,48 @@ def compare_cmd(
         f"(맞음 {res['tp']} · 더 읽음 {res['fp']} · 놓침 {res['fn']}) · 같은 마디 {res['bars_same']}")
 
 
+def score_cmd(
+    read: Annotated[Path, typer.Argument(help="tabvid read 가 낸 <id>_n<줄>.json")],
+    job: Annotated[str, typer.Option("--job", help="채점할 작업 키(data/jobs/<키>)")],
+    track: Annotated[int, typer.Option("--track", help="트랙 번호(1부터)")] = 1,
+    agree: Annotated[float, typer.Option("--agree", help="프레임 일치가 이보다 낮은 마디는 뺀다(의심 마디)")] = 0.8,
+    tuning: Annotated[str, typer.Option("--tuning", help="탭의 튜닝(compare 와 같음). 기본: 줄 수로 고른다")] = "",
+) -> None:
+    """작업의 기타(합친 것)를 영상 탭 파트와 마디별 음높이 묶음으로 채점한다(eval sheets 와 같은 방식, 실버 정답).
+    영상 탭은 한 연주자의 판인 경우가 많아 재현율(탭 음을 우리가 잡은 몫)이 더 중요하다."""
+    from bandscribe import paths
+    from bandscribe.eval import sheets as E
+    from bandscribe.tabvid import sheet as SH
+
+    try:
+        doc = json.loads(read.read_text(encoding="utf-8"))
+        tr = doc["tracks"][track - 1]
+        n = int(doc.get("strings", 6))
+        tun = SH.tuning(tuning, n)
+        o = E.ours(Path(paths.JOBS) / job)
+        keep = {b["number"] for b in tr["bars"] if b["agree"] >= agree}
+        est = o.bass if n in (4, 5) else o.guitar
+        res = SH.score(SH.to_sheet_part(tr["bars"], n_strings=n), o.tempo, est, tuning=tun, bars=keep)
+    except (OSError, ValueError, KeyError, IndexError, E.SheetEvalError) as e:
+        _fail(str(e), 2)
+    out = Console(highlight=False)
+    d = res["drifting"]
+    out.print(f"{escape(read.name)} 트랙 {track} ↔ {escape(job)} {'베이스' if n in (4, 5) else '기타(합친 것)'}: "
+              f"마디 {res['bars']}개(일치 {agree} 이상) · 오프셋 {res['offset']:+d}박(떠도는 오프셋 {len(res['changes'])}번 바뀜)")
+    out.print(f"재현율 [bold]{d['R']:.1f}[/] · 정밀도 {d['P']:.1f} · F1 {d['F1']:.1f} "
+              f"(탭 음 {d['tp'] + d['fn']} 중 {d['tp']} 잡음, 우리만 낸 음 {d['fp']})")
+    t = Table(title="구간별", title_justify="left")
+    for col in ("마디", "탭 음", "재현율", "정밀도"):
+        t.add_column(col, justify="right")
+    for b in res["blocks"]:
+        t.add_row(f"{b['bar']}–{b['last']}", str(b["tab_notes"]), f"{b['R']:.1f}", f"{b['P']:.1f}")
+    out.print(t)
+
+
 def register(app: typer.Typer) -> None:
     tv = typer.Typer(help="탭 영상에서 실버 정답 탭 뽑기(docs/TAB_VIDEO.md). 영상·프레임·결과는 data/eval/tabvid/ 에만 둔다.",
                      no_args_is_help=True)
     app.add_typer(tv, name="tabvid")
     tv.command("read")(read_cmd)
     tv.command("compare")(compare_cmd)
+    tv.command("score")(score_cmd)
