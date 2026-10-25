@@ -392,3 +392,8 @@ def test_bend_arrows_and_slide_lines_are_marked():
     bars = S.read_staff(g, S.find_staves(g)[0])
     assert bars[2]["bend"] == [True, False] and not any(bars[0]["bend"] + bars[1]["bend"] + bars[3]["bend"])
     assert bars[2]["slide"] == [False, True] and not any(bars[0]["slide"] + bars[1]["slide"] + bars[3]["slide"])
+
+
+def test_a_bar_as_text_tab():
+    bar = {"cols": [[(2, "5"), (3, "7")], [(3, "9")]], "bend": [True, False], "slide": [False, True]}
+    assert SH.ascii_bar(bar) == ["-------|", "-5b----|", "-7b-/9-|", "-------|", "-------|", "-------|"]

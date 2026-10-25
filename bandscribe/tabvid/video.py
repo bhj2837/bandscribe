@@ -144,7 +144,7 @@ def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
         if not same:
             out.append({"bars": sig, "frames": 0, "first": fi, "readings": [Counter() for _ in sig],
                         "numbers": [Counter() for _ in sig], "bends": [Counter() for _ in sig],
-                        "phases": [b["phases"] for b in bars]})
+                        "phases": [b["phases"] for b in bars], "ys": [b.get("y") for b in bars]})
         pg = out[-1]
         pg["frames"] += 1
         pg["last"] = fi
@@ -164,6 +164,11 @@ def fits(read: int, n: int) -> float:
     if n >= 10 and (read == n % 100 or read == n % 10):
         return 0.5
     return 0.0
+
+
+def _ys(pg: dict[str, Any], i: int) -> tuple[float, float]:
+    ys = pg.get("ys") or []
+    return tuple(ys[i]) if i < len(ys) and ys[i] else (0.0, 0.0)  # type: ignore[return-value]
 
 
 def number_pages(pgs: list[dict[str, Any]], *, min_frames: int = 2, back: int = 6, ahead: int = 15
@@ -193,7 +198,8 @@ def number_pages(pgs: list[dict[str, Any]], *, min_frames: int = 2, back: int = 
         for i, rd in enumerate(pg["readings"]):
             seq.append({"number": first + i, "readings": rd, "phases": pg["phases"][i], "by_number": read,
                         "bends": pg["bends"][i] if "bends" in pg else Counter(),
-                        "shown": (pg.get("first", 0), pg.get("last", 0), i, len(pg["readings"]), pg["frames"])})
+                        "shown": (pg.get("first", 0), pg.get("last", 0), i, len(pg["readings"]), pg["frames"]),
+                        "view": (pg.get("first", 0), *pg["bars"][i], *_ys(pg, i)) if "bars" in pg else None})
         last = max(last, first + len(pg["readings"]) - 1)
     return seq
 
@@ -221,12 +227,15 @@ def assemble(seq: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One reading per bar number, voted note by note over all its frames (``consensus``); ``agree`` is the share of
     frames whose whole reading is the most common one. {number, cols, agree, frames, phases}."""
     acc: dict[int, Counter] = {}
+    views: dict[int, tuple] = {}
     bends: dict[int, Counter] = {}
     phases: dict[int, list[float]] = {}
     for b in seq:
         acc.setdefault(b["number"], Counter()).update(b["readings"])
         bends.setdefault(b["number"], Counter()).update(b.get("bends") or {})
         phases.setdefault(b["number"], b["phases"])
+        if b.get("view") and b["shown"][4] > views.get(b["number"], (0, None))[0]:
+            views[b["number"]] = (b["shown"][4], b["view"])
     out = []
     for num in sorted(acc):
         (_top, k), = acc[num].most_common(1)
@@ -237,7 +246,8 @@ def assemble(seq: list[dict[str, Any]]) -> list[dict[str, Any]]:
         fl = [f for f, _k in bends.get(num, Counter()).most_common() if len(f) == len(cols)]
         marks = list(fl[0]) if fl else [(False, False)] * len(cols)
         out.append({"number": num, "cols": [list(c) for c in cols], "agree": round(k / tot, 3), "frames": tot,
-                    "phases": ph, "bend": [m[0] for m in marks], "slide": [m[1] for m in marks]})
+                    "phases": ph, "bend": [m[0] for m in marks], "slide": [m[1] for m in marks],
+                    "view": list(views[num][1]) if num in views else None})
     return out
 
 
@@ -372,5 +382,6 @@ def read_video(frames: list[Path], n: int = 6, fps: float = 2.0) -> dict[str, An
     per_frame = [frame_staves(g, n) for g in iter_frames(frames)]
     tr = [dict(read_track(r, fps), part=j + 1) for j, r in enumerate(tracks(per_frame))]
     main = max(tr, key=lambda t: t["notes"], default={"pages": 0, "stable_pages": 0, "bars": [], "agree": None})
-    return {"format": FORMAT, "strings": n, "frames": len(frames), "fps": fps, "tracks": tr, "pages": main["pages"],
+    return {"format": FORMAT, "strings": n, "frames": len(frames), "fps": fps, "tracks": tr,
+            "frames_dir": str(Path(frames[0]).parent) if frames else None, "pages": main["pages"],
             "stable_pages": main["stable_pages"], "bars": main["bars"], "agree": main["agree"]}

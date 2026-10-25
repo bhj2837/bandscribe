@@ -524,7 +524,7 @@ def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) 
             slide.append(is_slid)
             phases.append(round((x - a) / max(1, b - a), 4))
         bars.append({"x": (a, b), "number": numbers.get(a), "cols": out_cols, "slash": flags, "bend": bend,
-                     "slide": slide, "phases": phases})
+                     "slide": slide, "phases": phases, "y": (round(float(st[0]), 1), round(float(st[-1]), 1))})
     return bars
 
 

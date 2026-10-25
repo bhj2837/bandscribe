@@ -205,3 +205,17 @@ def score_time(part: dict[str, Any], times: dict[int, float], path: Sequence[tup
 
 
 BAR_BEATS = (1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0)
+
+
+def ascii_bar(bar: dict[str, Any], n_strings: int = 6) -> list[str]:
+    """A read bar as text tab lines (string 1 on top): each column's frets in turn, 'b' after a bent column's frets,
+    '/' before a slid one's."""
+    lines = [""] * n_strings
+    for i, col in enumerate(bar.get("cols") or []):
+        bend = bool((bar.get("bend") or [False] * (i + 1))[i]) if i < len(bar.get("bend") or []) else False
+        slide = bool((bar.get("slide") or [False] * (i + 1))[i]) if i < len(bar.get("slide") or []) else False
+        cells = {int(s): (("/" if slide else "") + str(f) + ("b" if bend else "")) for s, f in col}
+        w = max([len(c) for c in cells.values()] + [1])
+        for k in range(n_strings):
+            lines[k] += "-" + cells.get(k + 1, "").ljust(w, "-")
+    return [x + "-|" for x in lines]

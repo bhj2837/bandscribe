@@ -294,6 +294,70 @@ def search_cmd(
     Console(highlight=False).print(t)
 
 
+def review_cmd(
+    read: Annotated[Path, typer.Argument(help="tabvid read 가 낸 <id>_n<줄>.json")],
+    track: Annotated[int, typer.Option("--track", help="트랙 번호(1부터)")] = 1,
+    agree: Annotated[float, typer.Option("--agree", help="프레임 일치가 이보다 낮은 마디만(의심 마디). 1 이면 모든 마디")] = 0.8,
+    bars: Annotated[str, typer.Option("--bars", help="마디 범위만(예 100-120)")] = "",
+) -> None:
+    """사람 확인용 쪽(관문 3-5): 마디마다 영상에서 그 마디를 잘라낸 그림과 읽어 낸 탭을 나란히 놓은 HTML 을
+    data/eval/tabvid/review/ 에 만든다(영상 그림은 로컬에만)."""
+    import html
+
+    from PIL import Image
+
+    from bandscribe.tabvid import fetch as F
+    from bandscribe.tabvid import sheet as SH
+
+    try:
+        doc = json.loads(read.read_text(encoding="utf-8"))
+        tr = doc["tracks"][track - 1]
+        frames = sorted(Path(doc["frames_dir"]).glob("f*.png")) if doc.get("frames_dir") else []
+    except (OSError, ValueError, KeyError, IndexError) as e:
+        _fail(str(e), 2)
+    if not frames:
+        _fail("프레임 폴더를 찾지 못했습니다 — tabvid read 를 다시 돌려 주세요(frames_dir)", 2)
+    lo, hi = (int(x) for x in bars.split("-")) if bars else (-10 ** 9, 10 ** 9)
+    pick = [b for b in tr["bars"] if lo <= b["number"] <= hi and (agree >= 1 or b["agree"] < agree) and b.get("view")]
+    name = f"{read.stem}_t{track}"
+    dest = F.root() / "review" / name
+    dest.mkdir(parents=True, exist_ok=True)
+    n = int(doc.get("strings", 6))
+    rows = []
+    for b in pick:
+        fi, x0, x1, ytop, ybot = b["view"]
+        sp = (ybot - ytop) / max(1, n - 1)
+        im = Image.open(frames[min(fi, len(frames) - 1)])
+        box = (max(0, int(x0 - 10)), max(0, int(ytop - 4 * sp)), min(im.width, int(x1 + 10)),
+               min(im.height, int(ybot + 2.5 * sp)))
+        im.crop(box).save(dest / f"bar{b['number']:04d}.png")
+        flags = []
+        if any(b.get("bend") or []):
+            flags.append(f"벤딩 {sum(b['bend'])}")
+        if any(b.get("slide") or []):
+            flags.append(f"슬라이드 {sum(b['slide'])}")
+        rows.append(f"<tr><td class=n>{b['number']}</td><td>{b['agree']:.2f}<br>{b['frames']}프레임"
+                    f"<br>{html.escape(' · '.join(flags))}</td><td><img src='{name}/bar{b['number']:04d}.png'></td>"
+                    f"<td><pre>{html.escape(chr(10).join(SH.ascii_bar(b, n)))}</pre></td></tr>")
+    q = tr.get("quality") or {}
+    page = f"""<!doctype html><html lang=ko><meta charset=utf-8><title>{html.escape(name)} 확인</title>
+<style>
+:root {{ color-scheme: light dark; --bg: #fafafa; --fg: #222; --line: #ccc; }}
+@media (prefers-color-scheme: dark) {{ :root {{ --bg: #1b1b1b; --fg: #ddd; --line: #444; }} }}
+body {{ background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; margin: 16px; }}
+table {{ border-collapse: collapse; }} td {{ border-bottom: 1px solid var(--line); padding: 6px 10px; vertical-align: top; }}
+td.n {{ font-weight: 600; font-size: 18px; }} img {{ max-width: 900px; }} pre {{ margin: 0; font-size: 13px; }}
+</style>
+<h1>{html.escape(name)}</h1>
+<p>{html.escape(doc.get('source') or '')} · 판정 {html.escape(q.get('verdict', '-'))} {html.escape('; '.join(q.get('reasons') or []))}
+· 보인 마디 {len(pick)}개 (프레임 일치 {agree} 미만{', 마디 ' + bars if bars else ''})</p>
+<p>왼쪽 그림은 그 마디가 가장 오래 보인 프레임, 오른쪽은 읽어 낸 탭(b 벤딩, / 슬라이드). 다르면 영상 쪽이 맞다.</p>
+<table>{''.join(rows)}</table></html>"""
+    out = F.root() / "review" / f"{name}.html"
+    out.write_text(page, encoding="utf-8")
+    Console(highlight=False).print(f"확인할 마디 {len(pick)}개: {escape(str(out))}", soft_wrap=True)
+
+
 def register(app: typer.Typer) -> None:
     tv = typer.Typer(help="탭 영상에서 실버 정답 탭 뽑기(docs/TAB_VIDEO.md). 영상·프레임·결과는 data/eval/tabvid/ 에만 둔다.",
                      no_args_is_help=True)
@@ -303,3 +367,4 @@ def register(app: typer.Typer) -> None:
     tv.command("search")(search_cmd)
     tv.command("align")(align_cmd)
     tv.command("score")(score_cmd)
+    tv.command("review")(review_cmd)
