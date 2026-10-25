@@ -48,3 +48,55 @@ def download(vid: str, cfg: Any) -> Path:
                                                                po_token=y.po_token, timeout_s=y.timeout_s))
     path, _info = Y.download(Y.canonical_url(vid), root() / "videos", vcfg)
     return path
+
+
+def find_audio(vid: str) -> Path | None:
+    d = root() / "audio"
+    found = [p for p in d.glob(f"{vid}.*") if p.suffix.lower() not in (".json", ".part")] if d.is_dir() else []
+    return max(found, key=lambda p: p.stat().st_size) if found else None
+
+
+def download_audio(vid: str, cfg: Any) -> Path:
+    """The video's sound (the YouTube ingest's audio format), downloaded once into ``audio/`` - for ``align``."""
+    from bandscribe.ingest import youtube as Y
+
+    have = find_audio(vid)
+    if have is not None:
+        return have
+    if not cfg.youtube.enabled:
+        raise Y.YoutubeError("YouTube 입력이 꺼져 있습니다 (youtube.enabled = false).")
+    path, _info = Y.download(Y.canonical_url(vid), root() / "audio", cfg)
+    return path
+
+
+def title(vid: str) -> str:
+    """The video's title from a download's info.json (videos/ or audio/), or ''."""
+    import json
+
+    for sub in ("videos", "audio"):
+        p = root() / sub / f"{vid}.info.json"
+        if p.is_file():
+            try:
+                return str(json.loads(p.read_text(encoding="utf-8")).get("title") or "")
+            except (OSError, ValueError):
+                pass
+    return ""
+
+
+def search(query: str, count: int = 20) -> list[dict[str, Any]]:
+    """YouTube search results (yt-dlp, our config, nothing downloaded): [{id, title, duration, channel}]."""
+    import json
+    import subprocess
+
+    cmd = [str(paths.YTDLP_EXE), "--ignore-config", "--encoding", "utf-8", "--config-locations", str(paths.YTDLP_CONF),
+           "--flat-playlist", "--no-cookies", "--dump-json", f"ytsearch{int(count)}:{query}"]
+    run = subprocess.run(cmd, capture_output=True, timeout=300, check=True)
+    out = []
+    for line in run.stdout.decode("utf-8", errors="replace").splitlines():
+        try:
+            v = json.loads(line)
+        except ValueError:
+            continue
+        out.append({"id": v.get("id"), "title": v.get("title"), "duration": v.get("duration"),
+                    "channel": v.get("channel") or v.get("uploader")})
+    return [v for v in out if v["id"]]

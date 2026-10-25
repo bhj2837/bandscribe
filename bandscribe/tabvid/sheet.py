@@ -107,3 +107,98 @@ def score(part: dict[str, Any], tempo: Any, est: Sequence[tuple[float, int, str]
                     "R": c.doc()["R"], "P": c.doc()["P"]})
     return {"bars": len(sheet), "offset": best, "single": single.doc(), "drifting": drift.doc(), "changes": changes,
             "blocks": out}
+
+
+def score_time(part: dict[str, Any], times: dict[int, float], path: Sequence[tuple[float, float]], tempo: Any,
+               est: Sequence[tuple[float, int, str]], *, tuning: Sequence[int] = GUITAR, bars: set[int] | None = None,
+               block: int = 8) -> dict[str, Any]:
+    """``score`` by time instead of a beat offset: tab bar n plays from video second ``times[n]`` to ``times[n + 1]``
+    (``video.bar_times``), the alignment ``path`` (``align.align``) carries that to song seconds and our tempo map to
+    our beats. A cut version, a song played twice in one video and a tab counted at another tempo need nothing more.
+    Page times are only as fine as the frames: they give the bar length in our beats (of the two ``BAR_BEATS`` values
+    nearest the measured one, the one that fits better) and where each ``block`` of bars lies; the block is then laid
+    evenly from the start within four beats that fits best, or - when that fits worse, as with unsure page numbering -
+    each bar stays at its own time, moved by up to a beat."""
+    import numpy as np
+
+    from bandscribe.eval import sheets as E
+    from bandscribe.tabvid import align as A
+
+    n = len(tuning)
+    seq = sorted(x for x, t in times.items() if t is not None)
+    steps = [times[b] - times[a] for a, b in zip(seq, seq[1:]) if b == a + 1 and times[b] > times[a]]
+    dur = float(np.median(steps)) if steps else 2.0
+
+    def bars_at(lead: float) -> list:
+        out = []
+        for b in part["bars"]:
+            num = b["bar"]
+            t0 = times.get(num)
+            if t0 is None or (bars is not None and num not in bars):
+                continue
+            t1 = times.get(num + 1)
+            if t1 is None or t1 <= t0:
+                t1 = t0 + dur
+            g0 = float(tempo.time_to_beat(A.song_time(list(path), t0 + lead)))
+            g1 = float(tempo.time_to_beat(A.song_time(list(path), t1 + lead)))
+            if g1 <= g0:
+                continue
+            out.append(E.SheetBar(num, g0, g1 - g0,  # type: ignore[arg-type]
+                                  [tuning[n - x["string"]] + x["fret"] for c in b["columns"] for x in c["notes"]
+                                   if not x["dead"] and not x["tied"] and x["fret"] is not None]))
+        return out
+
+    # pages turn a little before (or after) their bars sound: the one lead over the whole video that fits best
+    leads = [round(0.25 * k, 2) for k in range(-12, 13)]
+    fit = {}
+    for lead in leads:
+        sh = bars_at(lead)
+        fit[lead] = E.bag_counts(tempo, [sh], est, lambda _b: 0).f1 if sh else -1.0
+    lead = max(leads, key=lambda x: (fit[x], -abs(x)))
+    raw = bars_at(lead)
+    if not raw:
+        raise ValueError("채점할 마디가 없습니다(마디 시간이 없음)")
+    # page times are coarse: they give the bar length in our beats (rounded to a plain value) and where each block of
+    # bars lies; within a block the bars are then laid evenly from the start that fits best within two beats
+    measured = float(np.median([b.beats for b in raw]))
+
+    def laid(blk: list, start: float, length: float) -> list:
+        return [E.SheetBar(b.bar, start + (b.bar - blk[0].bar) * length, length, b.pitches)  # type: ignore[arg-type]
+                for b in blk]
+
+    def fitted(length: float) -> tuple[float, list, list, dict]:
+        plain, sheet, moved = [], [], {}
+        for i in range(0, len(raw), block):
+            blk = raw[i:i + block]
+            base = float(np.median([b.beat0 - (b.bar - blk[0].bar) * length for b in blk]))
+            # laid evenly from a start within four beats, or each bar at its own time moved by up to a beat (when
+            # the page numbering is unsure, the bars' own times are the better guess)
+            cands = [(abs(0.5 * k), 0.5 * k, laid(blk, base + 0.5 * k, length)) for k in range(-8, 9)]
+            cands += [(abs(0.5 * k) + 0.25, 0.5 * k, [E.SheetBar(b.bar, b.beat0 + 0.5 * k, b.beats, b.pitches)
+                                                       for b in blk]) for k in range(-2, 3)]
+            f1 = [E.bag_counts(tempo, [c[2]], est, lambda _b: 0).f1 for c in cands]
+            pick = max(range(len(cands)), key=lambda q: (f1[q], -cands[q][0]))
+            plain += laid(blk, base, length)
+            sheet += cands[pick][2]
+            for b in blk:
+                moved[b.bar] = cands[pick][1]
+        return E.bag_counts(tempo, [sheet], est, lambda _b: 0).f1, plain, sheet, moved
+
+    # the bar length in our beats: the two plain values nearest the measured one, the one that fits better
+    near = sorted(BAR_BEATS, key=lambda x: abs(x - measured))[:2]
+    tries = {length: fitted(length) for length in near}
+    length = max(near, key=lambda x: (tries[x][0], -abs(x - measured)))
+    _f, plain, sheet, moved = tries[length]
+    single = E.bag_counts(tempo, [plain], est, lambda _b: 0)
+    drift = E.bag_counts(tempo, [sheet], est, lambda _b: 0)
+    out = []
+    for i in range(0, len(sheet), block):
+        c = E.bag_counts(tempo, [sheet[i:i + block]], est, lambda _b: 0)
+        out.append({"bar": sheet[i].bar, "last": sheet[min(i + block, len(sheet)) - 1].bar, "tab_notes": c.tp + c.fn,
+                    "R": c.doc()["R"], "P": c.doc()["P"]})
+    return {"bars": len(sheet), "offset": None, "lead_s": lead, "single": single.doc(), "drifting": drift.doc(),
+            "changes": [{"bar": b, "shift": d} for b, d in sorted(moved.items()) if d], "blocks": out,
+            "beats_per_bar": length, "measured_beats_per_bar": round(measured, 2)}
+
+
+BAR_BEATS = (1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0)

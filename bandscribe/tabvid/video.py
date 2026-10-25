@@ -115,9 +115,10 @@ def _alike(a: tuple | None, b: tuple) -> bool:
 
 def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """Consecutive frames' readings (bars of one staff) with the same bar lines (within 3 px) grouped: {bars: [(x0,
-    x1)], frames, readings: [Counter of column tuples per bar], numbers: [Counter of read numbers per bar], phases}."""
+    x1)], frames, first / last (frame index), readings: [Counter of column tuples per bar], numbers: [Counter of read
+    numbers per bar], phases}."""
     out: list[dict[str, Any]] = []
-    for bars in readings:
+    for fi, bars in enumerate(readings):
         if not bars:
             continue
         sig = [b["x"] for b in bars]
@@ -133,10 +134,11 @@ def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
             step, k = max(moves.items(), key=lambda kv: kv[1], default=(0, 0))
             same = not (step != 0 and k >= 2 and moves[0] == 0)
         if not same:
-            out.append({"bars": sig, "frames": 0, "readings": [Counter() for _ in sig],
+            out.append({"bars": sig, "frames": 0, "first": fi, "readings": [Counter() for _ in sig],
                         "numbers": [Counter() for _ in sig], "phases": [b["phases"] for b in bars]})
         pg = out[-1]
         pg["frames"] += 1
+        pg["last"] = fi
         for i, b in enumerate(bars):
             pg["readings"][i][tuple(tuple(c) for c in b["cols"])] += 1
             if b["number"] is not None:
@@ -176,8 +178,10 @@ def number_pages(pgs: list[dict[str, Any]], *, min_frames: int = 2, back: int = 
                 best = (key, s0)
         assert best is not None
         first = best[1] if best[0][0] > 0 or last else last + 1
+        read = sum(k * fits(rd, first + i) for i, c in enumerate(pg["numbers"]) for rd, k in c.items()) > 0
         for i, rd in enumerate(pg["readings"]):
-            seq.append({"number": first + i, "readings": rd, "phases": pg["phases"][i]})
+            seq.append({"number": first + i, "readings": rd, "phases": pg["phases"][i], "by_number": read,
+                        "shown": (pg.get("first", 0), pg.get("last", 0), i, len(pg["readings"]), pg["frames"])})
         last = max(last, first + len(pg["readings"]) - 1)
     return seq
 
@@ -259,19 +263,97 @@ def tracks(per_frame: list[list[dict[str, Any]]]) -> list[list[list[dict[str, An
     return out
 
 
-def read_track(readings: list[list[dict[str, Any]]]) -> dict[str, Any]:
+def bar_times(seq: list[dict[str, Any]], fps: float) -> dict[int, float]:
+    """{bar number: the video second it starts playing}. A page appears when its first bar is about to play: each page
+    gives one anchor (its first bar, the second it appears; a bar that opens several pages keeps the page shown
+    longest), the anchors are made to rise with the bar numbers (pool adjacent violators) and the bars between two
+    anchors share the time between them evenly. How long a page stays says little (pages turn early or late), and a
+    constant lead of the pages over the sound is left to ``sheet.score_time``."""
+    best: dict[int, tuple[int, float]] = {}
+    nums = set()
+    for e in seq:
+        nums.add(e["number"])
+        if "shown" not in e:
+            continue
+        a, _b, i, _k, n = e["shown"]
+        if i == 0 and (e["number"] not in best or n > best[e["number"]][0]):
+            best[e["number"]] = (n, a / fps)
+    if not best:
+        return {}
+    pts: list[list] = []
+    for x in sorted(best):  # pool adjacent violators: a non-decreasing fit of the anchors
+        pts.append([best[x][1], 1.0, [x]])
+        while len(pts) > 1 and pts[-2][0] > pts[-1][0]:
+            t2, w2, n2 = pts.pop()
+            t1, w1, n1 = pts.pop()
+            pts.append([(t1 * w1 + t2 * w2) / (w1 + w2), w1 + w2, n1 + n2])
+    xs = np.array([float(np.mean(ns)) for _t, _w, ns in pts])
+    ts = np.array([t for t, _w, _ns in pts])
+    slope = float(np.median(np.diff(ts) / np.diff(xs))) if len(xs) > 1 else 2.0
+    out = {}
+    for x in sorted(nums):
+        if x < xs[0]:
+            t = ts[0] - slope * (xs[0] - x)
+        elif x > xs[-1]:
+            t = ts[-1] + slope * (x - xs[-1])
+        else:
+            t = float(np.interp(x, xs, ts))
+        out[x] = round(float(t), 2)
+    return out
+
+
+USABLE = {"suspicious": 0.35, "by_number": 0.6, "even": 0.6}
+UNUSABLE = {"suspicious": 0.6, "by_number": 0.2, "even": 0.3, "bars": 8}
+
+
+def quality(bars: list[dict[str, Any]], by_number: float) -> dict[str, Any]:
+    """How far a track's reading can be trusted: {verdict: usable | doubtful | unusable, reasons, suspicious (bars whose
+    frames disagree), by_number (bars whose page was placed by its read bar numbers, not by following on), even (bars
+    whose time on screen is within 35 % of the median bar: torn pages and wrong numbers make it uneven)}. Thresholds
+    from the measured videos (docs/TAB_VIDEO.md)."""
+    if len(bars) < UNUSABLE["bars"]:
+        return {"verdict": "unusable", "reasons": [f"마디가 {len(bars)}개뿐"], "suspicious": None, "by_number": None,
+                "even": None}
+    sus = sum(1 for b in bars if b["agree"] < 0.8) / len(bars)
+    ts = [(b["number"], b.get("t")) for b in bars if b.get("t") is not None]
+    d = [t2 - t1 for (n1, t1), (n2, t2) in zip(ts, ts[1:]) if n2 == n1 + 1]
+    med = float(np.median(d)) if d else 0.0
+    even = sum(1 for x in d if med > 0 and abs(x - med) <= 0.35 * med) / len(d) if d else 0.0
+    reasons, bad, weak = [], False, False
+    for key, val, name in (("suspicious", sus, "프레임끼리 판독이 갈리는 마디"), ("by_number", by_number, "마디 번호로 자리를 잡은 마디"),
+                           ("even", even, "마디 시간 간격이 고른 마디")):
+        worse = val > UNUSABLE[key] if key == "suspicious" else val < UNUSABLE[key]
+        short = val > USABLE[key] if key == "suspicious" else val < USABLE[key]
+        if worse or short:
+            reasons.append(f"{name} {100 * val:.0f} %")
+        bad, weak = bad or worse, weak or short
+    verdict = "unusable" if bad else "doubtful" if weak else "usable"
+    return {"verdict": verdict, "reasons": reasons, "suspicious": round(sus, 3), "by_number": round(by_number, 3),
+            "even": round(even, 3)}
+
+
+def read_track(readings: list[list[dict[str, Any]]], fps: float = 2.0) -> dict[str, Any]:
     pgs = pages_of(readings)
-    bars = assemble(number_pages(pgs))
+    seq = number_pages(pgs)
+    bars = assemble(seq)
+    times = bar_times(seq, fps)
+    for b in bars:
+        b["t"] = times.get(b["number"])
+    shown = [i for i, r in enumerate(readings) if r]
+    numbered = {e["number"] for e in seq if e.get("by_number")}
     return {"pages": len(pgs), "stable_pages": sum(1 for p in pgs if p["frames"] >= 2), "bars": bars,
             "notes": sum(len(c) for b in bars for c in b["cols"]),
-            "agree": round(float(np.mean([b["agree"] for b in bars])), 4) if bars else None}
+            "agree": round(float(np.mean([b["agree"] for b in bars])), 4) if bars else None,
+            "span_s": [round(shown[0] / fps, 1), round((shown[-1] + 1) / fps, 1)] if shown else None,
+            "quality": quality(bars, len(numbered & {b["number"] for b in bars}) / max(1, len(bars)))}
 
 
-def read_video(frames: list[Path], n: int = 6) -> dict[str, Any]:
+def read_video(frames: list[Path], n: int = 6, fps: float = 2.0) -> dict[str, Any]:
     """Every tab track of the video (Guitar 1, Guitar 2 ... by the staff's place in its system) in that order;
-    ``bars`` / ``agree`` / ``pages`` repeat the track with the most fret numbers."""
+    ``bars`` / ``agree`` / ``pages`` repeat the track with the most fret numbers. ``fps``: the frames' rate (bar
+    times, ``bar_times``)."""
     per_frame = [frame_staves(g, n) for g in iter_frames(frames)]
-    tr = [dict(read_track(r), part=j + 1) for j, r in enumerate(tracks(per_frame))]
+    tr = [dict(read_track(r, fps), part=j + 1) for j, r in enumerate(tracks(per_frame))]
     main = max(tr, key=lambda t: t["notes"], default={"pages": 0, "stable_pages": 0, "bars": [], "agree": None})
-    return {"format": FORMAT, "strings": n, "frames": len(frames), "tracks": tr, "pages": main["pages"],
+    return {"format": FORMAT, "strings": n, "frames": len(frames), "fps": fps, "tracks": tr, "pages": main["pages"],
             "stable_pages": main["stable_pages"], "bars": main["bars"], "agree": main["agree"]}

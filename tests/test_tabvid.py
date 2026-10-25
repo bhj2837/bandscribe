@@ -298,3 +298,66 @@ def test_a_bar_is_voted_note_by_note():
     dropped = (((2, "3"), (3, "2")), ((2, "5"),))
     misread = (((2, "3"), (3, "2"), (4, "0")), ((2, "6"),))
     assert V.consensus(Counter({full: 2, dropped: 2, misread: 1})) == full
+
+
+def test_bar_times_come_from_the_pages_on_screen():
+    """Two pages of four bars appear at seconds 10 and 18 (frames 20 and 36 at 2 frames/s): the bars between share the
+    time evenly, the last page's bars go on at that pace, and a brief page that shows bar 9 again later changes
+    nothing."""
+    seq = [{"number": 5 + i, "shown": (20, 35, i, 4, 16)} for i in range(4)]
+    seq += [{"number": 9 + i, "shown": (36, 51, i, 4, 16)} for i in range(4)]
+    seq += [{"number": 9, "shown": (60, 61, 0, 1, 2)}]
+    t = V.bar_times(seq, 2.0)
+    assert [t[n] for n in range(5, 13)] == [10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0]
+
+
+def _chords(seconds, names, sr):
+    """A synthetic song: one triad per 2 s (sines), the chords of ``names`` in turn."""
+    roots = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9}
+    t = np.arange(int(2 * sr)) / sr
+    out = []
+    for k in range(int(seconds / 2)):
+        r = roots[names[k % len(names)]]
+        out.append(sum(np.sin(2 * np.pi * 220 * 2 ** ((r + s) / 12) * t) for s in (0, 4, 7)) / 3)
+    return np.concatenate(out).astype(np.float32)
+
+
+def test_the_video_sound_tells_same_cut_and_other():
+    """A cover of the same recording aligns along the diagonal; one missing 16 s section is a cut; another chord
+    sequence is no match."""
+    from bandscribe.tabvid import align as A
+
+    song = _chords(64, "CGAFDEGC", A.SR)
+    same = A.align(song, song)
+    assert A.verdict(same)[0] == "same" and same["rate"] == 1.0
+    cut = A.align(np.concatenate([song[:20 * A.SR], song[36 * A.SR:]]), song)
+    assert A.verdict(cut)[0] == "cut" and any(15 <= a <= 25 and 31 <= b <= 41 for a, b in cut["cuts"])
+    assert A.song_time(cut["path"], 30.0) > 40.0  # video second 30 is song second 46
+    other = A.align(_chords(64, "DEDEFGFG", A.SR), song)
+    assert A.verdict(other)[0] == "other"
+    assert A.title_flags("怪獣の花唄 -replica- / Vaundy") == ["replica"] and A.title_flags("(full ver)") == []
+
+
+def test_a_job_is_scored_by_time():
+    """Bars timed on screen, an alignment that skips 10 song seconds: the windows land on our notes."""
+    from bandscribe.schema.grid import TempoMap
+
+    tempo = TempoMap([0.5 * i for i in range(120)], [i // 4 + 1 for i in range(120)], [i % 4 + 1 for i in range(120)],
+                     {b: 4 for b in range(1, 31)})
+    bars = [{"number": k + 1, "cols": [[(2, str(k))]], "agree": 1.0, "phases": [0.0]} for k in range(6)]
+    part = SH.to_sheet_part(bars)
+    times = {k + 1: 2.0 * k for k in range(6)}  # the video plays bar k + 1 from second 2k
+    path = [(0.0, 10.0), (20.0, 30.0)]  # video second v is song second v + 10
+    est = [(10.0 + 2.0 * k + 0.1, 59 + k, "1") for k in range(6)]  # our notes, B3 + k, in each song bar
+    res = SH.score_time(part, times, path, tempo, est)
+    assert res["drifting"]["tp"] == 6 and res["drifting"]["fp"] == 0 and res["beats_per_bar"] == 4.0
+
+
+def test_the_reading_quality_verdict():
+    """Agreeing frames, numbers read, even bar times: usable. Torn pages (uneven times), disagreeing frames: not."""
+    good = [{"number": k, "agree": 1.0, "t": 2.0 * k} for k in range(1, 21)]
+    assert V.quality(good, 1.0)["verdict"] == "usable"
+    torn = [{"number": k, "agree": 0.5, "t": 2.0 * k + (1.5 if k % 2 else 0.0)} for k in range(1, 21)]
+    q = V.quality(torn, 0.1)
+    assert q["verdict"] == "unusable" and len(q["reasons"]) == 3
+    assert V.quality(good[:5], 1.0)["verdict"] == "unusable"
