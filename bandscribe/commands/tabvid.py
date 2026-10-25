@@ -118,6 +118,8 @@ def score_cmd(
     track: Annotated[int, typer.Option("--track", help="트랙 번호(1부터)")] = 1,
     agree: Annotated[float, typer.Option("--agree", help="프레임 일치가 이보다 낮은 마디는 뺀다(의심 마디)")] = 0.8,
     tuning: Annotated[str, typer.Option("--tuning", help="탭의 튜닝(compare 와 같음). 기본: 줄 수로 고른다")] = "",
+    scale: Annotated[float, typer.Option("--scale", help="탭의 박 / 우리 박 (탭이 두 배 빠른 박으로 적혔으면 2)")] = 1.0,
+    search: Annotated[int, typer.Option("--search", help="전역 오프셋을 찾는 폭(박). 축약판처럼 시작이 많이 다르면 크게")] = 16,
 ) -> None:
     """작업의 기타(합친 것)를 영상 탭 파트와 마디별 음높이 묶음으로 채점한다(eval sheets 와 같은 방식, 실버 정답).
     영상 탭은 한 연주자의 판인 경우가 많아 재현율(탭 음을 우리가 잡은 몫)이 더 중요하다."""
@@ -133,7 +135,8 @@ def score_cmd(
         o = E.ours(Path(paths.JOBS) / job)
         keep = {b["number"] for b in tr["bars"] if b["agree"] >= agree}
         est = o.bass if n in (4, 5) else o.guitar
-        res = SH.score(SH.to_sheet_part(tr["bars"], n_strings=n), o.tempo, est, tuning=tun, bars=keep)
+        res = SH.score(SH.to_sheet_part(tr["bars"], n_strings=n), o.tempo, est, tuning=tun, bars=keep, scale=scale,
+                       search=search)
     except (OSError, ValueError, KeyError, IndexError, E.SheetEvalError) as e:
         _fail(str(e), 2)
     out = Console(highlight=False)

@@ -265,3 +265,36 @@ def test_a_job_is_scored_against_a_video_part():
     res = SH.score(part, tempo, sorted(est))
     assert res["offset"] == -4 and res["drifting"]["tp"] == 15 and res["drifting"]["fn"] == 1
     assert res["drifting"]["P"] == 100.0 and res["blocks"][0]["tab_notes"] == 16
+
+
+def test_bar_numbers_close_on_the_line_inside_a_cursor_box():
+    """あいろな's strip: small numbers sitting just on the top line, and a box drawn around the playing bar whose edges
+    cross them. The whole number is read (a clipped one splits into three digits) and the box is no digit."""
+    im = Image.fromarray(draw(BARS))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, TOP - 60, 1200, TOP - 2], fill=255)  # the numbers drawn high up out
+    bold = ImageFont.truetype(str(G.font_dir() / "arialbd.ttf"), 13)
+    edges = np.linspace(X0, X1, len(BARS) + 1).astype(int)
+    for k, x in enumerate(edges[:-1]):
+        d.text((x + 2, TOP - 3), str(37 + k), fill=40, font=bold, anchor="ls")
+    d.rectangle([edges[1] - 5, TOP - 15, edges[2] - 4, TOP + 5 * SP + 30], outline=0, width=2)  # around bar 2
+    g = np.asarray(im)
+    assert [b["number"] for b in S.read_staff(g, S.find_staves(g)[0])] == [37, 38, 39, 40]
+
+
+def test_a_repeated_riff_on_the_next_page_is_a_new_page():
+    """The same bars drawn again (a riff) on a page with the same layout: only the bar numbers, all moved by four, tell
+    the next page apart."""
+    frames = [draw(BARS, first_number=8)] * 3 + [draw(BARS, first_number=12)] * 3
+    bars = V.assemble(V.number_pages(V.pages(frames)))
+    assert [b["number"] for b in bars] == list(range(8, 16))
+
+
+def test_a_bar_is_voted_note_by_note():
+    """Frames that drop one note or misread one in a bar: each note keeps the majority."""
+    from collections import Counter
+
+    full = (((2, "3"), (3, "2"), (4, "0")), ((2, "5"),))
+    dropped = (((2, "3"), (3, "2")), ((2, "5"),))
+    misread = (((2, "3"), (3, "2"), (4, "0")), ((2, "6"),))
+    assert V.consensus(Counter({full: 2, dropped: 2, misread: 1})) == full

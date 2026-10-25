@@ -104,6 +104,15 @@ def pages(frames: Iterable[np.ndarray], n: int = 6) -> list[dict[str, Any]]:
     return pages_of(read_frame(g, n) for g in frames)
 
 
+def _alike(a: tuple | None, b: tuple) -> bool:
+    """Two readings of one bar are the same bar when their (string, fret) bags share 60 %: a frame's reading wavers (a
+    play cursor crossing a number, a thin font), a new bar differs in most notes."""
+    if a is None:
+        return not b
+    x, y = Counter(n for c in a for n in c), Counter(n for c in b for n in c)
+    return sum((x & y).values()) >= 0.6 * max(sum(x.values()), sum(y.values()), 1) or (not x and not y)
+
+
 def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """Consecutive frames' readings (bars of one staff) with the same bar lines (within 3 px) grouped: {bars: [(x0,
     x1)], frames, readings: [Counter of column tuples per bar], numbers: [Counter of read numbers per bar], phases}."""
@@ -117,7 +126,12 @@ def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
         if same:  # the same layout can show the next bars: the content must agree too (numbers misread too often)
             top = [c.most_common(1)[0][0] if c else None for c in out[-1]["readings"]]
             now = [tuple(tuple(c) for c in b["cols"]) for b in bars]
-            same = sum(1 for t, w in zip(top, now) if t == w) >= 0.5 * len(now)
+            same = sum(1 for t, w in zip(top, now) if _alike(t, w)) >= 0.5 * len(now)
+        if same:  # a riff repeated on the next page looks alike: bar numbers all moved by one step tell it apart
+            was = [c.most_common(1)[0][0] if c else None for c in out[-1]["numbers"]]
+            moves = Counter(b["number"] - w for b, w in zip(bars, was) if b["number"] is not None and w is not None)
+            step, k = max(moves.items(), key=lambda kv: kv[1], default=(0, 0))
+            same = not (step != 0 and k >= 2 and moves[0] == 0)
         if not same:
             out.append({"bars": sig, "frames": 0, "readings": [Counter() for _ in sig],
                         "numbers": [Counter() for _ in sig], "phases": [b["phases"] for b in bars]})
@@ -168,8 +182,28 @@ def number_pages(pgs: list[dict[str, Any]], *, min_frames: int = 2, back: int = 
     return seq
 
 
+def consensus(readings: Counter) -> tuple[tuple, ...]:
+    """A bar's reading voted note by note: among the frames that read the most common number of columns, each column
+    keeps the (string, fret) notes more than half of them read (one frame drops a note, another misreads one)."""
+    by_len: Counter = Counter()
+    for r, k in readings.items():
+        by_len[len(r)] += k
+    n = by_len.most_common(1)[0][0]
+    same = {r: k for r, k in readings.items() if len(r) == n}
+    tot = sum(same.values())
+    out = []
+    for i in range(n):
+        votes: Counter = Counter()
+        for r, k in same.items():
+            for note in r[i]:
+                votes[note] += k
+        out.append(tuple(sorted(note for note, v in votes.items() if v > tot / 2)))
+    return tuple(out)
+
+
 def assemble(seq: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One reading per bar number: the most voted over all its frames; {number, cols, agree, frames, phases}."""
+    """One reading per bar number, voted note by note over all its frames (``consensus``); ``agree`` is the share of
+    frames whose whole reading is the most common one. {number, cols, agree, frames, phases}."""
     acc: dict[int, Counter] = {}
     phases: dict[int, list[float]] = {}
     for b in seq:
@@ -177,7 +211,8 @@ def assemble(seq: list[dict[str, Any]]) -> list[dict[str, Any]]:
         phases.setdefault(b["number"], b["phases"])
     out = []
     for num in sorted(acc):
-        (cols, k), = acc[num].most_common(1)
+        (_top, k), = acc[num].most_common(1)
+        cols = consensus(acc[num])
         tot = sum(acc[num].values())
         ph = phases[num] if len(phases[num]) == len(cols) else [round((i + 0.5) / max(1, len(cols)), 4)
                                                                  for i in range(len(cols))]

@@ -15,8 +15,11 @@ agreement). Found on the way: the sheet truth JSONs held merged frets (81 notes;
 session) and unexpanded two-bar repeats (73 empty bars, still open). A 682p screen-recorded 5-string bass video of 狭心症
 could not be read (9 px digits). `bandscribe tabvid score` scores a job against a video tab. **Correction: the first J-pop measurement made with it
 (怪獣の花唄 recall 69.2 against Ryo Higuchi's tab) is void - that video is 「怪獣の花唄 -replica-」, a different song
-(owner's note).** The original's two tab videos (あいろな, guitar cover with tabs & chords; 222 s) still lose their bar
-order; they come next.
+(owner's note).** Against the original, with あいろな's tab (bars 1-137 after fixing bar numbers set close on the line,
+a cursor box and riffs repeated on the next page; bars voted note by note): our merged guitar recall 66.8, precision
+32.2; the last chorus (bars 124-135) falls to 15 % - the tab's high C#5-A4 sixteenth line is absent from our
+transcription (only strummed chords), confirming the owner's ear. 狭心症 bass (a 1080p BassScore video): not usable yet -
+bar numbers only at system starts and too tall for the number filter, and the video is a 337 s cut of the 410 s song.
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of

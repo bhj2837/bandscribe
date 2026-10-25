@@ -303,12 +303,21 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
         y0 += int(runs[-1][1])
     if y1 <= y0:
         return {}
+    # down to just inside the staff, its top line rows wiped: a number set close on the line keeps its full height, and
+    # a fret number on string 1 (it reaches below the line) is no candidate
+    y1 = min(gray.shape[0], int(top + 0.6 * sp))
     sub = gray[y0:y1].astype(float)
-    lab, _ = ndimage.label(sub < bg - 25, structure=np.ones((3, 3)))
+    mask = sub < bg - 25
+    # long straight strokes are no digits: a cursor box around the playing bar, a play cursor, notation staff lines
+    # (taken out before the top line is, which would cut a box's edge into short pieces)
+    mask &= ~ndimage.binary_opening(mask, structure=np.ones((int(1.1 * sp) + 1, 1)))
+    mask &= ~ndimage.binary_opening(mask, structure=np.ones((1, int(2 * sp) + 1)))
+    mask[max(0, int(np.floor(top)) - 1 - y0):int(np.ceil(top)) + 2 - y0] = False
+    lab, _ = ndimage.label(mask, structure=np.ones((3, 3)))
     found = []
     for k, sl in enumerate(ndimage.find_objects(lab), 1):
         h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
-        if not (0.3 * sp <= h <= 0.75 * sp) or w > 2.2 * sp:
+        if not (0.3 * sp <= h <= 0.75 * sp) or w > 2.2 * sp or sl[0].stop + y0 > top - 1:
             continue
         crop = np.where(lab[sl] == k, np.clip((bg - sub[sl]) / bg, 0, 1), 0.0)
         # faint antialiasing can join two small digits; a lowish threshold keeps a thin serif stroke (Times '5') whole

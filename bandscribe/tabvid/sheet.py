@@ -78,23 +78,24 @@ def compare(a: dict[str, Any], b: dict[str, Any], *, tuning: Sequence[int] = GUI
 
 
 def score(part: dict[str, Any], tempo: Any, est: Sequence[tuple[float, int, str]], *, tuning: Sequence[int] = GUITAR,
-          bars: set[int] | None = None, block: int = 8) -> dict[str, Any]:
+          bars: set[int] | None = None, block: int = 8, scale: float = 1.0, search: int = 16) -> dict[str, Any]:
     """Our notes ``est`` ((onset s, pitch, line), by onset, on ``tempo``: a job's TempoMap) against a tab-video part, by
-    the sheet evaluation's bar bags (``bandscribe.eval.sheets``): the best beat offset in -16..16 (a video's bar 1 may
-    be a count-in), then drifting offsets. ``bars``: the part's bars to score (read, agreeing frames). A video tab often
-    covers one player's version only (one electric guitar for two), so its notes missed by us (recall) mean more than
-    our notes it lacks. ``blocks``: recall and precision per ``block`` bars."""
+    the sheet evaluation's bar bags (``bandscribe.eval.sheets``): the best beat offset in ``-search..search`` (a
+    video's bar 1 may be a count-in; a cut version starts later), then drifting offsets. ``scale``: the tab's beats per
+    beat of ours (2 when the tab counts a beat at twice our tempo). ``bars``: the part's bars to score (read, agreeing
+    frames). A video tab often covers one player's version only (one electric guitar for two), so its notes missed by
+    us (recall) mean more than our notes it lacks. ``blocks``: recall and precision per ``block`` bars."""
     from bandscribe.eval import sheets as E
 
     n = len(tuning)
     b0 = E.beat0(part)
-    sheet = [E.SheetBar(b["bar"], b0[b["bar"]], b["numerator"],
+    sheet = [E.SheetBar(b["bar"], b0[b["bar"]] / scale, b["numerator"] / scale,  # type: ignore[arg-type]
                         [tuning[n - x["string"]] + x["fret"] for c in b["columns"] for x in c["notes"]
                          if not x["dead"] and not x["tied"] and x["fret"] is not None])
              for b in part["bars"] if bars is None or b["bar"] in bars]
     if not sheet:
         raise ValueError("채점할 마디가 없습니다")
-    f1 = {o: E.bag_counts(tempo, [sheet], est, lambda _b, o=o: o).f1 for o in range(-16, 17)}
+    f1 = {o: E.bag_counts(tempo, [sheet], est, lambda _b, o=o: o).f1 for o in range(-search, search + 1)}
     best = max(f1, key=lambda o: (f1[o], -abs(o)))
     local, changes = E.drifting_offsets(tempo, [sheet], est, best)
     single = E.bag_counts(tempo, [sheet], est, lambda _b: best)
