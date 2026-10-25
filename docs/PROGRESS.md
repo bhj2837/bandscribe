@@ -9,11 +9,13 @@ agreement, bar F1 0.860 against the owner's band score (a different transcriber)
 あのバンド video vs the owner's PDF): F1 guitar 1 0.979, guitar 2 0.861, bass 0.922 (0.989 / 0.890 / 0.943 on bars
 with 80 % frame agreement or more); several staves per frame as tracks, centred bar numbers, 4-line bass staves, rhythm
 slashes, merged number boxes, score pages (systems follow one another; notation staves left out by their narrower line
-gap). `bandscribe tabvid read | compare`. On bars whose truth is known: あのバンド 0.984 / 0.932 / 0.933, held out
-(Rika's ギターと孤独と蒼い惑星, no rule changed for it) 0.968 / 0.958 / 0.964 (0.986 / 0.977 / 0.974 with 80 % frame
+gap). `bandscribe tabvid read | compare`. On bars whose truth is known: あのバンド 0.984 / 0.932 / 0.968, held out
+(Rika's ギターと孤独と蒼い惑星, no rule changed for it) 0.968 / 0.958 / 0.976 (0.986 / 0.977 / 0.979 with 80 % frame
 agreement). Found on the way: the sheet truth JSONs held merged frets (81 notes; re-extracted the same day in another
 session) and unexpanded two-bar repeats (73 empty bars, still open). A 682p screen-recorded 5-string bass video of 狭心症
-could not be read (9 px digits). Next: 怪獣の花唄 guitar videos.
+could not be read (9 px digits). 怪獣の花唄: three guitar tab videos read, but they agree only 0.18-0.26 with one
+another (different parts and voicings; two of them lose their bar order) - not usable as truth yet; Ryo Higuchi's
+is the best (bars 1-138).
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of

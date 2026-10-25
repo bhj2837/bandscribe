@@ -144,13 +144,14 @@ def _digits(piece: np.ndarray, h: int, *, digits_only: bool = False) -> list[tup
     return [G.classify(piece[:, a:b], digits_only=True) for a, b in zip(edges, edges[1:])]
 
 
-def _pieces(ink: np.ndarray) -> list[tuple[int, int, np.ndarray, int]]:
-    cols = (ink > 0.3).any(0)
+def _pieces(ink: np.ndarray, thr: float = 0.3) -> list[tuple[int, int, np.ndarray, int]]:
+    """(left, right, crop, height) of each run of columns holding ink above ``thr``."""
+    cols = (ink > thr).any(0)
     edges = np.flatnonzero(np.diff(np.r_[0, cols.astype(int), 0]))
     out = []
     for c0, c1 in zip(edges[::2], edges[1::2]):
         crop = ink[:, c0:c1]
-        rows = np.flatnonzero((crop > 0.3).any(1))
+        rows = np.flatnonzero((crop > thr).any(1))
         if len(rows):
             out.append((int(c0), int(c1), crop[rows.min():rows.max() + 1], int(rows.max() - rows.min() + 1)))
     return out
@@ -310,24 +311,27 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
         if not (0.3 * sp <= h <= 0.75 * sp) or w > 2.2 * sp:
             continue
         crop = np.where(lab[sl] == k, np.clip((bg - sub[sl]) / bg, 0, 1), 0.0)
-        for c0, c1, piece, ph in _pieces(crop):  # faint antialiasing can join two small digits
+        # faint antialiasing can join two small digits; a lowish threshold keeps a thin serif stroke (Times '5') whole
+        for c0, c1, piece, ph in _pieces(crop, 0.2):
             if ph < 0.6 * h:
                 continue
             ds = _digits(piece, ph, digits_only=True)  # bar numbers are digits (a 7 is not a rest)
-            if all(sc >= (0.7 if len(ds) == 1 else 0.6) and str(d).isdigit() for d, sc in ds):
+            if all(sc >= 0.45 and str(d).isdigit() for d, sc in ds):
+                sure = all(sc >= (0.7 if len(ds) == 1 else 0.6) for _d, sc in ds)
                 step = (c1 - c0) / len(ds)
                 for i, (d, _sc) in enumerate(ds):
                     found.append((sl[0].start, sl[1].start + c0 + int(i * step), sl[1].start + c0 + int((i + 1) * step),
-                                  str(d)))
+                                  str(d), sure))
     unit = max(1, int(0.3 * sp))
     windows = []
     for x, nxt in zip(xs, list(xs[1:]) + [None]):
         right = x + 3.5 * sp if nxt is None else min(x + 3.5 * sp, nxt - 0.4 * sp)
         windows.append((x, [f for f in found if x - 1.2 * sp <= f[1] <= right]))
-    # the bar numbers of a staff share one row: the row with digits at the most bar lines (then the nearest the staff)
+    # the bar numbers of a staff share one row: the row with sure digits at the most bar lines (then the nearest the
+    # staff); in that row a less sure digit counts too (a thin serif '5' scores about 0.55)
     cover: Counter = Counter()
     for _x, cand in windows:
-        for r in {f[0] // unit for f in cand}:
+        for r in {f[0] // unit for f in cand if f[4]}:
             cover[r] += 1
     if not cover:
         return {}
