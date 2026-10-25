@@ -4,9 +4,13 @@
 accuracy first; plan change 2 in `docs/MIDTERM_REVIEW.md`), truth for J-pop songs comes from YouTube tab videos.
 `bandscribe/tabvid/` reads a tab video box-first (fret numbers sit on white boxes that cut the staff lines) into bars of
 (string, fret) in play order (pages + voted bar numbers). Synthetic alphaTab page: note precision 0.999 / recall 0.9997,
-154 / 157 bars exact. JINZO-TABS 青春コンプレックス rhythm guitar (1080p): 160 bars in order, 98.8 % frame agreement, bar
-F1 0.860 against the owner's band score (a different transcriber). Next: same-transcriber accuracy on Rika's videos,
-bass staves, a `bandscribe tabvid` command.
+154 / 157 bars exact. JINZO-TABS 青春コンプレックス rhythm guitar (1080p): bars 2-158 in order, 98.9 % frame
+agreement, bar F1 0.860 against the owner's band score (a different transcriber). Same transcriber (Rika [Music Channel]'s
+あのバンド video vs the owner's PDF): F1 guitar 1 0.979, guitar 2 0.861, bass 0.922 (0.989 / 0.890 / 0.943 on bars
+with 80 % frame agreement or more); several staves per frame as tracks, centred bar numbers, 4-line bass staves, rhythm
+slashes, merged number boxes. `bandscribe tabvid read | compare`. Found on the way: the sheet truth JSONs hold merged
+frets (81 notes over 6 songs) - a separate fix. Next: Rika's second song, a re-compressed synthetic video, then the
+owner's J-pop songs.
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of

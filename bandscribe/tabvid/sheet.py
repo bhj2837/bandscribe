@@ -8,6 +8,25 @@ from collections.abc import Sequence
 from typing import Any
 
 GUITAR = (40, 45, 50, 55, 59, 64)
+TUNINGS = {"guitar": GUITAR, "bass": (28, 33, 38, 43), "bass-dropd": (26, 33, 38, 43), "bass5": (23, 28, 33, 38, 43)}
+
+
+def tuning(spec: str, n_strings: int) -> tuple[int, ...]:
+    """MIDI pitches of the open strings, low to high: a name of ``TUNINGS``, numbers ('26,33,38,43'), or '' for the
+    standard tuning of ``n_strings`` (6 guitar, 4 bass, 5 five-string bass)."""
+    spec = spec.strip().lower()
+    if not spec:
+        spec = {6: "guitar", 4: "bass", 5: "bass5"}.get(n_strings, "")
+    if spec in TUNINGS:
+        out = TUNINGS[spec]
+    else:
+        try:
+            out = tuple(int(x) for x in spec.split(","))
+        except ValueError:
+            raise ValueError(f"튜닝을 모릅니다: '{spec}' ({', '.join(TUNINGS)} 또는 MIDI 번호)") from None
+    if len(out) != n_strings:
+        raise ValueError(f"튜닝 {out} 은 {len(out)}줄인데 탭은 {n_strings}줄입니다")
+    return out
 
 
 def to_sheet_part(bars: Sequence[dict[str, Any]], *, n_strings: int = 6, numerator: int = 4,

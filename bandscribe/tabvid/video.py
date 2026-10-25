@@ -3,11 +3,13 @@
 Tab videos show a strip or a page of the score and turn it as the music plays: frames that show the same bar lines are
 one *page*. A page's bars are read in every one of its frames and voted; bar numbers (small digits above each bar) are
 voted per page, and a page's first number is the start near the previous page's end that fits its readings best (a
-read '24' fits 124: a leading digit is often lost). Bars on two pages vote together.
+read '24' fits 124: a leading digit is often lost). Bars on two pages vote together. A frame with several tab staves
+(Guitar 1 over Guitar 2) gives one *track* per staff height, each read on its own.
 
-Measured on JINZO-TABS' 青春コンプレックス rhythm guitar (1080p, 2 frames/s): 160 bars in order with none missing,
-98.8 % of a bar's frames agreeing; bar-bag F1 0.86 against the owner's band score of the same part (a different
-transcriber: the bars checked by eye were read right and differ in the arrangement).
+Measured on JINZO-TABS' 青春コンプレックス rhythm guitar (1080p, 2 frames/s): bars 2-158 in order with none missing,
+98.9 % of a bar's frames agreeing; bar-bag F1 0.86 against the owner's band score of the same part (a different
+transcriber: the bars checked by eye were read right and differ in the arrangement). On Rika's あのバンド video against
+the same transcriber's band score: F1 0.979 / 0.861 / 0.922 for guitar 1 / guitar 2 / bass.
 """
 
 from __future__ import annotations
@@ -53,24 +55,54 @@ def tab_staves(gray: np.ndarray, n: int = 6) -> list[tuple[list[float], list[int
     return out
 
 
-def read_frame(gray: np.ndarray, n: int = 6) -> list[dict[str, Any]]:
-    """The bars of the frame's tab staff with the most fret numbers. Tabs are dark-on-light or light-on-dark in any part
-    of the frame (a dark strip over a light video), so both polarities are searched."""
+def _notes(bars: list[dict[str, Any]]) -> int:
+    return sum(len(c) for b in bars for c in b["cols"])
+
+
+def _same_lines(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> bool:
+    return len(a) == len(b) and all(abs(p["x"][0] - q["x"][0]) <= 3 and abs(p["x"][1] - q["x"][1]) <= 3
+                                    for p, q in zip(a, b))
+
+
+def frame_staves(gray: np.ndarray, n: int = 6) -> list[dict[str, Any]]:
+    """Every tab staff of the frame, top to bottom: {y (top line), sp, bars}. Tabs are dark-on-light or light-on-dark in
+    any part of the frame (a dark strip over a light video), so both polarities are searched and the one with more fret
+    numbers kept. Staves with the same bar lines are one system: the ones below the first take its bar numbers (they
+    are printed once, above the system)."""
     best: list[dict[str, Any]] = []
     for g in (gray, 255 - gray):
-        for st, _xs, _sp in tab_staves(g, n):
-            bars = S.read_staff(g, st)
-            if sum(len(c) for b in bars for c in b["cols"]) > sum(len(c) for b in best for c in b["cols"]):
-                best = bars
+        out: list[dict[str, Any]] = []
+        prev = None
+        for st, _xs, sp in sorted(tab_staves(g, n), key=lambda t: t[0][0]):
+            bars = S.read_staff(g, st, prev)
+            prev = st[-1]
+            for up in out:
+                if _same_lines(up["bars"], bars):
+                    for b, u in zip(bars, up["bars"]):
+                        if b["number"] is None:
+                            b["number"] = u["number"]
+                    break
+            out.append({"y": float(st[0]), "sp": float(sp), "bars": bars})
+        if sum(_notes(t["bars"]) for t in out) > sum(_notes(t["bars"]) for t in best):
+            best = out
     return best
 
 
+def read_frame(gray: np.ndarray, n: int = 6) -> list[dict[str, Any]]:
+    """The bars of the frame's tab staff with the most fret numbers."""
+    return max((t["bars"] for t in frame_staves(gray, n)), key=_notes, default=[])
+
+
 def pages(frames: Iterable[np.ndarray], n: int = 6) -> list[dict[str, Any]]:
-    """Consecutive frames with the same bar lines (within 3 px) grouped: {bars: [(x0, x1)], frames, readings: [Counter
-    of column tuples per bar], numbers: [Counter of read numbers per bar], phases}."""
+    """``pages_of`` the staff with the most fret numbers in each frame."""
+    return pages_of(read_frame(g, n) for g in frames)
+
+
+def pages_of(readings: Iterable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Consecutive frames' readings (bars of one staff) with the same bar lines (within 3 px) grouped: {bars: [(x0,
+    x1)], frames, readings: [Counter of column tuples per bar], numbers: [Counter of read numbers per bar], phases}."""
     out: list[dict[str, Any]] = []
-    for g in frames:
-        bars = read_frame(g, n)
+    for bars in readings:
         if not bars:
             continue
         sig = [b["x"] for b in bars]
@@ -155,9 +187,36 @@ def iter_frames(paths: Iterable[Path]) -> Iterator[np.ndarray]:
         yield np.asarray(Image.open(p).convert("L"))
 
 
-def read_video(frames: list[Path], n: int = 6) -> dict[str, Any]:
-    pgs = pages(iter_frames(frames), n)
+def tracks(per_frame: list[list[dict[str, Any]]]) -> list[tuple[float, list[list[dict[str, Any]]]]]:
+    """The staves of every frame sorted into tracks by height (a staff within 1.5 line gaps of a track's height is that
+    track; a video keeps each part's staff at one height): [(height, its bars in every frame, [] where absent)]."""
+    ys: list[float] = []
+    for staves in per_frame:
+        for t in staves:
+            if not any(abs(t["y"] - y) <= 1.5 * t["sp"] for y in ys):
+                ys.append(t["y"])
+    ys.sort()
+    out: list[tuple[float, list[list[dict[str, Any]]]]] = [(y, [[] for _ in per_frame]) for y in ys]
+    for i, staves in enumerate(per_frame):
+        for t in staves:
+            k = min(range(len(ys)), key=lambda j: abs(ys[j] - t["y"]))
+            out[k][1][i] = t["bars"]
+    return out
+
+
+def read_track(readings: list[list[dict[str, Any]]]) -> dict[str, Any]:
+    pgs = pages_of(readings)
     bars = assemble(number_pages(pgs))
-    return {"format": FORMAT, "strings": n, "frames": len(frames), "pages": len(pgs),
-            "stable_pages": sum(1 for p in pgs if p["frames"] >= 2), "bars": bars,
+    return {"pages": len(pgs), "stable_pages": sum(1 for p in pgs if p["frames"] >= 2), "bars": bars,
+            "notes": sum(len(c) for b in bars for c in b["cols"]),
             "agree": round(float(np.mean([b["agree"] for b in bars])), 4) if bars else None}
+
+
+def read_video(frames: list[Path], n: int = 6) -> dict[str, Any]:
+    """Every tab track of the video (each staff height: Guitar 1, Guitar 2 ... on a multi-part video), top to bottom;
+    ``bars`` / ``agree`` / ``pages`` repeat the track with the most fret numbers."""
+    per_frame = [frame_staves(g, n) for g in iter_frames(frames)]
+    tr = [dict(read_track(r), y=round(y, 1)) for y, r in tracks(per_frame)]
+    main = max(tr, key=lambda t: t["notes"], default={"pages": 0, "stable_pages": 0, "bars": [], "agree": None})
+    return {"format": FORMAT, "strings": n, "frames": len(frames), "tracks": tr, "pages": main["pages"],
+            "stable_pages": main["stable_pages"], "bars": main["bars"], "agree": main["agree"]}

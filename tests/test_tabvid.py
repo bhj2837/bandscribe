@@ -17,29 +17,37 @@ FONT = G.font_dir() / "arial.ttf"
 pytestmark = pytest.mark.skipif(not FONT.is_file(), reason="needs the Windows fonts")
 
 
-def draw(bars, *, first_number=1, invert=False, width=1200):
-    """bars: [[(string, text, column), ...] per bar]; four bars over the staff; a stem under every column."""
-    im = Image.new("L", (width, 420), 255)
+def draw(bars, *, first_number=1, invert=False, width=1200, staves=None, height=420, centred=False):
+    """bars: [[(string, text, column), ...] per bar]; four bars over the staff; a stem under every column.
+    ``staves``: [(top, lines, bars)] for several staves with the same bar lines (bar numbers above the first only);
+    ``centred``: bar numbers centred on the bar line instead of right of it."""
+    im = Image.new("L", (width, height), 255)
     d = ImageDraw.Draw(im)
     big = ImageFont.truetype(str(FONT), 18)
     small = ImageFont.truetype(str(FONT), 14)
-    for i in range(6):
-        d.line([(X0, TOP + i * SP), (X1, TOP + i * SP)], fill=170, width=1)
-    edges = np.linspace(X0, X1, len(bars) + 1).astype(int)
-    for k, x in enumerate(edges):
-        d.line([(x, TOP), (x, TOP + 5 * SP)], fill=0, width=2)
-        if k < len(bars):
-            d.text((x + 3, TOP - 40), str(first_number + k), fill=140, font=small)
-    for k, notes in enumerate(bars):
-        for s, text, col in notes:
-            cx = edges[k] + 40 + col * 60
-            cy = TOP + (s - 1) * SP
-            w = 7 * len(text) + 6
-            d.rectangle([cx - w // 2, cy - 9, cx + w // 2, cy + 9], fill=255)
-            d.text((cx, cy), text, fill=0, font=big, anchor="mm")
-        for col in {c for _, _, c in notes}:
-            cx = edges[k] + 40 + col * 60
-            d.line([(cx, TOP + 5 * SP + 4), (cx, TOP + 5 * SP + 40)], fill=0, width=1)
+    staves = staves or [(TOP, 6, bars)]
+    edges = np.linspace(X0, X1, len(staves[0][2]) + 1).astype(int)
+    for si, (top, lines, sbars) in enumerate(staves):
+        bot = top + (lines - 1) * SP
+        for i in range(lines):
+            d.line([(X0, top + i * SP), (X1, top + i * SP)], fill=170, width=1)
+        for k, x in enumerate(edges):
+            d.line([(x, top), (x, bot)], fill=0, width=2)
+            if si == 0 and k < len(sbars):
+                if centred:
+                    d.text((x, top - 28), str(first_number + k), fill=140, font=small, anchor="ms")
+                else:
+                    d.text((x + 3, top - 40), str(first_number + k), fill=140, font=small)
+        for k, notes in enumerate(sbars):
+            for s, text, col in notes:
+                cx = edges[k] + 40 + col * 60
+                cy = top + (s - 1) * SP
+                w = 7 * len(text) + 6
+                d.rectangle([cx - w // 2, cy - 9, cx + w // 2, cy + 9], fill=255)
+                d.text((cx, cy), text, fill=0, font=big, anchor="mm")
+            for col in {c for _, _, c in notes}:
+                cx = edges[k] + 40 + col * 60
+                d.line([(cx, bot + 4), (cx, bot + 40)], fill=0, width=1)
     a = np.asarray(im)
     return 255 - a if invert else a
 
@@ -152,3 +160,74 @@ def test_sheet_part_and_comparison():
     shifted = {"bars": [dict(b, bar=b["bar"] + 1) for b in part["bars"]]}
     res = SH.compare(part, shifted)
     assert res["offset"] == 1 and res["F1"] == 1.0 and res["bars_same"] == 3
+
+
+BASS = [[(4, "0", 0), (4, "3", 1), (3, "5", 2)], [(2, "7", 0), (1, "9", 1)], [(4, "0", 0)], [(3, "2", 0), (4, "12", 1)]]
+
+
+def test_a_staff_has_exactly_its_lines():
+    """A four-line bass staff is found as four lines only, and four lines of a six-line staff are not a bass staff."""
+    bass = draw(None, staves=[(TOP, 4, BASS)])
+    assert len(S.find_staves(bass, 4)) == 1 and S.find_staves(bass, 6) == []
+    assert S.find_staves(draw(BARS), 4) == []
+    bars = S.read_staff(bass, S.find_staves(bass, 4)[0])
+    assert [b["cols"] for b in bars] == [[[(4, "0")], [(4, "3")], [(3, "5")]], [[(2, "7")], [(1, "9")]], [[(4, "0")]],
+                                         [[(3, "2")], [(4, "12")]]]
+
+
+def test_staves_of_one_system_share_its_bar_numbers_and_become_tracks():
+    """Guitar 1 over Guitar 2 (bar numbers printed once, above the system): both get the numbers, and over a video each
+    staff height is its own track."""
+    lower = BARS[2:] + BARS[:2]
+    g = draw(None, first_number=21, staves=[(120, 6, BARS), (330, 6, lower)], height=520)
+    staves = V.frame_staves(g)
+    assert [round(t["y"]) for t in staves] == [120, 330]
+    assert [[b["number"] for b in t["bars"]] for t in staves] == [[21, 22, 23, 24]] * 2
+    assert staves[1]["bars"][0]["cols"] == [[(3, "9"), (4, "10")], [(3, "9")]]
+    h = draw(None, first_number=25, staves=[(120, 6, lower), (330, 6, BARS)], height=520)
+    tr = V.tracks([V.frame_staves(g)] * 3 + [V.frame_staves(h)] * 3)
+    assert [round(y) for y, _ in tr] == [120, 330]
+    upper = V.read_track(tr[0][1])
+    assert [b["number"] for b in upper["bars"]] == list(range(21, 29))
+    assert upper["bars"][4]["cols"] == [[(3, "9"), (4, "10")], [(3, "9")]]
+
+
+def test_centred_bar_numbers_on_a_dark_strip_over_a_bright_video():
+    """Rika's format: bar numbers centred on the bar line, a dark tab strip whose panel ends above them (the video
+    around it is bright)."""
+    g = draw(BARS, first_number=169, invert=True, centred=True).copy()
+    g[:TOP - 70] = 235
+    assert [b["number"] for b in V.read_frame(g)] == [169, 170, 171, 172]
+
+
+def test_tunings():
+    assert SH.tuning("", 6) == SH.GUITAR and SH.tuning("", 4) == (28, 33, 38, 43)
+    assert SH.tuning("bass-dropd", 4) == SH.tuning("26,33,38,43", 4) == (26, 33, 38, 43)
+    with pytest.raises(ValueError):
+        SH.tuning("guitar", 4)
+
+
+def test_the_command_reads_a_frame_folder_and_scores_a_part(tmp_path, monkeypatch):
+    import json
+
+    from typer.testing import CliRunner
+
+    from bandscribe import cli, paths
+
+    monkeypatch.setattr(paths, "EVAL", tmp_path / "eval")
+    monkeypatch.setenv("COLUMNS", "200")
+    frames = tmp_path / "clip"
+    frames.mkdir()
+    for i, g in enumerate([draw(BARS, first_number=8)] * 3 + [draw(BARS[2:] + BARS[:2], first_number=10)] * 3):
+        Image.fromarray(g).save(frames / f"f{i:05d}.png")
+    res = CliRunner().invoke(cli.app, ["tabvid", "read", str(frames)])
+    assert res.exit_code == 0, res.output
+    out = tmp_path / "eval" / "tabvid" / "read"
+    doc = json.loads((out / "clip_n6.json").read_text(encoding="utf-8"))
+    assert [b["number"] for b in doc["bars"]] == [8, 9, 10, 11, 12, 13] and len(doc["tracks"]) == 1
+    part = json.loads((out / "clip_n6_t1.json").read_text(encoding="utf-8"))
+    (tmp_path / "sheet.json").write_text(json.dumps({"bars": [dict(b, bar=b["bar"] + 1) for b in part["bars"]]}),
+                                         encoding="utf-8")
+    res = CliRunner().invoke(cli.app, ["tabvid", "compare", str(out / "clip_n6_t1.json"), str(tmp_path / "sheet.json")])
+    assert res.exit_code == 0, res.output
+    assert "오프셋 +1" in res.output and "F1 1.000" in res.output

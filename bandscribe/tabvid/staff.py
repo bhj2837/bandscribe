@@ -22,15 +22,19 @@ from bandscribe.tabvid import glyphs as G
 
 
 def _groups(ys: list[float], n: int, tol: float | None = None) -> list[list[float]]:
+    """Runs of n equally spaced lines with no further line at that spacing above or below (four lines of a six-line
+    staff are not a bass staff)."""
     out, i = [], 0
     while i + n <= len(ys):
         grp = ys[i:i + n]
         d = np.diff(grp)
         lim = tol if tol is not None else max(2.0, 0.1 * float(d.mean()))
         if d.min() > 4 and d.max() - d.min() <= lim:
-            out.append(grp)
-            i += n
-            continue
+            dm = float(d.mean())
+            if not any(abs(y - (grp[0] - dm)) <= lim or abs(y - (grp[-1] + dm)) <= lim for y in ys):
+                out.append(grp)
+                i += n
+                continue
         i += 1
     return out
 
@@ -75,9 +79,10 @@ def line_rows(gray: np.ndarray) -> list[float]:
 
 
 def find_staves(gray: np.ndarray, n: int = 6) -> list[list[float]]:
-    """The strict finder's staves plus the robust finder's staves it missed."""
-    a = staves_strict(gray, n)
-    return a + [s for s in _groups(line_rows(gray), n) if not any(abs(s[0] - t[0]) < 5 for t in a)]
+    """The strict finder's staves, or the robust finder's when it finds none. Measured on nine formats: the robust one
+    was needed only where the strict one found nothing, and next to a strict staff it took a notation staff with a row
+    of ledger lines for a sixth line (JINZO)."""
+    return staves_strict(gray, n) or _groups(line_rows(gray), n)
 
 
 def barlines(gray: np.ndarray, st: list[float]) -> tuple[list[int], float]:
@@ -92,6 +97,9 @@ def barlines(gray: np.ndarray, st: list[float]) -> tuple[list[int], float]:
         if (below.size and below[:, x].mean() > 0.5) or (above.size and above[:, x].mean() > 0.5):
             continue
         if xs and x - xs[-1] <= 2:
+            continue
+        if xs and x - xs[-1] < 0.8 * sp:  # a double bar line (a section or a repeat): one bar line, the later one
+            xs[-1] = int(x)
             continue
         xs.append(int(x))
     return xs, sp
@@ -118,7 +126,7 @@ def line_gaps(sub: np.ndarray, ly: float, y0: int, sp: float) -> list[tuple[int,
     gap = ndimage.binary_closing(np.r_[np.zeros(k, bool), ~on, np.zeros(k, bool)], structure=np.ones(k))[k:-k]
     edges = np.flatnonzero(np.diff(np.r_[0, gap.astype(int), 0]))
     return [(int(a), int(b)) for a, b in zip(edges[::2], edges[1::2])
-            if 0.3 * sp <= b - a <= 2.8 * sp and a > 0 and b < len(gap)]
+            if 0.3 * sp <= b - a <= 6 * sp and a > 0 and b < len(gap)]  # wide: close boxes merge
 
 
 def _digits(piece: np.ndarray, h: int, *, digits_only: bool = False) -> list[tuple[str | None, float]]:
@@ -221,43 +229,76 @@ def read_numbers(gray: np.ndarray, st: list[float], sp: float) -> list[dict[str,
             hmax = max(p[3] for p in pieces)
             if hmax < 0.4 * sp:
                 continue
-            text, tied, conf = "", False, []
+            digs, tied = [], False
             for c0, c1, crop, h in pieces:
-                if h < 0.55 * hmax:  # a speck or a stem stub
+                if h < 0.7 * hmax:  # a speck, a stem stub or a bend arrow's head (a number's digits share a height)
+                    continue
+                if c1 - c0 < max(2, 0.12 * sp):  # a hairline left of an arc or a stem; a '1' is a stroke and a flag
                     continue
                 if c1 - c0 >= 3 and (crop > 0.5).mean() > 0.85:  # a solid block: a whole or half rest
                     continue
                 if G.bracket(crop, h, c1 - c0):
                     tied = True
                     continue
-                for d, sc in _digits(crop, h):
+                ds = _digits(crop, h)
+                for i, (d, sc) in enumerate(ds):
                     if d in ("(", ")"):
                         tied = True
                         continue
                     if d == "rest" or sc < 0.5:
                         continue
-                    text += str(d)
-                    conf.append(sc)
-            if not text:
+                    w = (c1 - c0) / len(ds)
+                    digs.append((str(d), sc, c0 + i * w, c0 + (i + 1) * w))
+            if not digs:
                 continue
-            nums.append({"line": li, "x0": g0, "x1": g1, "cx": (g0 + g1) / 2, "text": "x" if "x" in text else text,
-                         "tied": tied, "conf": round(min(conf), 3)})
+            if any(d[0] == "x" for d in digs):
+                nums.append({"line": li, "x0": g0, "x1": g1, "cx": (g0 + g1) / 2, "text": "x", "tied": tied,
+                             "conf": round(min(d[1] for d in digs), 3)})
+                continue
+            for part in _frets(digs):
+                nums.append({"line": li, "x0": g0, "x1": g1, "cx": g0 + (part[0][2] + part[-1][3]) / 2,
+                             "text": "".join(d[0] for d in part), "tied": tied,
+                             "conf": round(min(d[1] for d in part), 3)})
     return nums
+
+
+def _frets(digs: list[tuple[str, float, float, float]]) -> list[list[tuple[str, float, float, float]]]:
+    """Digits (label, score, left, right) of one box as fret numbers (0-24): boxes of close numbers merge ('13 13' read
+    '1313'), so a run that is no fret splits where both sides are frets, else at its widest gap between digits; two
+    digits that are no fret keep the surer one."""
+    def fret(part: list[tuple[str, float, float, float]]) -> bool:
+        return len(part) <= 2 and int("".join(d[0] for d in part)) <= 24
+
+    if len(digs) == 1 or (len(digs) == 2 and fret(digs)):
+        return [digs]
+    if len(digs) == 2:
+        return [[max(digs, key=lambda d: d[1])]]
+    k = max(range(1, len(digs)), key=lambda k: (fret(digs[:k]) + fret(digs[k:]), digs[k][2] - digs[k - 1][3]))
+    return _frets(digs[:k]) + _frets(digs[k:])
 
 
 def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, ceiling: float | None = None
                 ) -> dict[int, int]:
-    """{bar line x: number}: the small digits right of each bar line anywhere above the staff (Guitar Pro prints them
-    above the top staff of the system, e.g. the notation staff), up to ``ceiling`` (the tab staff above, on a page
-    with several systems). They are faint grey in videos."""
+    """{bar line x: number}: the small digits at each bar line (right of it, or centred on it) anywhere above the staff
+    (Guitar Pro prints them above the top staff of the system, e.g. the notation staff), up to ``ceiling`` (the tab
+    staff above, on a page with several systems) or the edge of the staff's panel (a tab strip over a video). They are
+    faint grey in videos."""
     top = st[0]
-    y0, y1 = max(0, int(top - 12 * sp)), max(0, int(top - 0.3 * sp))
+    y0, y1 = max(0, int(top - 16 * sp)), max(0, int(top - 0.3 * sp))
     if ceiling is not None:
         y0 = max(y0, int(ceiling + 0.6 * sp))
+    if y1 <= y0 or len(xs) < 2:
+        return {}
+    bg = float(np.median(gray[int(st[0]):int(st[-1]) + 1, xs[0]:xs[-1]]))
+    rows = np.median(gray[y0:y1, xs[0]:xs[-1]], axis=1)
+    off = np.r_[0, (np.abs(rows - bg) > 40).astype(int), 0]
+    edges = np.flatnonzero(np.diff(off))
+    runs = [(a, b) for a, b in zip(edges[::2], edges[1::2]) if b - a >= max(3, 0.5 * sp)]  # not a staff line
+    if runs:
+        y0 += int(runs[-1][1])
     if y1 <= y0:
         return {}
     sub = gray[y0:y1].astype(float)
-    bg = float(np.median(sub))
     lab, _ = ndimage.label(sub < bg - 25, structure=np.ones((3, 3)))
     found = []
     for k, sl in enumerate(ndimage.find_objects(lab), 1):
@@ -268,7 +309,7 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
         for c0, c1, piece, ph in _pieces(crop):  # faint antialiasing can join two small digits
             if ph < 0.6 * h:
                 continue
-            ds = _digits(piece, ph)
+            ds = _digits(piece, ph, digits_only=True)  # bar numbers are digits (a 7 is not a rest)
             if all(sc >= (0.7 if len(ds) == 1 else 0.6) and str(d).isdigit() for d, sc in ds):
                 step = (c1 - c0) / len(ds)
                 for i, (d, _sc) in enumerate(ds):
@@ -278,7 +319,7 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
     windows = []
     for x, nxt in zip(xs, list(xs[1:]) + [None]):
         right = x + 3.5 * sp if nxt is None else min(x + 3.5 * sp, nxt - 0.4 * sp)
-        windows.append((x, [f for f in found if x - 0.4 * sp <= f[1] <= right]))
+        windows.append((x, [f for f in found if x - 1.2 * sp <= f[1] <= right]))
     # the bar numbers of a staff share one row: the row with digits at the most bar lines (then the nearest the staff)
     cover: Counter = Counter()
     for _x, cand in windows:
@@ -301,14 +342,61 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
     return out
 
 
+def slashes(gray: np.ndarray, st: list[float], sp: float, nums: list[dict[str, Any]]) -> list[float]:
+    """x of every rhythm slash: a stem that rises from below the staff into it (a note's stem starts under its number
+    or under the staff) with no number at it and a short stroke rising right from its top. A slash strikes the chord
+    shape before it again."""
+    y0, y1 = max(0, int(st[0] - sp)), min(gray.shape[0], int(st[-1] + 2.5 * sp))
+    sub = gray[y0:y1].astype(float)
+    bg = float(np.median(sub))
+    stem = (bg - sub) / max(1.0, bg) > 0.6
+    bottom = int(round(st[-1])) - y0
+    band = stem[bottom + int(0.4 * sp):bottom + int(1.5 * sp)]
+    if not band.size:
+        return []
+    cols = np.flatnonzero(band.mean(0) > 0.9)
+    out: list[float] = []
+    for grp in np.split(cols, np.flatnonzero(np.diff(cols) > 2) + 1) if len(cols) else []:
+        x = int(round(float(grp.mean())))
+        if any(abs(n["cx"] - x) <= 0.6 * sp or n["x0"] - 2 <= x <= n["x1"] + 2 for n in nums):
+            continue
+        y = bottom + int(0.4 * sp)
+        while y > 0 and stem[y - 1, max(0, x - 1):x + 2].any():
+            y -= 1
+        if y + y0 > st[-1] - 0.5 * sp:
+            continue
+        if _rising(stem[max(0, y - int(1.3 * sp)):y + 1, x + 2:x + int(1.2 * sp)], sp):
+            out.append(float(x))
+    return out
+
+
+def _rising(win: np.ndarray, sp: float) -> bool:
+    """A thin stroke rising to the right across most of the window's rows (a slash), not a digit. Only each row's
+    first run counts (sixteenth slashes stand close: the next one can reach into the window)."""
+    rows = []
+    for i, r in enumerate(win):
+        c = np.flatnonzero(r)
+        if len(c):
+            rows.append((i, c[:int(np.argmax(np.diff(np.r_[c, c[-1] + 2]) > 1)) + 1]))
+    if len(rows) < 0.6 * sp or any(len(c) > max(4, 0.3 * sp) for _i, c in rows):
+        return False
+    ys = np.array([i for i, _c in rows], float)
+    xs = np.array([c.mean() for _i, c in rows])
+    return bool(np.ptp(xs) >= 0.4 * sp and np.corrcoef(ys, xs)[0, 1] < -0.8)
+
+
 def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) -> list[dict[str, Any]]:
-    """The staff's bars: {x: (left, right bar line), number (or None), cols: [[(string, text), ...] per column]}.
-    String 1 is the top line. Tied notes (in brackets) are left out, as the sheet evaluation does. ``ceiling``: the
-    bottom line of the tab staff above (bar numbers are not searched beyond it)."""
+    """The staff's bars: {x: (left, right bar line), number (or None), cols: [[(string, text), ...] per column],
+    slash: [bool per column]}. String 1 is the top line. Tied notes (in brackets) are left out, as the sheet evaluation
+    does. A rhythm slash is a column of the chord shape before it (its dead strings left out, as a band score writes
+    the repeated strums), marked in ``slash``. ``ceiling``: the bottom line of the tab staff above (bar numbers are
+    not searched beyond it)."""
     xs, sp = barlines(gray, st)
     nums = read_numbers(gray, st, sp)
     numbers = bar_numbers(gray, st, xs, sp, ceiling)
+    marks = slashes(gray, st, sp, nums)
     bars = []
+    shape: list[tuple[int, str]] | None = None
     for a, b in zip(xs, xs[1:]):
         cols: list[list[dict[str, Any]]] = []
         cur = None
@@ -318,9 +406,21 @@ def read_staff(gray: np.ndarray, st: list[float], ceiling: float | None = None) 
             else:
                 cols.append([nm])
                 cur = nm["cx"]
-        bars.append({"x": (a, b), "number": numbers.get(a),
-                     "cols": [sorted((n["line"] + 1, n["text"]) for n in c if not n["tied"]) for c in cols],
-                     "phases": [round((float(np.mean([n["cx"] for n in c])) - a) / max(1, b - a), 4) for c in cols]})
+        events = [(float(np.mean([n["cx"] for n in c])), sorted((n["line"] + 1, n["text"]) for n in c if not n["tied"]),
+                   False) for c in cols]
+        events += [(x, [], True) for x in marks if a < x < b]
+        out_cols, flags, phases = [], [], []
+        for x, notes, is_slash in sorted(events, key=lambda e: e[0]):
+            if is_slash:
+                if not shape:
+                    continue
+                notes = [n for n in shape if n[1] != "x"]
+            elif notes:
+                shape = notes
+            out_cols.append(notes)
+            flags.append(is_slash)
+            phases.append(round((x - a) / max(1, b - a), 4))
+        bars.append({"x": (a, b), "number": numbers.get(a), "cols": out_cols, "slash": flags, "phases": phases})
     return bars
 
 
