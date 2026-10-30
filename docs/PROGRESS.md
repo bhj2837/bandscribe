@@ -1,5 +1,17 @@
 # bandscribe progress / handoff
 
+**E21 rejected (2026-10-30)** - the guitar pass decoded with beam 3 and / or CFG 2.0 (installed MuScriptor-medium,
+guitar pass only, `amt.guitar_beam_size` / `amt.guitar_cfg_coef`; the default stage keys did not change) on the dev
+sheet songs (ANB, HBT, HNN): pooled merged guitar F1 65.51 -> 64.29 (CFG 2.0), 64.88 (beam 3), 65.47 (both); the rule
+needed +3. CFG 2.0 cuts about 14 % of the guitar notes, trading recall (-4.6 to -6.3) for precision (+3.2 to +3.9);
+beam 3 alone changes almost nothing and runs 2.5-3.5x slower. The decoder null (the guitar view plus seeded -90 dBFS
+noise, `amt.guitar_null_seed`) moves the pooled F1 by 0.11 but single songs by up to 0.94 (all three seeds put HBT
+0.8-0.9 lower and HNN 0.4-0.6 higher than its export): an experiment that re-transcribes cannot tell a song's
+one-point change from decoder noise. GPU about 114 min, two batches over the 30-minute limit (full songs ran slower
+than the 30 s probe). Exports restored and re-checked (68.17 / 57.31 / 82.60, 29.7 %). See `docs/decisions.md` E21.
+**E48 (MuScriptor-large) is waiting for the owner:** the model repo on Hugging Face is gated; the download stopped
+with 403 until the owner's account accepts the access terms on the model page.
+
 **Sheet truth corrected, floor and snapshot re-based (2026-10-25)** - three extraction defects in the sheet truth JSONs
 (`data/tmp/sheets_<song>/`, local; script `data/tmp/sheets_sc/pdf_tab.py`) were fixed: merged fret numbers and tie
 parens dropped inside chords (another session; its entries follow in `docs/decisions.md`), and two-bar repeat signs left
