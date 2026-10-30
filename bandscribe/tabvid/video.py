@@ -258,6 +258,26 @@ def iter_frames(paths: Iterable[Path]) -> Iterator[np.ndarray]:
         yield np.asarray(Image.open(p).convert("L"))
 
 
+def keep_tab_spacing(per_frame: list[list[dict[str, Any]]], share: float = 0.2) -> list[list[dict[str, Any]]]:
+    """The staves of the video's tab line gap. Line gaps fall into groups (within 20 % of their neighbours); the tab is
+    the group with the widest gap among those holding at least ``share`` of the staves - every format seen draws its
+    tab lines wider apart than notation. A frame whose tab staff was missed would otherwise keep its notation staff,
+    the widest within that frame (BassScore: notation 14-16 px, tab 21-24 px; noteheads read as digits outnumber its
+    fret numbers)."""
+    sps = sorted(t["sp"] for staves in per_frame for t in staves if t["bars"])
+    if not sps:
+        return per_frame
+    groups: list[list[float]] = [[sps[0]]]
+    for x in sps[1:]:
+        if x > 1.2 * groups[-1][-1]:
+            groups.append([x])
+        else:
+            groups[-1].append(x)
+    big = [g for g in groups if len(g) >= share * len(sps)] or groups
+    lo, hi = 0.95 * big[-1][0], 1.05 * big[-1][-1]
+    return [[t for t in staves if lo <= t["sp"] <= hi] for staves in per_frame]
+
+
 def systems(staves: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """A frame's staves (top to bottom) grouped into systems: a staff with the same bar lines as the system above it is
     another part of that system (Guitar 1 over Guitar 2); a staff with other bar lines starts the next system (a score
@@ -379,7 +399,7 @@ def read_video(frames: list[Path], n: int = 6, fps: float = 2.0) -> dict[str, An
     """Every tab track of the video (Guitar 1, Guitar 2 ... by the staff's place in its system) in that order;
     ``bars`` / ``agree`` / ``pages`` repeat the track with the most fret numbers. ``fps``: the frames' rate (bar
     times, ``bar_times``)."""
-    per_frame = [frame_staves(g, n) for g in iter_frames(frames)]
+    per_frame = keep_tab_spacing([frame_staves(g, n) for g in iter_frames(frames)])
     tr = [dict(read_track(r, fps), part=j + 1) for j, r in enumerate(tracks(per_frame))]
     main = max(tr, key=lambda t: t["notes"], default={"pages": 0, "stable_pages": 0, "bars": [], "agree": None})
     return {"format": FORMAT, "strings": n, "frames": len(frames), "fps": fps, "tracks": tr,

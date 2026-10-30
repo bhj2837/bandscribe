@@ -397,3 +397,40 @@ def test_bend_arrows_and_slide_lines_are_marked():
 def test_a_bar_as_text_tab():
     bar = {"cols": [[(2, "5"), (3, "7")], [(3, "9")]], "bend": [True, False], "slide": [False, True]}
     assert SH.ascii_bar(bar) == ["-------|", "-5b----|", "-7b-/9-|", "-------|", "-------|", "-------|"]
+
+
+def test_a_score_page_numbering_only_each_systems_first_bar():
+    """BassScore's page: a notation staff over the tab, noteheads on it, and one larger bar number above it all at the
+    system's first bar line. The noteheads are no numbers; the first bar gets the big one."""
+    im = Image.fromarray(draw(BARS))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, 1200, TOP - 2], fill=255)  # the usual numbers out
+    edges = np.linspace(X0, X1, len(BARS) + 1).astype(int)
+    for i in range(5):  # a notation staff, line gap 12
+        d.line([(X0, 100 + 12 * i), (X1, 100 + 12 * i)], fill=0, width=1)
+    for x in edges:
+        d.line([(x, 100), (x, 148)], fill=0, width=1)
+    for k in range(len(BARS)):
+        for j in range(4):
+            cx, cy = edges[k] + 40 + 60 * j, 106 + 12 * (j % 3)
+            d.ellipse([cx - 4, cy - 6, cx + 4, cy + 6], outline=0, width=2)  # read as a 0 without the rule
+    d.text((X0 + 2, 92), "37", fill=60, font=ImageFont.truetype(str(FONT), 22), anchor="ls")
+    g = np.asarray(im)
+    st = [s for s in S.find_staves(g) if abs(s[0] - TOP) < 3][0]
+    assert [b["number"] for b in S.read_staff(g, st)] == [37, None, None, None]
+
+
+def test_the_frame_edge_is_no_staff_line():
+    """A five-line staff close above the bottom of the frame, whose dark edge row sits one line gap below its last
+    line, is still a five-line staff."""
+    bass = draw(None, staves=[(TOP, 4, BASS)], height=TOP + 4 * SP + 1).copy()
+    bass[-1] = 0
+    assert len(S.find_staves(bass, 4)) == 1
+
+
+def test_the_tab_is_the_widest_common_line_gap():
+    """Frames that kept a notation staff (line gap 14) when their tab (21-24) was missed lose it."""
+    bar = [{"x": (0, 100), "cols": [[(1, "0")]], "number": None}]
+    frames = [[{"y": 900, "sp": 22.0, "bars": bar}]] * 6 + [[{"y": 840, "sp": 14.0, "bars": bar}]] * 3
+    kept = V.keep_tab_spacing(frames)
+    assert [len(f) for f in kept] == [1] * 6 + [0] * 3

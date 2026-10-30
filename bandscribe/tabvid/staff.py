@@ -44,6 +44,7 @@ def staves_strict(gray: np.ndarray, n: int = 6) -> list[list[float]]:
     (half-pixel for a two-row line) read best on the formats it finds."""
     dark = gray < 200
     rows = np.flatnonzero(dark.sum(1) > 0.5 * gray.shape[1])
+    rows = rows[(rows > 1) & (rows < gray.shape[0] - 2)]  # the frame's own edge is no staff line
     lines: list[list[int]] = []
     for r in rows:
         if lines and r - lines[-1][-1] <= 1:
@@ -72,17 +73,24 @@ def line_rows(gray: np.ndarray) -> list[float]:
         peak = cnt[y:y1 + 1].max()
         above = cnt[y - 2] if y >= 2 else 0
         below = cnt[y1 + 2] if y1 + 2 < h else 0
-        if y1 - y + 1 <= 4 and above < 0.5 * peak and below < 0.5 * peak:
+        if y1 - y + 1 <= 4 and above < 0.5 * peak and below < 0.5 * peak and 1 < y and y1 < h - 2:
             lines.append((y + y1) / 2)
         y = y1 + 1
     return lines
 
 
 def find_staves(gray: np.ndarray, n: int = 6) -> list[list[float]]:
-    """The strict finder's staves, or the robust finder's when it finds none. Measured on nine formats: the robust one
-    was needed only where the strict one found nothing, and next to a strict staff it took a notation staff with a row
-    of ledger lines for a sixth line (JINZO)."""
-    return staves_strict(gray, n) or _groups(line_rows(gray), n)
+    """The strict finder's staves, or the robust finder's when it finds none - and, next to strict staves, the robust
+    finder's staves with lines at least 1.2 times wider apart that overlap none of them (a pale tab under a notation
+    staff the strict finder took, BassScore). A robust staff as narrow as the strict ones is left out: it took a
+    notation staff with a row of ledger lines for a sixth line (JINZO)."""
+    strict = staves_strict(gray, n)
+    robust = _groups(line_rows(gray), n)
+    if not strict:
+        return robust
+    widest = max((s[-1] - s[0]) / (n - 1) for s in strict)
+    return strict + [r for r in robust if (r[-1] - r[0]) / (n - 1) >= 1.2 * widest
+                     and not any(r[0] <= s[-1] and s[0] <= r[-1] for s in strict)]
 
 
 def barlines(gray: np.ndarray, st: list[float]) -> tuple[list[int], float]:
@@ -305,6 +313,12 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
         y0 += int(runs[-1][1])
     if y1 <= y0:
         return {}
+    # a notation staff above the tab (JINZO, Rika's vocal line, a GP page): the numbers stand above it, never among its
+    # noteheads
+    above = 1e9
+    for nst in staves_strict(gray[y0:int(top)], 5):
+        if (nst[-1] - nst[0]) / 4 < 0.95 * sp:
+            above = min(above, y0 + nst[0] - 0.3 * (nst[-1] - nst[0]) / 4)
     # down to just inside the staff, its top line rows wiped: a number set close on the line keeps its full height, and
     # a fret number on string 1 (it reaches below the line) is no candidate
     y1 = min(gray.shape[0], int(top + 0.6 * sp))
@@ -319,8 +333,9 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
     found = []
     for k, sl in enumerate(ndimage.find_objects(lab), 1):
         h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
-        if not (0.3 * sp <= h <= 0.75 * sp) or w > 2.2 * sp or sl[0].stop + y0 > top - 1:
+        if not (0.3 * sp <= h <= 1.2 * sp) or w > 2.2 * sp or sl[0].stop + y0 > min(top - 1, above):
             continue
+        tall = h > 0.75 * sp  # only a system's first number may be this tall (below)
         crop = np.where(lab[sl] == k, np.clip((bg - sub[sl]) / bg, 0, 1), 0.0)
         # faint antialiasing can join two small digits; a lowish threshold keeps a thin serif stroke (Times '5') whole
         for c0, c1, piece, ph in _pieces(crop, 0.2):
@@ -332,32 +347,42 @@ def bar_numbers(gray: np.ndarray, st: list[float], xs: list[int], sp: float, cei
                 step = (c1 - c0) / len(ds)
                 for i, (d, _sc) in enumerate(ds):
                     found.append((sl[0].start, sl[1].start + c0 + int(i * step), sl[1].start + c0 + int((i + 1) * step),
-                                  str(d), sure))
+                                  str(d), sure, tall))
     unit = max(1, int(0.3 * sp))
     windows = []
     for x, nxt in zip(xs, list(xs[1:]) + [None]):
         right = x + 3.5 * sp if nxt is None else min(x + 3.5 * sp, nxt - 0.4 * sp)
         windows.append((x, [f for f in found if x - 1.2 * sp <= f[1] <= right]))
-    # the bar numbers of a staff share one row: the row with sure digits at the most bar lines (then the nearest the
-    # staff); in that row a less sure digit counts too (a thin serif '5' scores about 0.55)
-    cover: Counter = Counter()
-    for _x, cand in windows:
-        for r in {f[0] // unit for f in cand if f[4]}:
-            cover[r] += 1
-    if not cover:
-        return {}
-    best = max(cover, key=lambda r: (cover[r], r))
-    out = {}
-    for x, cand in windows:
-        digs = sorted((f for f in cand if abs(f[0] // unit - best) <= 1), key=lambda f: f[1])
-        if not digs:
-            continue
+
+    def joined(digs: list) -> int:
+        digs = sorted(digs, key=lambda f: f[1])
         text, last = digs[0][3], digs[0][2]
         for f in digs[1:]:
             if f[1] - last <= 0.4 * sp:
                 text += f[3]
                 last = f[2]
-        out[x] = int(text)
+        return int(text)
+
+    # the bar numbers of a staff share one row: the row with sure digits at the most bar lines (then the nearest the
+    # staff); in that row a less sure digit counts too (a thin serif '5' scores about 0.55)
+    cover: Counter = Counter()
+    for _x, cand in windows:
+        for r in {f[0] // unit for f in cand if f[4] and not f[5]}:
+            cover[r] += 1
+    out = {}
+    if cover:
+        best = max(cover, key=lambda r: (cover[r], r))
+        for x, cand in windows:
+            digs = [f for f in cand if abs(f[0] // unit - best) <= 1 and not f[5]]
+            if digs:
+                out[x] = joined(digs)
+    # a page that numbers only the first bar of each system, above it all and larger (BassScore): the topmost row of
+    # sure digits at the first bar line
+    if xs[0] not in out and windows:
+        sure = [f for f in windows[0][1] if f[4]]
+        if sure:
+            top_row = min(f[0] // unit for f in sure)
+            out[xs[0]] = joined([f for f in windows[0][1] if abs(f[0] // unit - top_row) <= 1])
     return out
 
 
