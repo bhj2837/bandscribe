@@ -510,6 +510,27 @@ def test_stage_params_from_a_real_config():
     assert ip["hints_instruments"] == "auto" and ip["threshold"] == 0.5 and ip["presence_min_notes"] == 8
 
 
+def test_e21_guitar_only_decode_and_null_leave_the_default_key_alone(tmp_path):
+    base = S.amt_gtr_params(Config())
+    assert base == {**S.ms_params(Config()), "guitar_view": "guitar_mono", "guitar_mask": "guitar+present"}
+    same = S.amt_gtr_params(Config.model_validate({"amt": {"guitar_beam_size": 1, "guitar_cfg_coef": 1.0}}))
+    assert same == base  # an override equal to the shared value is the default arm
+    p = S.amt_gtr_params(Config.model_validate({"amt": {"guitar_beam_size": 3, "guitar_cfg_coef": 2.0,
+                                                        "guitar_null_seed": 2}}))
+    assert p["decode"] == {**base["decode"], "beam_size": 3, "cfg_coef": 2.0} and p["null_seed"] == 2
+    assert S.amt_ms1_params(Config.model_validate({"amt": {"guitar_beam_size": 3}})) == S.amt_ms1_params(Config())
+    x = (0.1 * np.sin(np.arange(4410) / 10.0)).astype(np.float32)
+    from bandscribe import audio
+
+    audio.write_f32(tmp_path / "v.wav", x, 44100)
+    a = S.write_null_view(tmp_path / "v.wav", 1, tmp_path / "a.wav")
+    b = S.write_null_view(tmp_path / "v.wav", 1, tmp_path / "b.wav")
+    c = S.write_null_view(tmp_path / "v.wav", 2, tmp_path / "c.wav")
+    assert audio.pcm_sha256(a) == audio.pcm_sha256(b) != audio.pcm_sha256(c)
+    noise = audio.read_f32(a)[0][:, 0].astype(np.float64) - x
+    assert -91.0 < 20 * np.log10(np.sqrt(np.mean(noise ** 2))) < -89.0
+
+
 @pytest.mark.parametrize("profile,presence,views", [
     ("quality", "auto", ["bass_mono", "piano_other_presence"]),
     ("fast", "auto", ["bass_mono", "piano_other_presence"]),

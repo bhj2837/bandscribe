@@ -220,6 +220,12 @@ class AmtCfg(_Section):
     presence_min_active: float = Field(0.5, ge=0.0, le=1.0)
     guitar_view: Literal["guitar_mono", "mix_mono", "nonvox_mono", "guitar_other_mono"] = "guitar_mono"  # E2
     guitar_mask: Literal["guitar_only", "guitar+present", "guitar+present+strings", "all"] = "guitar+present"  # E3
+    # E21 (experiments): the guitar pass alone decoded with another beam / CFG (0 = amt.beam_size / amt.cfg_coef),
+    # and the decoder null - the guitar view plus seeded -90 dBFS white noise (0 = off). Written into the amt_gtr
+    # params only when set, so the default stage key stays the same.
+    guitar_beam_size: int = Field(0, ge=0)
+    guitar_cfg_coef: float = Field(0.0, ge=0.0)
+    guitar_null_seed: int = Field(0, ge=0)
     bp_onset_threshold: float = Field(0.6, gt=0.0, lt=1.0)  # E23 (2026-10-03) tuned these three
     bp_frame_threshold: float = Field(0.4, gt=0.0, lt=1.0)
     # Shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms); the worker passes frames - 1 to Basic

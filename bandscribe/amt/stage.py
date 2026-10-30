@@ -80,6 +80,9 @@ AMT_DEFAULTS: dict[str, Any] = {
     "amt.presence_min_active": 0.5,
     "amt.guitar_view": "guitar_mono",
     "amt.guitar_mask": "guitar+present",
+    "amt.guitar_beam_size": 0,  # E21
+    "amt.guitar_cfg_coef": 0.0,
+    "amt.guitar_null_seed": 0,
     "amt.bp_onset_threshold": 0.6,  # E23 2026-10-03
     "amt.bp_frame_threshold": 0.4,
     "amt.bp_min_note_frames": 7,
@@ -296,7 +299,17 @@ def amt_gtr_params(cfg: Any) -> dict[str, Any]:
         raise ConfigError(f"amt.guitar_view 는 {' | '.join(I.GUITAR_VIEWS)} 중 하나여야 합니다 (입력값: {view!r})")
     policy = str(amt_value(cfg, "amt.guitar_mask"))
     I.mask_guitar_view({}, policy)  # validates the policy name (Korean ConfigError)
-    return {**ms_params(cfg), "guitar_view": view, "guitar_mask": policy}
+    params = {**ms_params(cfg), "guitar_view": view, "guitar_mask": policy}
+    # E21: guitar-only decode overrides and the decoder null, written only when set (default stage key unchanged)
+    beam, coef = int(amt_value(cfg, "amt.guitar_beam_size")), float(amt_value(cfg, "amt.guitar_cfg_coef"))
+    if beam:
+        params["decode"]["beam_size"] = beam
+    if coef:
+        params["decode"]["cfg_coef"] = coef
+    seed = int(amt_value(cfg, "amt.guitar_null_seed"))
+    if seed:
+        params["null_seed"] = seed
+    return params
 
 
 def ms_models(cfg: Any) -> dict[str, str]:
@@ -622,12 +635,40 @@ def run_amt_gtr(ctx: Any) -> None:
     vid = params["guitar_view"]
     if vid not in views:
         raise AmtStageError(f"stems 단계에 '{vid}' 뷰가 없습니다.")
-    todo = [{"id": vid, "wav": views[vid]["path"], "pcm_sha256": views[vid]["pcm_sha256"], "instruments": mask}]
+    wav, sha, null = views[vid]["path"], views[vid]["pcm_sha256"], None
+    if params.get("null_seed"):  # E21 decoder null: the cache key follows the noisy view's own PCM hash
+        from bandscribe import audio
+
+        null = write_null_view(Path(wav), int(params["null_seed"]), Path(ctx.out_dir) / "_worker" / "null_view.wav")
+        wav, sha = null, audio.pcm_sha256(null)
+    todo = [{"id": vid, "wav": wav, "pcm_sha256": sha, "instruments": mask}]
     cache = amt_cache.AmtCache(amt_cache.job_cache_root(ctx.store, ctx.song_key))
-    raws, info = transcribe_views_ms(todo, params, ctx.config, work_dir=Path(ctx.out_dir) / "_worker", cache=cache,
-                                     model_sha256=_ms_model_sha(params), job=_job(ctx),
-                                     notify=_notifier(ctx))
+    try:
+        raws, info = transcribe_views_ms(todo, params, ctx.config, work_dir=Path(ctx.out_dir) / "_worker",
+                                         cache=cache, model_sha256=_ms_model_sha(params), job=_job(ctx),
+                                         notify=_notifier(ctx))
+    finally:
+        if null is not None:
+            null.unlink(missing_ok=True)
     _write_ms_outputs(ctx, raws, params, info)
+
+
+NULL_RMS_DBFS = -90.0  # the distractor run's decoder null (bandscribe.eval.distractors.NULL_RMS_DBFS)
+
+
+def write_null_view(src: Path, seed: int, out: Path) -> Path:
+    """E21's decoder null: ``src`` plus seeded white noise at -90 dBFS RMS (about 16-bit quantisation noise,
+    inaudible). A change in the transcription is MuScriptor's own sensitivity to an input nobody can hear."""
+    import numpy as np
+
+    from bandscribe import audio
+
+    x, sr = audio.read_f32(src)
+    rng = np.random.Generator(np.random.PCG64(seed))
+    noise = rng.normal(0.0, 10 ** (NULL_RMS_DBFS / 20), x.shape)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_f32(out, (np.asarray(x, dtype=np.float64) + noise).astype(np.float32), sr)
+    return out
 
 
 # ---------------------------------------------------------------------------------------- Basic Pitch
