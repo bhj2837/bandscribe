@@ -52,7 +52,9 @@ offset: 0-4.5 points below on well-read videos, far ahead on a cut version and u
 verdict (usable / doubtful / unusable), and `tabvid search --job` lists candidate videos by length. Then: gate 3-1
 passed on compressed video (H.264 crf 23-33: note precision 0.991, recall 0.9997, 153/157 bars exact), bend arrows and
 slide lines are marked per column (bends against the PDFs' 'full' marks: precision 0.975, recall 0.79), and
-`tabvid review` puts each suspicious bar's frame next to its reading (gate 3-5).
+`tabvid review` puts each suspicious bar's frame next to its reading (gate 3-5). 2026-10-30: the BassScore format (numbers only
+at each system's first bar, pale tab lines under notation) reads 88 bars; our 狭心症 bass catches 69.7 % of that
+tab's notes, though the reading is judged unusable (frames disagree on 62 % of bars).
 
 **Mid-term review and plan (2026-10-24): `docs/MIDTERM_REVIEW.md`** - every area re-measured (CPU) and 86 limitations
 checked by two skeptic lenses each (evidence and impact; none fully refuted, many narrowed). Biggest verified limits: only about 25-30 % of
