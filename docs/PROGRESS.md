@@ -18,6 +18,10 @@ within 40 ms only the lowest stays). Dev pooled bass 82.60 -> 83.39 (HBT 81.54 -
 0.2 % on lulu. and from 43 % to 0 on 狭心症. The test check waits for view 3. The repair of lulu.'s collapsed stretch failed its gate: notes from
 the F0 trackers alone reach F1 59.62 on the dev songs (need 70; precision 86 %, recall 45 %), so that stretch keeps its warning. Transcribing the
 stretch alone collapses the same way and the stem's level does not change there, so it is the sound itself; the cause is not known.
+**Decoder vote closed (same day, exploration on the dev songs ANB, HBT, HNN, `data/tmp/e49/vote.py`; rule written first):** keeping production's notes only when other
+decodes agree reaches at best +0.56 (need +2; pooled 65.51 -> 66.07 with 4 of 7 decodes, precision 61.5 -> 63.6, recall 70.1 -> 68.8). Agreement as a confidence
+signal: AUC 0.533 over three null decodes, 0.659 over seven different decodes (need 0.7). Share of right notes: 72 % when all 7 agree, about 31 % at 3-4 of 7.
+**95 % of production's notes come back in all three null decodes, so most wrong notes are systematic, not decoder noise.**
 
 **E21 rejected (2026-10-30)** - the guitar pass decoded with beam 3 and / or CFG 2.0 (installed MuScriptor-medium,
 guitar pass only, `amt.guitar_beam_size` / `amt.guitar_cfg_coef`; the default stage keys did not change) on the dev
