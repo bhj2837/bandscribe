@@ -9,6 +9,10 @@ are closed. On a 30 s control, medium through `lean16` gave the same notes at 0.
 on a whole song, not switched on). **The split is committed:** dev = the six sheet songs, test = Distortion!!, なにが悪い,
 カラカラ, フラッシュバッカー, 忘れてやらない, 転がる岩、君に朝が降る (the owner gave the audio; 6 / 6 passed the version gate).
 The order from here: plan change 3 at the end of `docs/MIDTERM_REVIEW.md`.
+**Test baseline (view 1 of the seal, same day):** the six new songs, pooled: merged 67.24 (dev 68.17), parts 53.72 (57.31), bass 78.11
+(82.60), practisable phrases **20.5 %** (dev 29.7 %), rhythm chords exact / pitch-class set / shape 8.7 / 23.4 / 35.6 % (10.1 / 22.8 / 36.2).
+So the note and chord measures hold on unseen songs, but the phrase share was about 9 points flattered: read it as 20-odd %, not 30.
+Test floor: 66.9 / 53.2 / 77.9, 18.5 %. Per-song values stay unread in `data/tmp/sealed/baseline_view1.json`.
 
 **E21 rejected (2026-10-30)** - the guitar pass decoded with beam 3 and / or CFG 2.0 (installed MuScriptor-medium,
 guitar pass only, `amt.guitar_beam_size` / `amt.guitar_cfg_coef`; the default stage keys did not change) on the dev
