@@ -1,5 +1,15 @@
 # bandscribe progress / handoff
 
+**E48 rejected, split committed (2026-11-07)** - MuScriptor-large on the guitar pass, through a new `lean16` loader (built and
+loaded on the CPU, fp16 transformer, then moved; 3.57 GB reserved, no spill on the 6 GB card, 2.2-2.7x medium's time): dev sheet
+songs pooled merged guitar F1 65.51 -> 65.76 (the rule needed +3; song changes +0.58, -0.36, +0.66 sit inside E21's decoder
+spread). 怪獣の花唄 against あいろな's tab: 27 % more notes, all-bars recall 65.5 -> 74.7, precision 34.0 -> 29.5, but the last
+chorus stays missed (reliable bars 15.4 -> 13.5 %): that lead line is not a model-size problem. With E21, the model-level levers
+are closed. On a 30 s control, medium through `lean16` gave the same notes at 0.92 GB reserved instead of 1.72 (not yet checked
+on a whole song, not switched on). **The split is committed:** dev = the six sheet songs, test = Distortion!!, なにが悪い,
+カラカラ, フラッシュバッカー, 忘れてやらない, 転がる岩、君に朝が降る (the owner gave the audio; 6 / 6 passed the version gate).
+The order from here: plan change 3 at the end of `docs/MIDTERM_REVIEW.md`.
+
 **E21 rejected (2026-10-30)** - the guitar pass decoded with beam 3 and / or CFG 2.0 (installed MuScriptor-medium,
 guitar pass only, `amt.guitar_beam_size` / `amt.guitar_cfg_coef`; the default stage keys did not change) on the dev
 sheet songs (ANB, HBT, HNN): pooled merged guitar F1 65.51 -> 64.29 (CFG 2.0), 64.88 (beam 3), 65.47 (both); the rule
@@ -9,8 +19,6 @@ noise, `amt.guitar_null_seed`) moves the pooled F1 by 0.11 but single songs by u
 0.8-0.9 lower and HNN 0.4-0.6 higher than its export): an experiment that re-transcribes cannot tell a song's
 one-point change from decoder noise. GPU about 114 min, two batches over the 30-minute limit (full songs ran slower
 than the 30 s probe). Exports restored and re-checked (68.17 / 57.31 / 82.60, 29.7 %). See `docs/decisions.md` E21.
-**E48 (MuScriptor-large) is waiting for the owner:** the model repo on Hugging Face is gated; the download stopped
-with 403 until the owner's account accepts the access terms on the model page.
 
 **Sheet truth corrected, floor and snapshot re-based (2026-10-25)** - three extraction defects in the sheet truth JSONs
 (`data/tmp/sheets_<song>/`, local; script `data/tmp/sheets_sc/pdf_tab.py`) were fixed: merged fret numbers and tie
