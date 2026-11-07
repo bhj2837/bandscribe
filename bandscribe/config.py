@@ -393,6 +393,10 @@ class PartsCfg(_Section):
     use_symbolic: bool = False  # chord notes and a line over them are two streams (E25: never fired)
     # E28: a centred part next to a wide double (R2 windows) is a second stream; E28 decides use_width and the values
     use_width: bool = False
+    # E51: outside R3 windows a note still counts on its side when it is one coherent source there: |ILD| >= note_side_db
+    # and coherence >= note_side_coh. 0 = off (only R3 windows, E22b).
+    note_side_db: float = Field(0.0, ge=0.0, le=20.0)
+    note_side_coh: Prob = 0.9
     width_ms_hi: float = 6.0  # clearly centred: mid/side >= this (dB) ...
     width_coh_hi: Prob = 0.9  # ... and coherence >= this
     width_ms_lo: float = 2.0  # clearly wide (the double): mid/side <= this (dB)

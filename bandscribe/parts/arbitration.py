@@ -15,7 +15,8 @@ score), class shares (add-one) and its share of the seeds. A note's score for a 
     s = w_pan * pan * position + w_role * r * role + w_cls * log P(class | Line) + w_prior * log share
 
 with ``pan = tanh(ILD / ild_scale_db)`` for a note in an ``R3`` window and 0 elsewhere (the ILD of a centred or
-doubled note says nothing about its part), and its posterior is the softmax over the Lines. Notes of one strum share
+doubled note says nothing about its part) - E51 (``count_params["note_side_db"]`` > 0): also elsewhere when the note
+itself is one coherent source on one side (``|ILD| >= note_side_db``, ``coh >= note_side_coh``) - and its posterior is the softmax over the Lines. Notes of one strum share
 one decision, their scores summed (DESIGN 4.6 must-link: "한 스트럼 안의 음") - only outside ``R3`` windows, and only
 notes of one class and not a peeled top: two parts strumming on the same beat at different positions (the usual P
 case) or in different classes are two strums. A note whose best posterior is below ``tau`` is Unassigned (DESIGN
@@ -116,9 +117,18 @@ def _width(sig: Mapping[str, Any] | None, label: str | None, mid: float, scale: 
     return math.tanh((float(v) - mid) / scale) if (label == "R2" and v is not None and math.isfinite(float(v))) else 0.0
 
 
-def _pan(sig: Mapping[str, Any] | None, label: str | None, scale: float) -> float:
+def _pan(sig: Mapping[str, Any] | None, label: str | None, scale: float, note_side_db: float = 0.0,
+         note_side_coh: float = 1.0) -> float:
     v = _ild(sig)
-    return math.tanh(v / scale) if (label == "R3" and v is not None) else 0.0
+    if v is None:
+        return 0.0
+    if label == "R3":
+        return math.tanh(v / scale)
+    coh = (sig or {}).get("coh")
+    # E51: outside R3 windows only a note that is one coherent source on one side (a double's takes are not coherent)
+    if note_side_db > 0 and abs(v) >= note_side_db and coh is not None and float(coh) >= note_side_coh:
+        return math.tanh(v / scale)
+    return 0.0
 
 
 def posteriors(lines: Sequence[Mapping[str, Any]], notes: Sequence[Mapping[str, Any]],
@@ -131,7 +141,8 @@ def posteriors(lines: Sequence[Mapping[str, Any]], notes: Sequence[Mapping[str, 
     if n == 0 or k == 0:
         return np.zeros((n, k)), []
     scale = float(w["ild_scale_db"])
-    pan = np.array([_pan(sigs[i], labels[i], scale) for i in range(n)])
+    pan = np.array([_pan(sigs[i], labels[i], scale, float(w.get("note_side_db", 0.0)), float(w.get("note_side_coh", 1.0)))
+                    for i in range(n)])
     use_width = any(ln.get("kind") == "width" for ln in lines)
     wid = np.array([_width(sigs[i], labels[i], float(w["width_mid_db"]), float(w["width_scale_db"]))
                     for i in range(n)]) if use_width else np.zeros(n)
@@ -177,7 +188,8 @@ def assign(notes: Sequence[Mapping[str, Any]], feats: Sequence[Mapping[str, Any]
     """Lines and per-note decisions (module doc) -> {lines (profiles), line (index or None per note), p, amber,
     reasons, post (notes x Lines posterior matrix; the M7b tracker re-decides on it)}."""
     lines, reasons = seed_lines(k, evidence, notes, feats, sigs, labels, count_params)
-    post, prof = posteriors(lines, notes, feats, sigs, labels, weights)
+    side = {key: float(count_params[key]) for key in ("note_side_db", "note_side_coh") if count_params and key in count_params}
+    post, prof = posteriors(lines, notes, feats, sigs, labels, {**(weights or {}), **side})
     line: list[int | None] = []
     pmax: list[float] = []
     for i in range(len(notes)):
