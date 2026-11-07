@@ -55,7 +55,7 @@ def test_quant_stage_applies_the_cleanup(tmp_path):
     from bandscribe.config import load_config
 
     p = TS.quant_params(load_config())
-    assert p["cleanup"] == {"dedupe_s": 0.03, "min_dur_s": 0.05}
+    assert p["cleanup"] == {"dedupe_s": 0.03, "min_dur_s": 0.05, "bass_dedupe_s": 0.03, "bass_lowest_s": 0.04}
     assert "cleanup" not in TS.quant_params({"tab.dedupe_s": 0.0, "tab.min_dur_s": 0.0})
 
 
@@ -103,14 +103,16 @@ def test_lowest_of_bundle_keeps_the_lowest_and_the_latest_end():
     notes = [{"onset_s": 1.00, "offset_s": 1.20, "pitch": 40}, {"onset_s": 1.02, "offset_s": 1.50, "pitch": 52},
              {"onset_s": 1.03, "offset_s": 1.10, "pitch": 47}, {"onset_s": 2.00, "offset_s": 2.20, "pitch": 45},
              {"onset_s": 2.10, "offset_s": 2.30, "pitch": 40}]
-    kept, dropped = CL.lowest_of_bundle(notes, 0.04)
+    kept, dropped = C.lowest_of_bundle(notes, 0.04)
     assert [(n["pitch"], n["offset_s"]) for n in kept] == [(40, 1.50), (45, 2.20), (40, 2.30)]
     assert sorted(n["pitch"] for n in dropped) == [47, 52]
-    assert CL.lowest_of_bundle(notes, 0.0) == (notes, [])  # off
+    assert C.lowest_of_bundle(notes, 0.0) == (notes, [])  # off
     assert notes[0]["offset_s"] == 1.20  # the input is not touched
 
 
 def test_bass_clean_up_off_keeps_the_quant_params():
+    from bandscribe.tab import stage as TS
+
     base = TS.quant_params({"tab.dedupe_s": 0.03, "tab.min_dur_s": 0.05})
     assert "bass_lowest_s" not in base["cleanup"] and "bass_dedupe_s" not in base["cleanup"]
     on = TS.quant_params({"tab.dedupe_s": 0.03, "tab.min_dur_s": 0.05, "tab.bass_dedupe_s": 0.03, "tab.bass_lowest_s": 0.04})

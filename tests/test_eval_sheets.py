@@ -74,15 +74,15 @@ def test_load_songs_refuses_an_invalid_job(tmp_path, monkeypatch):
 # The local songs on 2026-10-25 (the 2026-10-24 jobs, re-measured on the corrected sheet truth: merged frets split,
 # two-bar repeats expanded, tie parens restored; docs/decisions.md "지표와 분할"): song -> merged, part gtr1, part gtr2,
 # bass bar F1. A move of more than 0.5 point fails: re-measure on purpose, then update here and in decisions.md's floor.
-SNAPSHOT = {"sc": (74.44, 65.97, 58.70, 90.65), "gka": (65.50, 55.69, 59.83, 75.53), "anb": (65.71, 56.37, 47.76, 86.85),
-            "snn": (73.62, 68.96, 57.57, 91.56), "hbt": (71.20, 57.19, 58.51, 81.54), "hnn": (59.93, 51.60, 45.43, 71.46)}
-POOLED = {"merged": 68.17, "merged_drift": 70.30, "parts": 57.31, "bass": 82.60, "bass_drift": 86.87}
+SNAPSHOT = {"sc": (74.44, 65.97, 58.70, 90.88), "gka": (65.50, 55.69, 59.83, 75.14), "anb": (65.71, 56.37, 47.76, 86.94),
+            "snn": (73.62, 68.96, 57.57, 91.56), "hbt": (71.20, 57.19, 58.51, 85.91), "hnn": (59.93, 51.60, 45.43, 71.71)}
+POOLED = {"merged": 68.17, "merged_drift": 70.30, "parts": 57.31, "bass": 83.39, "bass_drift": 87.72}
 
 
 @pytest.mark.skipif(not SH.songs_file().is_file(), reason="the sheet songs are local only")
 def test_snapshot_of_the_local_sheet_songs():
     songs, _ = SH.load_songs()
-    have = [s for s in songs if (paths.JOBS / s.job).is_dir() and s.sheets.is_dir()]
+    have = [s for s in songs if s.split == "dev" and (paths.JOBS / s.job).is_dir() and s.sheets.is_dir()]
     if {s.id for s in have} != set(SNAPSHOT):
         pytest.skip("not every sheet song is on this PC")
     doc = SH.evaluate(have)

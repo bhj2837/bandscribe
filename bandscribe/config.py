@@ -321,10 +321,10 @@ class TabCfg(_Section):
     # 0 = off.
     dedupe_s: float = Field(0.03, ge=0.0, le=0.2)
     min_dur_s: float = Field(0.05, ge=0.0, le=0.2)
-    # E46: bass clean-up at the same place: same pitch within bass_dedupe_s is one note; of the notes starting within
-    # bass_lowest_s of each other only the lowest stays (bandscribe.tab.cleanup). 0 = off.
-    bass_dedupe_s: float = Field(0.0, ge=0.0, le=0.2)
-    bass_lowest_s: float = Field(0.0, ge=0.0, le=0.2)
+    # E46 (adopted 2026-11-07): bass clean-up at the same place: same pitch within bass_dedupe_s is one note; of the
+    # notes starting within bass_lowest_s of each other only the lowest stays (bandscribe.tab.cleanup). 0 = off.
+    bass_dedupe_s: float = Field(0.03, ge=0.0, le=0.2)
+    bass_lowest_s: float = Field(0.04, ge=0.0, le=0.2)
 
 
 class BassCfg(_Section):
