@@ -57,12 +57,12 @@ def test_the_valid_songs_raise_at_most_one_false_alarm():
     assert len(alarms) <= 1, alarms
 
 
-def test_lulu_bass_burst_window_and_unplaced_notes():
+def test_lulu_bass_burst_window_stays_and_its_notes_can_be_placed():
     items = _items(LULU)
     spans = items["burst_bass"]["spans"]
     assert any(a <= 150 and b >= 260 for a, b in spans), spans          # the measured burst, 150-260 s
     assert all(a >= 140 and b <= 280 for a, b in spans), spans          # and nothing well before or after it
-    assert items["unplaced_bass"]["level"] == "warn"
+    assert "unplaced_bass" not in items  # E46: one bass note at a time, so the tab places them; the burst warning stays
 
 
 def test_snn_tuning_override_is_shown():
