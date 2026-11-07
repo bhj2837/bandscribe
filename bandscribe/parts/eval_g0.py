@@ -51,4 +51,6 @@ def load_items() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for f in sorted(cache_dir().glob("*.json")):
         items.extend(atomic.read_json(f).get("items") or [])
+    for it in items:
+        it["truth"] = [set(t) for t in it["truth"]]  # JSON keeps lists; the scoring compares sets
     return items

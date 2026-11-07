@@ -22,6 +22,8 @@ stretch alone collapses the same way and the stem's level does not change there,
 decodes agree reaches at best +0.56 (need +2; pooled 65.51 -> 66.07 with 4 of 7 decodes, precision 61.5 -> 63.6, recall 70.1 -> 68.8). Agreement as a confidence
 signal: AUC 0.533 over three null decodes, 0.659 over seven different decodes (need 0.7). Share of right notes: 72 % when all 7 agree, about 31 % at 3-4 of 7.
 **95 % of production's notes come back in all three null decodes, so most wrong notes are systematic, not decoder noise.**
+**G0, the multi-guitar set (same day, `bandscribe/parts/eval_g0.py`, GPU about 65 min):** today's parts, part count right and assignment macro: two guitars left / right 8/9, 79.8; acoustic + electric left / right 1/1, 83.2;
+**wide double + centre 0/6, 50.0; two at one position 0/9, 50.0; acoustic + electric at one position 0/1, 50.0; three left / centre / right 0/2, 29.9** (one part scores 50 and 33.3). The transcriber's class is no evidence: it called the true acoustic + electric mix 97-100 % acoustic, and splitting by class scores as one part everywhere, so plan change 2's "timbre from the class" is closed. Position is not used up: see E50.
 
 **E21 rejected (2026-10-30)** - the guitar pass decoded with beam 3 and / or CFG 2.0 (installed MuScriptor-medium,
 guitar pass only, `amt.guitar_beam_size` / `amt.guitar_cfg_coef`; the default stage keys did not change) on the dev
