@@ -513,6 +513,50 @@ def _techniques(notes: list[dict[str, Any]], ctx: Context, p: Mapping[str, Any],
 # ----------------------------------------------------------------------------------------------------- run
 
 
+def f0_notes(track: F0.F0Track, attack: Attack | None, *, f0_params: Mapping[str, Any] | None = None, offset: float = 0.0,
+             span: tuple[float, float] | None = None, rise_db: float = 6.0, tol_st: float = 0.6, min_s: float = 0.08,
+             min_ioi_s: float = 0.09) -> list[dict[str, Any]]:
+    """Notes from the F0 trackers alone (E46b): runs of frames where two trackers agree and the pitch stays within
+    ``tol_st`` of the run's median, ``min_s`` or longer, split where the high-passed attack rises by ``rise_db`` or more
+    (a re-struck note holds its pitch, so the contour alone cannot see it). ``span`` limits it to a stretch of the song."""
+    tr = track
+    c = F0.consensus(tr, f0_params or F0.DEFAULT_PARAMS, min_trackers=2) - offset
+    i0, i1 = (0, tr.n) if span is None else tr.span(span[0], span[1])
+    need = max(2, int(round(min_s / tr.hop_s)))
+    out: list[dict[str, Any]] = []
+
+    def emit(a: int, b: int) -> None:
+        if b - a < need:
+            return
+        seg = c[a:b]
+        out.append({"onset_s": round(max(0.0, a * tr.hop_s - 0.02), 6), "offset_s": round(b * tr.hop_s, 6),
+                    "pitch": int(round(float(np.nanmedian(seg)))), "instrument": "electric_bass", "src": "f0",
+                    "f0": "confirmed"})
+
+    i = i0
+    while i < i1:
+        if not np.isfinite(c[i]):
+            i += 1
+            continue
+        j = i + 1
+        while j < i1 and np.isfinite(c[j]) and abs(c[j] - np.nanmedian(c[i:j])) <= tol_st:
+            j += 1
+        cuts = [i]
+        if attack is not None:
+            k = i + need
+            while k < j - need:
+                t = k * tr.hop_s
+                if attack.rise_db(t) >= rise_db and t - cuts[-1] * tr.hop_s >= min_ioi_s:
+                    cuts.append(k)
+                    k += max(1, int(round(min_ioi_s / tr.hop_s)))
+                else:
+                    k += 1
+        for a0, b0 in zip(cuts, cuts[1:] + [j]):
+            emit(a0, b0)
+        i = max(j, i + 1)
+    return out
+
+
 def clean(notes: Sequence[Mapping[str, Any]], track: F0.F0Track, params: Mapping[str, Any] | None = None, *,
           f0_params: Mapping[str, Any] | None = None, attack: Attack | None = None,
           kicks: np.ndarray | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:

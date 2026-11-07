@@ -569,3 +569,26 @@ def test_bass_f0_stage_keeps_worker_files_under_worker(tmp_path, monkeypatch):
     assert top == ["_worker", "f0.npz", "f0_info.json", "gpu_run.json"]
     tr = F0.load_npz(out / "f0.npz")
     assert tr.names == ["crepe", "pesto", "pyin"] and tr.n == F0.n_frames(2.0)
+
+
+def test_f0_notes_follow_the_contour_and_split_at_an_attack():
+    from bandscribe.bass import clean as CL_
+    from bandscribe.bass import f0 as F0_
+
+    n = 200
+    hz = np.full(n, F0_.midi_to_hz(40.0))
+    hz[100:] = F0_.midi_to_hz(45.0)
+    hz[60:64] = 0.0  # a gap in the trackers
+    tr = F0_.F0Track(hz={"crepe": hz.copy(), "pyin": hz.copy()}, conf={"crepe": np.ones(n), "pyin": np.ones(n)})
+
+    class Hit:  # a re-struck note at 1.5 s
+        def rise_db(self, t):
+            return 20.0 if abs(t - 1.5) < 0.006 else 0.0
+
+    notes = CL_.f0_notes(tr, Hit(), rise_db=6.0)
+    assert [m["pitch"] for m in notes] == [40, 40, 45, 45]
+    assert abs(notes[3]["onset_s"] - 1.48) < 0.02
+    assert all(m["offset_s"] > m["onset_s"] for m in notes)
+    only = CL_.f0_notes(tr, None, span=(1.2, 1.4))  # the span cuts the run
+    assert [m["pitch"] for m in only] == [45]
+
