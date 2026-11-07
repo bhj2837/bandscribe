@@ -24,6 +24,10 @@ signal: AUC 0.533 over three null decodes, 0.659 over seven different decodes (n
 **95 % of production's notes come back in all three null decodes, so most wrong notes are systematic, not decoder noise.**
 **G0, the multi-guitar set (same day, `bandscribe/parts/eval_g0.py`, GPU about 65 min):** today's parts, part count right and assignment macro: two guitars left / right 8/9, 79.8; acoustic + electric left / right 1/1, 83.2;
 **wide double + centre 0/6, 50.0; two at one position 0/9, 50.0; acoustic + electric at one position 0/1, 50.0; three left / centre / right 0/2, 29.9** (one part scores 50 and 33.3). The transcriber's class is no evidence: it called the true acoustic + electric mix 97-100 % acoustic, and splitting by class scores as one part everywhere, so plan change 2's "timbre from the class" is closed. Position is not used up: see E50.
+**E50, E51, E52 adopted (same day):** parts now use a note's own side outside R3 windows when it is one source on one side (|ILD| >= 3 dB, coherence >= 0.7; until now only R3 windows did, so
+clearly left and clearly right notes of 怪獣の花唄 and 狭心症 landed in one part), and the width evidence is on. Sheet songs unchanged (68.17 / 57.32 / 29.7 %). Control guitars not split. 怪獣の花唄: parts 87 / 13 -> 71 / 29, and
+the part matching あいろな's tab goes from F1 22.0 to 39.6; 狭心症 93 / 7 -> 86 / 14. Tentative until the owner listens: the only truth for the gain is one 'doubtful' tab reading. Part numbers are not identities: they swapped on 怪獣の花唄.
+Width alone changes none of the 13 songs (all already two parts by position); it helps a new song with a wide double and a centre part only. Same-position parts and three guitars remain unsolved (0 of 18).
 
 **E21 rejected (2026-10-30)** - the guitar pass decoded with beam 3 and / or CFG 2.0 (installed MuScriptor-medium,
 guitar pass only, `amt.guitar_beam_size` / `amt.guitar_cfg_coef`; the default stage keys did not change) on the dev

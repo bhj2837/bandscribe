@@ -41,7 +41,8 @@ def test_note_side_off_keeps_the_parts_params():
     from bandscribe.config import Config
     from bandscribe.parts import stage as PS
 
-    assert "note_side_db" not in PS.parts_params(Config())["count"]
-    on = PS.parts_params(Config.model_validate({"parts": {"note_side_db": 3.0}}))["count"]
-    assert on["note_side_db"] == 3.0 and on["note_side_coh"] == 0.9
+    off = PS.parts_params(Config.model_validate({"parts": {"note_side_db": 0.0}}))["count"]
+    assert "note_side_db" not in off and "note_side_coh" not in off
+    on = PS.parts_params(Config())["count"]  # E51 / E52 adopted
+    assert on["note_side_db"] == 3.0 and on["note_side_coh"] == 0.7 and on["use_width"] is True
 
