@@ -114,6 +114,7 @@ guitar_mask = "guitar+present"                     # E3: guitar_only | guitar+pr
 guitar_beam_size = 0                               # E21: the guitar pass alone with another beam (0 = beam_size)
 guitar_cfg_coef = 0.0                              # E21: ... and another CFG coefficient (0 = cfg_coef)
 guitar_null_seed = 0                               # E21 decoder null: guitar view + seeded -90 dBFS noise (0 = off)
+guitar_model = ""                                  # E48: the guitar pass alone on another model ("" = muscriptor_model) | large
 bp_onset_threshold = 0.6                           # E23 (2026-10-03, EGDB dev argmax among frames 3-7) tunes these three
 bp_frame_threshold = 0.4
 bp_min_note_frames = 7                             # shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms);

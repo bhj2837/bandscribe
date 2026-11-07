@@ -83,6 +83,7 @@ AMT_DEFAULTS: dict[str, Any] = {
     "amt.guitar_beam_size": 0,  # E21
     "amt.guitar_cfg_coef": 0.0,
     "amt.guitar_null_seed": 0,
+    "amt.guitar_model": "",  # E48
     "amt.bp_onset_threshold": 0.6,  # E23 2026-10-03
     "amt.bp_frame_threshold": 0.4,
     "amt.bp_min_note_frames": 7,
@@ -106,6 +107,14 @@ DROPPED_WARN_SHARE = 0.1  # notes: warn when the guitar pass labelled this share
 
 class AmtStageError(RuntimeError):
     """A transcription stage could not produce its outputs (Korean, user-facing)."""
+
+
+# E48: what ``amt.guitar_model`` changes in the amt_gtr params. Large only runs as fp16 weights built on the CPU (loader
+# lean16), and never falls back to another model: a smaller one would be a different experiment.
+GUITAR_MODELS: dict[str, dict[str, Any]] = {
+    "large": {"muscriptor_model": "large", "muscriptor_revision": "8809fdfbed2affa7ade94a7059e746e3880720e7",
+              "muscriptor_fallback": [], "muscriptor_loader": "lean16", "dtype": "fp16"},
+}
 
 
 def amt_value(cfg: Any, key: str) -> Any:
@@ -309,6 +318,9 @@ def amt_gtr_params(cfg: Any) -> dict[str, Any]:
     seed = int(amt_value(cfg, "amt.guitar_null_seed"))
     if seed:
         params["null_seed"] = seed
+    model = str(amt_value(cfg, "amt.guitar_model"))
+    if model:  # E48
+        params.update(GUITAR_MODELS[model])
     return params
 
 

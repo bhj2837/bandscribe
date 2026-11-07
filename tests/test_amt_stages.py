@@ -531,6 +531,16 @@ def test_e21_guitar_only_decode_and_null_leave_the_default_key_alone(tmp_path):
     assert -91.0 < 20 * np.log10(np.sqrt(np.mean(noise ** 2))) < -89.0
 
 
+def test_e48_guitar_model_changes_the_guitar_pass_alone():
+    base = S.amt_gtr_params(Config())
+    cfg = Config.model_validate({"amt": {"guitar_model": "large"}})
+    p = S.amt_gtr_params(cfg)
+    assert p == {**base, **S.GUITAR_MODELS["large"]}
+    assert (p["muscriptor_model"], p["muscriptor_loader"], p["dtype"], p["muscriptor_fallback"]) == ("large", "lean16",
+                                                                                                     "fp16", [])
+    assert S.amt_ms1_params(cfg) == S.amt_ms1_params(Config())
+
+
 @pytest.mark.parametrize("profile,presence,views", [
     ("quality", "auto", ["bass_mono", "piano_other_presence"]),
     ("fast", "auto", ["bass_mono", "piano_other_presence"]),

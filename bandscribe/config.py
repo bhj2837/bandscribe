@@ -226,6 +226,8 @@ class AmtCfg(_Section):
     guitar_beam_size: int = Field(0, ge=0)
     guitar_cfg_coef: float = Field(0.0, ge=0.0)
     guitar_null_seed: int = Field(0, ge=0)
+    # E48 (experiment): the guitar pass alone on another model (amt.stage.GUITAR_MODELS; "" = amt.muscriptor_model).
+    guitar_model: Literal["", "large"] = ""
     bp_onset_threshold: float = Field(0.6, gt=0.0, lt=1.0)  # E23 (2026-10-03) tuned these three
     bp_frame_threshold: float = Field(0.4, gt=0.0, lt=1.0)
     # Shortest KEPT note in frames (1 frame = 256/22050 s = 11.61 ms); the worker passes frames - 1 to Basic

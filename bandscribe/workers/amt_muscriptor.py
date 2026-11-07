@@ -74,7 +74,7 @@ BACKEND = "muscriptor"
 PINNED_VERSION = "0.3.0"
 MODEL_LOADED = "model_loaded"
 DTYPES = ("upstream", "fp16")
-LOADERS = ("upstream", "lean")
+LOADERS = ("upstream", "lean", "lean16")
 MINIMUM_NOTE_DURATION_SEC = 0.01  # = muscriptor.tokenizer.notes.MINIMUM_NOTE_DURATION_SEC (validate_notes rule)
 SMALL_REPO = "MuScriptor/muscriptor-small"
 
@@ -220,7 +220,7 @@ def noteset_doc(*, view_id: str, view_sha256: str | None, backend: dict[str, Any
 
 def build_rungs(model_req: dict[str, Any], loader: str) -> list[dict[str, Any]]:
     """GPU rungs (largest first) + the CPU rung; run_ladder drops the CPU rung unless cpu_allowed."""
-    medium_label = "medium-lean" if loader == "lean" else "medium"
+    medium_label = {"lean": "medium-lean", "lean16": "medium-lean16"}.get(loader, "medium")
     size = str(model_req.get("size", "medium"))
     rungs = [{"label": medium_label if size == "medium" else size, "device": "cuda",
               "params": {"size": size, "weights_path": model_req.get("weights_path"), "loader": loader,
@@ -306,6 +306,33 @@ def _load(rung: dict[str, Any], weights: str, dtype: str) -> tuple[Any, str]:
             model.condition_provider.float()  # conditioners keep fp32 numerics (as load_model does)
         tm = TranscriptionModel(model, MT3Tokenizer(instrument_vocabulary="MT3_FULL_PLUS", max_shift_steps=1001), dev)
         return tm, "lean"
+    if loader == "lean16" and dev.type == "cuda":
+        # E48: large is 5.47 GB in fp32, too much for a 6 GB card even for a moment. Build and load on the CPU, turn
+        # the transformer into fp16, then move. The conditioners are never cast (load_model casts and casts back).
+        import safetensors.torch
+        from muscriptor.models.lm import TorchAutocast
+        from muscriptor.tokenizer.mt3 import MT3Tokenizer
+        from muscriptor.transcription_model import _build_model, _remap_single_codebook_keys, _resolve_config
+
+        p = Path(weights)
+        model = _build_model(torch.device("cpu"), _resolve_config(p, p))
+        model.eval()
+        sd = safetensors.torch.load_file(str(p), device="cpu")
+        model.load_state_dict(_remap_single_codebook_keys(sd), strict=True)
+        del sd
+        for name, child in model.named_children():
+            if name != "condition_provider":
+                child.to(torch.float16)
+        for param in model.parameters(recurse=False):
+            param.data = param.data.to(torch.float16)
+        model.to(dev)
+        # what _build_model decides from its device, built here for the CPU
+        model.autocast = TorchAutocast(enabled=True, device_type="cuda", dtype=torch.float16)
+        model.condition_provider.device = dev
+        for cond in model.condition_provider.conditioners.values():
+            cond.device = dev
+        tm = TranscriptionModel(model, MT3Tokenizer(instrument_vocabulary="MT3_FULL_PLUS", max_shift_steps=1001), dev)
+        return tm, "lean16"
     return TranscriptionModel.load_model(Path(weights), device=dev, dtype=tdtype), "upstream"
 
 
@@ -363,6 +390,8 @@ def _transcribe(request: dict[str, Any], ctx: WorkerContext) -> dict[str, Any]:
     out: dict[str, Any] = ctx.partial
     warn: list[str] = []
     version = _muscriptor_version()
+    if loader == "lean16" and version != PINNED_VERSION:  # the upstream loader would not fit: no fallback
+        raise RuntimeError(f"lean16 loader needs muscriptor {PINNED_VERSION} (installed: {version})")
     if loader == "lean" and version != PINNED_VERSION:
         warn.append(f"lean 로더는 muscriptor {PINNED_VERSION} 전용입니다(설치: {version}); upstream 로더를 씁니다.")
         loader = "upstream"
