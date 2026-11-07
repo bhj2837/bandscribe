@@ -1,5 +1,9 @@
 # bandscribe progress / handoff
 
+**E53 candidate (2026-11-07), the largest gain of this plan:** transcribing the guitar stem's left and right channels apart, so the transcriber hears one guitar at a time. Dev sheet songs ANB, HBT, HNN, outside the pipeline: pooled parts
+53.33 -> **63.68** (+10.35), merged 65.51 -> 65.90. HBT merged 71.20 -> 76.28, guitars 57.43 / 58.09 -> 74.45 / 77.48. ANB falls (65.71 -> 57.06) because its right channel collapses at 150-210 s, the same kind of burst as lulu.'s bass. 怪獣の花唄: last chorus recall 16.4 -> 30.8 % where the large model
+gave 13.5 %, so the missed lead is at least partly masking. Not the default yet: GPU 2.2-3x on the guitar pass, and a wide double would split by channel, so the pipeline step needs its own registration, the burst handled and the one-guitar controls run. See `docs/decisions.md` E53.
+
 **E48 rejected, split committed (2026-11-07)** - MuScriptor-large on the guitar pass, through a new `lean16` loader (built and
 loaded on the CPU, fp16 transformer, then moved; 3.57 GB reserved, no spill on the 6 GB card, 2.2-2.7x medium's time): dev sheet
 songs pooled merged guitar F1 65.51 -> 65.76 (the rule needed +3; song changes +0.58, -0.36, +0.66 sit inside E21's decoder
