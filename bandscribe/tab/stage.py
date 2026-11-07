@@ -98,6 +98,10 @@ def quant_params(cfg: Any) -> dict[str, Any]:
     quantisation keeps its key."""
     p = dict(Q.DEFAULT_PARAMS)
     clean = {"dedupe_s": float(_cfg_get(cfg, "tab.dedupe_s", 0.0)), "min_dur_s": float(_cfg_get(cfg, "tab.min_dur_s", 0.0))}
+    for key in ("bass_dedupe_s", "bass_lowest_s"):  # E46: written only when on, so a quantisation without it keeps its key
+        value = float(_cfg_get(cfg, f"tab.{key}", 0.0))
+        if value > 0:
+            clean[key] = value
     if any(v > 0 for v in clean.values()):
         p["cleanup"] = clean
     return p
@@ -130,6 +134,8 @@ def quant_tracks(dep_dirs: Mapping[str, Path], cleanup: Mapping[str, float] | No
         gtr = CL.drop_short(gtr, float(cleanup.get("min_dur_s", 0.0)))[0]
         bass = CL.drop_short(bass, float(cleanup.get("min_dur_s", 0.0)))[0]
         gtr = CL.dedupe_within_line(gtr, float(cleanup.get("dedupe_s", 0.0)))[0]
+        bass = CL.dedupe_within_line(bass, float(cleanup.get("bass_dedupe_s", 0.0)))[0]  # E46
+        bass = CL.lowest_of_bundle(bass, float(cleanup.get("bass_lowest_s", 0.0)))[0]
     return {"guitar_all": gtr, BASS: bass}
 
 
