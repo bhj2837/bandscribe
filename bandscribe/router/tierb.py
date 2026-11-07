@@ -381,6 +381,8 @@ def window_truth(scenario: str, roles: Mapping[str, Sequence[int]], src_energy: 
     active = {k for k, e in src_energy.items() if e > 0 and 10 * math.log10(e / top) >= ACTIVE_REL_DB}
     total = sum(src_energy.values())
     shares = {role: round(sum(src_energy.get(k, 0.0) for k in ks) / total, 4) for role, ks in roles.items()}
+    if "lines" in roles:  # G0 (parts.eval_g0): no router truth, the windows are labelled by the router itself
+        return "mixed", shares
     if scenario in ("B", "B2", "N1"):
         return "R0", shares
     if scenario == "ADT":

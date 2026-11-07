@@ -80,9 +80,11 @@ def bar_windows(grid: Mapping[str, Any], sections: list[Mapping[str, Any]], dur:
 
 
 def prepare_song(song: str, cfg: Any, *, e6: Path, progress: Callable[[str], None] | None = None,
-                 scenarios: tuple[str, ...] = SCENARIOS, out_name: str | None = None) -> dict | None:
+                 scenarios: tuple[str, ...] = SCENARIOS, out_name: str | None = None,
+                 plans: list[tuple[str, Any]] | None = None) -> dict | None:
     """Fill the caches of one song and write its items (module doc) to ``out_name`` (default ``<song>.json``);
-    returns the doc (None: no remix). ``scenarios``: E27's P / A1 / B2, or E28's one-guitar control ``D1``."""
+    returns the doc (None: no remix). ``scenarios``: E27's P / A1 / B2, or E28's one-guitar control ``D1``;
+    ``plans``: ready (scenario, ``tierb.Plan``) pairs instead (G0)."""
     import numpy as np
     import soundfile as sf
 
@@ -103,13 +105,16 @@ def prepare_song(song: str, cfg: Any, *, e6: Path, progress: Callable[[str], Non
     root = Path(datasets.dataset_root("cambridge_mt"))
     tracks = {t.track_id: t for t in datasets.iter_tracks("cambridge_mt")}
     order = sorted(tracks)
-    rel = T.relations(tracks[song], root, X.cache_root() / "relations", code_version=SE.E6_REL_VERSION)
+    try:
+        rel = T.relations(tracks[song], root, X.cache_root() / "relations", code_version=SE.E6_REL_VERSION)
+    except FileNotFoundError:  # a song E6 never planned (G0)
+        rel = T.relations(tracks[song], root, X.cache_root() / "relations")
     full = float(math.floor(float(rel["duration_s"])))
     k = order.index(song)
     thr = RS.router_params(cfg)["thresholds"]
     work = cache_dir() / "work" / song
-    plans = []
-    for sc in scenarios:
+    plans = list(plans or [])
+    for sc in () if plans else scenarios:
         pl = (T.variant_plan(rel, sc, song_index=k, excerpt_s=full, eval_s=full) if sc in T.VARIANTS
               else T.plan(rel, sc, song_index=k, excerpt_s=full))
         if pl is not None:
